@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<paths>
+    <!-- 导出分享用副本：cacheDir/exports/ -->
+    <cache-path name="exports" path="exports/" />
+    <!-- 备用：API 28 及以下直接写入的公共下载目录 -->
+    <external-path name="public_downloads" path="Download/" />
+</paths>

@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== リーダーのツールバー / 選択バー ==================== -->
+    <string name="reader_toc">目次</string>
+    <string name="reader_chapter_manage">章の管理</string>
+    <string name="reader_theme">テーマ</string>
+    <string name="reader_read_aloud">読み上げ</string>
+    <string name="reader_chapter_preview">第%1$d章 · %2$s</string>
+    <string name="reader_prev_chapter">前の章</string>
+    <string name="reader_next_chapter">次の章</string>
+    <string name="reader_selected">選択中</string>
+    <string name="reader_expand_sentence">文全体</string>
+    <string name="reader_expand_paragraph">段落全体</string>
+    <string name="reader_cancel_selection">選択を解除</string>
+    <string name="reader_remove_highlight">ハイライトを解除</string>
+    <string name="reader_tag_range">この範囲にタグを付ける</string>
+    <string name="reader_untag_range">タグを解除</string>
+    <string name="reader_read_from_here">ここから読み上げ</string>
+    <string name="reader_write_note">メモを書く</string>
+    <string name="reader_note_placeholder">考えを書きましょう…</string>
+    <string name="reader_note_quote">「%1$s」</string>
+
+    <!-- ==================== リーダーの状態 / ヒント ==================== -->
+    <string name="reader_tag_added">このページにタグを付けました</string>
+    <string name="reader_tag_removed">このページのタグを外しました</string>
+    <string name="reader_book_deleted">この本は削除されました</string>
+    <string name="reader_empty_chapter">この章には内容がありません</string>
+    <string name="reader_paginating">レイアウト中…</string>
+    <string name="reader_joining_next_chapter">次の章を読み込んでいます…</string>
+    <string name="reader_page_tagged">このページはタグ付き</string>
+    <string name="reader_tag_release_cancel">離すとこのページのタグを外します</string>
+    <string name="reader_tag_release_add">離すとこのページにタグを付けます</string>
+    <string name="reader_tag_keep_pull_cancel">さらに引くとタグを解除</string>
+    <string name="reader_tag_keep_pull_add">さらに引くとこのページにタグを付けます</string>
+
+    <plurals name="reader_total_chapters">
+        <item quantity="other">全%1$d章</item>
+    </plurals>
+</resources>

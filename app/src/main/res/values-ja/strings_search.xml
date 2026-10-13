@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_placeholder">書名・著者で検索</string>
+    <string name="search_clear">クリア</string>
+    <string name="search_empty_title">本を検索</string>
+    <string name="search_empty_hint">書名または著者のキーワードを入力すると、結果がカードで表示されます。</string>
+    <string name="search_no_result">「%1$s」が見つかりません</string>
+    <string name="search_no_result_hint">別のキーワードを試すか、本棚に戻って本を追加してください。</string>
+    <plurals name="search_result_count">
+        <item quantity="other">%1$d 冊見つかりました</item>
+    </plurals>
+    <plurals name="search_book_meta">
+        <item quantity="other">%1$d章 · 読了 %2$d%%</item>
+    </plurals>
+</resources>

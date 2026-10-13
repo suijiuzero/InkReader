@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== テーマ ==================== -->
+    <string name="sheets_theme_mist">月白</string>
+    <string name="sheets_theme_paper">紙白</string>
+    <string name="sheets_theme_green">目に優しい</string>
+    <string name="sheets_theme_ink">濃墨</string>
+    <string name="sheets_theme_night">漆黒</string>
+    <string name="sheets_theme_sample">永</string>
+
+    <!-- ==================== 目次ドロワー ==================== -->
+    <plurals name="sheets_toc_summary">
+        <item quantity="other">%1$d 章  ·  読了 %2$d%%</item>
+    </plurals>
+    <plurals name="sheets_tab_chapters">
+        <item quantity="other">章 %1$d</item>
+    </plurals>
+    <plurals name="sheets_tab_notes">
+        <item quantity="other">メモ %1$d</item>
+    </plurals>
+    <string name="sheets_toc_empty_chapters">章がありません</string>
+    <string name="sheets_toc_empty_tags_title">タグはまだありません</string>
+    <string name="sheets_toc_tags_hint_page">読書中にページを下へスワイプすると、\nこのページにタグを付けられます。</string>
+    <string name="sheets_toc_tags_hint_scroll">下スワイプでのタグ付けは左右送りモードのジェスチャーです。\n（縦スクロールでは下スワイプが本文送りになるため、ここではタグを付けられません）\n設定で「左右送り」に戻してください。</string>
+    <string name="sheets_tag_delete">このタグを削除</string>
+
+    <!-- ==================== 組版設定 ==================== -->
+    <string name="sheets_section_theme">テーマ</string>
+    <string name="sheets_preview_text">墨の濃淡も行間の疎密も、思いのままに。</string>
+    <string name="sheets_label_font_size">文字サイズ · %1$d</string>
+    <string name="sheets_label_line_height">行間 · %1$s</string>
+    <string name="sheets_label_para_spacing">段落間隔 · %1$s</string>
+    <string name="sheets_label_letter_spacing">字間 · %1$s</string>
+    <string name="sheets_label_margin">余白 · %1$d</string>
+    <string name="sheets_action_reset_typography">文字サイズと行間を初期化</string>
+    <string name="sheets_section_font">フォント</string>
+    <string name="sheets_font_sans">ゴシック体</string>
+    <string name="sheets_font_serif">明朝体</string>
+    <string name="sheets_section_page_mode">ページ送り</string>
+    <string name="sheets_page_mode_page">左右送り</string>
+    <string name="sheets_page_mode_scroll">縦スクロール</string>
+    <string name="sheets_page_mode_hint_page">章の最終ページでさらに送ると、そのまま次の章へ進みます。</string>
+    <string name="sheets_page_mode_hint_scroll">章の末尾までスクロールすると次の章へ、逆に戻ると前の章の末尾へ移動します。</string>
+    <string name="sheets_section_page_animation">ページめくり効果</string>
+    <string name="sheets_anim_slide">スライド</string>
+    <string name="sheets_anim_cover">カバー</string>
+    <string name="sheets_anim_fold">シミュレーション</string>
+    <string name="sheets_anim_none">なし</string>
+    <string name="sheets_page_anim_hint">「左右送り」でのみ有効です。スライド＝2ページが一緒に動きます。カバー＝新しいページが下に敷かれ、古いページが引き抜かれるように移動して少しずつ現れます。シミュレーション＝紙をめくるように現在のページが折れ、裏から古いページの文字が透けて見えます。なし＝即座に切り替え、イージングなし。カバーとシミュレーションは、左右ドラッグ・左右端のタップ・音量キーでのページ送りに対応します。</string>
+    <string name="sheets_switch_indent">首行インデント</string>
+    <string name="sheets_switch_indent_hint">段落の先頭を2文字分空ける</string>
+    <string name="sheets_switch_volume_keys">音量キーでページ送り</string>
+    <string name="sheets_switch_volume_keys_hint">ツールバーを隠しているとき：音量下で次ページ、音量上で前ページ。ツールバーを表示すると音量調整に戻ります。</string>
+    <string name="sheets_switch_tag_sound">タグ付け効果音</string>
+    <string name="sheets_switch_tag_sound_hint">下スワイプでタグを付けると「コトッ」と音が鳴ります（メディア音量）。</string>
+    <string name="sheets_switch_chapter_flash">章切り替えカード</string>
+    <string name="sheets_switch_chapter_flash_hint">章をまたいでページ送り／スクロールするとき、画面中央に新しい章名をフェード表示します。</string>
+    <string name="sheets_section_brightness">画面の明るさ</string>
+    <string name="sheets_brightness_follow">システムに従う</string>
+    <string name="sheets_brightness_follow_back">システム連動に戻す</string>
+
+    <!-- ==================== レイアウトシート ==================== -->
+    <string name="sheets_reader_settings_title">レイアウトとその他</string>
+    <string name="sheets_reader_settings_note">これらの設定はすべての本に共通です。どの本で変更しても、他の本にも反映されます。</string>
+    <string name="sheets_section_this_book">この本</string>
+    <string name="sheets_action_notes_bookmarks">メモとブックマーク</string>
+    <string name="sheets_action_edit_chapter">この章を編集</string>
+    <string name="sheets_action_manage_chapters">章の管理</string>
+
+    <!-- ==================== 検索 ==================== -->
+    <string name="sheets_search_title">全文検索</string>
+    <string name="sheets_search_placeholder">キーワードを入力して本全体を検索</string>
+    <string name="sheets_search_searching">検索中 %1$d%%</string>
+    <string name="sheets_search_no_result">「%1$s」が見つかりません</string>
+    <plurals name="sheets_search_result_count">
+        <item quantity="other">計 %1$d 件</item>
+    </plurals>
+
+    <!-- ==================== 読み上げ ==================== -->
+    <string name="sheets_tts_title">読み上げ</string>
+    <string name="sheets_tts_engine_missing">システムの音声エンジンが見つかりません。端末の設定 → ユーザー補助 → テキスト読み上げで TTS エンジン（Google 音声サービス、iFlytek、Xiaomi 音声など）をインストールしてから、もう一度お試しください。</string>
+    <string name="sheets_tts_status_playing">読み上げ中</string>
+    <string name="sheets_tts_status_paused">一時停止中</string>
+    <string name="sheets_tts_chapter_progress">第%1$d / %2$d章</string>
+    <string name="sheets_tts_sleep_suffix">"  ·  %1$d 分後に停止"</string>
+    <string name="sheets_tts_start_position">開始位置</string>
+    <string name="sheets_tts_from_page">このページから続ける</string>
+    <string name="sheets_tts_from_chapter">章の先頭から</string>
+    <string name="sheets_tts_rate">速度 · %1$sx</string>
+    <string name="sheets_tts_pitch">ピッチ · %1$s</string>
+    <string name="sheets_tts_timer">タイマー停止</string>
+    <string name="sheets_tts_sleep_off">無制限</string>
+    <string name="sheets_tts_sleep_15">15 分</string>
+    <string name="sheets_tts_sleep_30">30 分</string>
+    <string name="sheets_tts_sleep_60">60 分</string>
+    <string name="sheets_tts_sleep_chapter">この章の終わり</string>
+    <string name="sheets_tts_stop">読み上げを停止</string>
+    <string name="sheets_tts_start">読み上げを開始</string>
+</resources>

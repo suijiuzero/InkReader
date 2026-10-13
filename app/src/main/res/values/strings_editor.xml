@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 章节编辑器 ==================== -->
+    <string name="editor_title">编辑章节</string>
+    <string name="editor_subtitle">%1$d 字 · %2$s</string>
+    <string name="editor_status_saving">正在保存…</string>
+    <string name="editor_status_dirty">修改未落盘（停笔即自动保存）</string>
+    <string name="editor_saved">已保存</string>
+    <string name="editor_title_hint">章节标题</string>
+    <string name="editor_body_hint">在这里写下正文…\n\n空行会被当作分段。</string>
+</resources>

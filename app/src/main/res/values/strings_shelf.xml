@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 书架顶栏 / 空状态 ==================== -->
+    <string name="shelf_search_books">搜索书籍</string>
+    <string name="shelf_toggle_view">切换视图</string>
+    <string name="shelf_empty_subtitle">还没有收藏的书籍</string>
+    <plurals name="shelf_count_hint">
+        <item quantity="other">%1$d 本 · 长按可多选</item>
+    </plurals>
+    <string name="shelf_sort_recent">最近阅读</string>
+    <string name="shelf_sort_added">最近导入</string>
+    <string name="shelf_sort_title">按书名</string>
+    <string name="shelf_sort_progress">按进度</string>
+    <string name="shelf_import_docs">导入文档</string>
+    <string name="shelf_new_book">新建书籍</string>
+    <string name="shelf_empty_title">书架还是空的</string>
+    <string name="shelf_empty_hint">支持 TXT、Word、Markdown、PDF、HTML、EPUB；\n也可以把多个文件合并成一本书，或直接新建一本手写。</string>
+    <string name="shelf_new_blank_book">新建一本空白书籍</string>
+    <string name="shelf_chapter_progress">%1$d 章 · 已读 %2$d%%</string>
+    <string name="shelf_source_merged">合集</string>
+    <string name="shelf_source_manual">手写</string>
+
+    <!-- ==================== 选择 / 批量操作 ==================== -->
+    <plurals name="shelf_selected_count">
+        <item quantity="other">已选 %1$d 本</item>
+    </plurals>
+    <plurals name="shelf_delete_books">
+        <item quantity="other">删除 %1$d 本书</item>
+    </plurals>
+    <string name="shelf_delete_books_desc">这些书的章节与批注都会一并删除，无法恢复。</string>
+    <string name="shelf_move_to_group_action">移动到分组</string>
+    <string name="shelf_remove_from_group_action">移出分组</string>
+    <string name="shelf_removed_from_group">已移出分组</string>
+    <string name="shelf_moved_to_group">已移动到分组</string>
+
+    <!-- ==================== 分组 ==================== -->
+    <string name="shelf_new_group">新建分组</string>
+    <string name="shelf_group_created">已创建分组「%1$s」</string>
+    <string name="shelf_group_name_hint">分组名称</string>
+    <plurals name="shelf_group_books_count">
+        <item quantity="other">%1$d 本 · 分组</item>
+    </plurals>
+    <plurals name="shelf_group_row_hint">
+        <item quantity="other">%1$d 本 · 长按书本可移出/移动分组</item>
+    </plurals>
+    <plurals name="shelf_move_to_group">
+        <item quantity="other">把 %1$d 本移动到</item>
+    </plurals>
+    <string name="shelf_no_groups">还没有分组，先新建一个。</string>
+
+    <!-- ==================== 导入 ==================== -->
+    <string name="shelf_picker_open_failed">打不开系统文件选择器：%1$s</string>
+    <string name="shelf_picker_reopened">上次的文件选择被系统回收了，已重新打开</string>
+    <string name="shelf_importing">正在导入</string>
+    <plurals name="shelf_import_files_title">
+        <item quantity="other">导入 %1$d 个文件</item>
+    </plurals>
+    <string name="shelf_start_import">开始导入</string>
+    <string name="shelf_file_name_separator">、</string>
+    <string name="shelf_file_names_more">" 等"</string>
+    <string name="shelf_import_mode">导入方式</string>
+    <string name="shelf_mode_separate_title">各自成为一本书</string>
+    <string name="shelf_mode_separate_desc">每个文件独立成书，自动识别章节（也是按文件名里的章号排序）</string>
+    <string name="shelf_mode_merge_title">合并为一本书</string>
+    <string name="shelf_mode_merge_desc">每个文件成为一个章节；文件名里有「第N章」的会按章号自动排序</string>
+    <string name="shelf_single_file_hint">会自动识别文件里的「第X章」标题拆成章节，并按章号排序 —— 文件内部章节顺序乱掉也能纠正过来。</string>
+    <string name="shelf_book_title_label">书名</string>
+    <string name="shelf_title_auto_placeholder">留空则自动生成</string>
+    <string name="shelf_chapter_split">章节划分</string>
+    <string name="shelf_split_smart_title">智能解析（推荐）</string>
+    <string name="shelf_split_smart_desc">有多个「第X章」的文件拆成多章，只有一个章节的整篇作为一章，并按章号自动排序</string>
+    <string name="shelf_split_in_file_title">一律解析文件内章节</string>
+    <string name="shelf_split_in_file_desc">每个文件都按内部「第X章」标题拆；没有内部标题时会按字数兜底切分</string>
+    <string name="shelf_split_per_file_title">每个文件作为一章</string>
+    <string name="shelf_split_per_file_desc">不拆分，文件整体成为一章，章节名取文件名</string>
+
+    <!-- ==================== 导入结果 ==================== -->
+    <string name="shelf_import_report_title">导入结果</string>
+    <string name="shelf_got_it">知道了</string>
+    <string name="shelf_import_result">成功 %1$d 个，失败 %2$d 个</string>
+    <string name="shelf_import_result_ok">成功 %1$d 个</string>
+    <string name="shelf_failed_files">失败的文件</string>
+    <string name="shelf_import_failed_item">导入失败</string>
+    <string name="shelf_imported">已导入</string>
+
+    <!-- ==================== 新建书籍 ==================== -->
+    <string name="shelf_book_title_example">例如：读书笔记</string>
+    <string name="shelf_author_optional">作者（可选）</string>
+    <string name="shelf_author_placeholder">留空也可以</string>
+</resources>

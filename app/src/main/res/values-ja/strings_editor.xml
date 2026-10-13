@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 章のエディタ ==================== -->
+    <string name="editor_title">章を編集</string>
+    <string name="editor_subtitle">%1$d 文字 · %2$s</string>
+    <string name="editor_status_saving">保存中…</string>
+    <string name="editor_status_dirty">未保存（入力停止で自動保存）</string>
+    <string name="editor_saved">保存しました</string>
+    <string name="editor_title_hint">章のタイトル</string>
+    <string name="editor_body_hint">ここに本文を書きます…\n\n空行は段落の区切りになります。</string>
+</resources>

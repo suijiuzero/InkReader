@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Fallback group name -->
+    <string name="group_fallback_name">Group</string>
+    <plurals name="group_selected_books">
+        <item quantity="one">%1$d book selected</item>
+        <item quantity="other">%1$d books selected</item>
+    </plurals>
+    <string name="group_edit">Edit Group</string>
+    <string name="group_add_books">Add Books</string>
+    <string name="group_disband">Disband Group</string>
+    <string name="group_empty_title">This group is empty</string>
+    <string name="group_empty_hint">Tap ⋮ in the top-right, then \"Add Books\" to put books here.\nYou can also long-press a book on the shelf and choose \"Move to Group\".</string>
+    <plurals name="group_book_meta">
+        <item quantity="one">%1$d chapter · %2$d%% read</item>
+        <item quantity="other">%1$d chapters · %2$d%% read</item>
+    </plurals>
+    <string name="group_remove">Remove from Group</string>
+    <string name="group_toast_removed">Removed from group</string>
+    <string name="group_move_other">Move to Another Group</string>
+    <string name="group_rename_title">Rename Group</string>
+    <string name="group_toast_moved">Moved to another group</string>
+    <plurals name="group_toast_added">
+        <item quantity="one">Added %1$d book</item>
+        <item quantity="other">Added %1$d books</item>
+    </plurals>
+    <plurals name="group_delete_books_title">
+        <item quantity="one">Delete %1$d book?</item>
+        <item quantity="other">Delete %1$d books?</item>
+    </plurals>
+    <string name="group_delete_books_message">The book and its chapter text will be deleted together. Reading progress, tags, and notes will also be cleared. This cannot be undone.</string>
+    <string name="group_disband_title">Disband this group?</string>
+    <plurals name="group_disband_message">
+        <item quantity="one">%2$d book in \"%1$s\" will go back to the bookshelf. The book itself will not be deleted.</item>
+        <item quantity="other">%2$d books in \"%1$s\" will go back to the bookshelf. The books themselves will not be deleted.</item>
+    </plurals>
+    <string name="group_disband_button">Disband</string>
+    <string name="group_add_dialog_title">Add Books to Group</string>
+    <string name="group_add_dialog_empty">No more books to add.</string>
+    <string name="group_add_confirm">Add (%1$d)</string>
+</resources>

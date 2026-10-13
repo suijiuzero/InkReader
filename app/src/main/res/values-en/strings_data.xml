@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Import progress / result ==================== -->
+    <string name="repo_stage_start_import">Starting import</string>
+    <string name="repo_stage_prepare_merge">Preparing merge</string>
+    <string name="repo_stage_parse">Parsing %1$s</string>
+    <string name="repo_stage_sort">Sorting by chapter number</string>
+    <string name="repo_stage_done">Done</string>
+    <string name="repo_fallback_file_n">File %1$d</string>
+    <string name="repo_fallback_doc_n">Document %1$d</string>
+    <string name="repo_no_content">No importable content</string>
+    <string name="repo_import_failed">Import failed (%1$s)</string>
+    <string name="repo_import_failed_plain">Import failed</string>
+    <string name="repo_merged_collection">Collection</string>
+    <string name="repo_collection_named">%1$s Collection</string>
+    <string name="repo_collection_etc">%1$s and %2$d more</string>
+    <string name="repo_untitled_book">Untitled book</string>
+    <string name="repo_first_chapter">Chapter 1</string>
+    <string name="repo_untitled_group">Untitled group</string>
+    <string name="repo_imported_partial">Imported %1$d, %2$d file(s) failed</string>
+    <string name="repo_deleted">Deleted</string>
+    <plurals name="repo_imported_books">
+        <item quantity="one">Imported %1$d book</item>
+        <item quantity="other">Imported %1$d books</item>
+    </plurals>
+
+    <!-- ==================== Export ==================== -->
+    <string name="export_author_prefix">"By: "</string>
+    <string name="export_no_chapters">No chapters to export</string>
+    <string name="export_dir_create_failed">Couldn\'t create the export folder: %1$s</string>
+    <string name="export_overwrite_failed">Couldn\'t overwrite the existing export: %1$s</string>
+    <string name="export_downloads_unwritable">The Downloads folder isn\'t writable</string>
+
+    <!-- ==================== Parse errors ==================== -->
+    <string name="err_unsupported_doc">Legacy .doc isn\'t supported. Save it as .docx or .txt first.</string>
+    <string name="err_unsupported_format">Unsupported file format (%1$s)</string>
+    <string name="err_corrupted">The file is corrupted or can\'t be parsed (%1$s)</string>
+    <string name="err_empty">The file is empty</string>
+    <string name="err_no_content">No readable content was found</string>
+    <string name="err_encrypted">The document is encrypted; the text can\'t be read</string>
+    <string name="err_needs_ocr">No text was extracted. It may be a scanned document (OCR isn\'t supported yet)</string>
+    <string name="err_read_failed">Failed to read the file</string>
+    <string name="err_too_large">The file is too large for the import limit (200MB per file)</string>
+    <string name="err_detail_wrap">%1$s (%2$s)</string>
+    <string name="err_file_reason">%1$s: %2$s</string>
+
+    <!-- ==================== Format names ==================== -->
+    <string name="fmt_txt">Plain text</string>
+    <string name="fmt_markdown">Markdown document</string>
+    <string name="fmt_docx">Word document</string>
+    <string name="fmt_pdf">PDF document</string>
+    <string name="fmt_html">Web page</string>
+    <string name="fmt_epub">EPUB ebook</string>
+    <string name="fmt_doc">Legacy Word document</string>
+    <string name="fmt_zip">ZIP archive</string>
+    <string name="fmt_xlsx">Excel spreadsheet</string>
+    <string name="fmt_pptx">PowerPoint presentation</string>
+    <string name="fmt_unknown">Unknown format</string>
+</resources>

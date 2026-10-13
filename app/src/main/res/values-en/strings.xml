@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ink Reader</string>
+    <string name="notif_channel">Read Aloud</string>
+    <string name="notif_playing">Reading aloud</string>
+    <string name="notif_channel_desc">Read-aloud playback controls</string>
+
+    <!-- ==================== Common actions ==================== -->
+    <string name="action_cancel">Cancel</string>
+    <string name="action_confirm">OK</string>
+    <string name="action_delete">Delete</string>
+    <string name="action_save">Save</string>
+    <string name="action_done">Done</string>
+    <string name="action_back">Back</string>
+    <string name="action_back_shelf">Back to Bookshelf</string>
+    <string name="action_back_home">Back to Library</string>
+    <string name="action_more">More</string>
+    <string name="action_detail">Details</string>
+    <string name="action_add">Add</string>
+    <string name="action_settings">Settings</string>
+    <string name="action_new">New</string>
+    <string name="action_import">Import</string>
+    <string name="action_search">Search</string>
+    <string name="action_sort">Sort</string>
+    <string name="action_rename">Rename</string>
+    <string name="action_create">Create</string>
+    <string name="action_loading">Processing…</string>
+    <string name="action_close">Close</string>
+    <string name="action_unknown_error">Unknown error</string>
+
+    <!-- ==================== Counts / labels ==================== -->
+    <plurals name="plural_books">
+        <item quantity="one">%1$d book</item>
+        <item quantity="other">%1$d books</item>
+    </plurals>
+    <plurals name="plural_chapters">
+        <item quantity="one">%1$d chapter</item>
+        <item quantity="other">%1$d chapters</item>
+    </plurals>
+    <plurals name="plural_files">
+        <item quantity="one">%1$d file</item>
+        <item quantity="other">%1$d files</item>
+    </plurals>
+
+    <string name="label_chapter_n">Chapter %1$d</string>
+    <string name="label_read_percent">%1$d%% read</string>
+
+    <!-- ==================== TTS bar / notification ==================== -->
+    <string name="tts_paused">Paused</string>
+    <string name="tts_stop_after_min">Stops in %1$d min</string>
+    <string name="tts_prev_sentence">Previous sentence</string>
+    <string name="tts_next_sentence">Next sentence</string>
+    <string name="tts_pause">Pause</string>
+    <string name="tts_resume">Resume</string>
+    <string name="tts_stop">Stop</string>
+
+    <!-- Auto-generated cover: fallback char when the title is empty -->
+    <string name="cover_fallback_char">B</string>
+</resources>

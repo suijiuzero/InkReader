@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_placeholder">Search by title or author</string>
+    <string name="search_clear">Clear</string>
+    <string name="search_empty_title">Search for a book</string>
+    <string name="search_empty_hint">Type a keyword from the title or author. Results appear as a card grid.</string>
+    <string name="search_no_result">No results for \"%1$s\"</string>
+    <string name="search_no_result_hint">Try another keyword, or go back to the bookshelf to import more books.</string>
+    <plurals name="search_result_count">
+        <item quantity="one">Found %1$d book</item>
+        <item quantity="other">Found %1$d books</item>
+    </plurals>
+    <plurals name="search_book_meta">
+        <item quantity="one">%1$d chapter · %2$d%% read</item>
+        <item quantity="other">%1$d chapters · %2$d%% read</item>
+    </plurals>
+</resources>

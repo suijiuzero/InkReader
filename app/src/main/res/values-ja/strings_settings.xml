@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 設定画面 ==================== -->
+    <string name="settings_global_note">この設定は全体に適用され、読書画面と同じ内容です。一度変更すればどこでも反映されます。</string>
+</resources>

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Chapter editor ==================== -->
+    <string name="editor_title">Edit Chapter</string>
+    <string name="editor_subtitle">%1$d characters · %2$s</string>
+    <string name="editor_status_saving">Saving…</string>
+    <string name="editor_status_dirty">Unsaved changes (auto-saves when you pause)</string>
+    <string name="editor_saved">Saved</string>
+    <string name="editor_title_hint">Chapter title</string>
+    <string name="editor_body_hint">Write your text here…\n\nBlank lines start a new paragraph.</string>
+</resources>

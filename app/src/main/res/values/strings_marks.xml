@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 标记类型 / 筛选分段 ==================== -->
+    <string name="marks_type_all">全部</string>
+    <string name="marks_type_tag">标签</string>
+    <string name="marks_type_bookmark">书签</string>
+    <string name="marks_type_highlight">高亮</string>
+    <string name="marks_type_note">笔记</string>
+    <string name="marks_filter_count">%1$s %2$d</string>
+
+    <!-- ==================== 顶栏 / 空状态 ==================== -->
+    <string name="marks_title">笔记与书签</string>
+    <string name="marks_empty_all">还没有任何标记</string>
+    <string name="marks_empty_tag">还没有标签</string>
+    <string name="marks_empty_bookmark">还没有书签</string>
+    <string name="marks_empty_highlight">还没有高亮</string>
+    <string name="marks_empty_note">还没有笔记</string>
+    <string name="marks_empty_hint">阅读时长按正文即可选中文字，\n然后选择高亮、书签或写下笔记。</string>
+
+    <!-- ==================== 书签位置 ==================== -->
+    <string name="marks_bookmark_position">第 %1$d 章 · 位置 %2$d</string>
+
+    <!-- ==================== 删除确认 ==================== -->
+    <string name="marks_delete_title">删除这条标记</string>
+    <string name="marks_delete_message">删除后原文里对应的书签或高亮会一并消失，无法恢复。</string>
+</resources>

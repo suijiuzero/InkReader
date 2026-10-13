@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 主题 ==================== -->
+    <string name="sheets_theme_mist">月白</string>
+    <string name="sheets_theme_paper">纸白</string>
+    <string name="sheets_theme_green">护眼</string>
+    <string name="sheets_theme_ink">深墨</string>
+    <string name="sheets_theme_night">纯黑</string>
+    <string name="sheets_theme_sample">永</string>
+
+    <!-- ==================== 目录抽屉 ==================== -->
+    <plurals name="sheets_toc_summary">
+        <item quantity="other">%1$d 章  ·  已读 %2$d%%</item>
+    </plurals>
+    <plurals name="sheets_tab_chapters">
+        <item quantity="other">章节 %1$d</item>
+    </plurals>
+    <plurals name="sheets_tab_notes">
+        <item quantity="other">笔记 %1$d</item>
+    </plurals>
+    <string name="sheets_toc_empty_chapters">暂无章节</string>
+    <string name="sheets_toc_empty_tags_title">还没有标签</string>
+    <string name="sheets_toc_tags_hint_page">阅读时在页面上向下滑，\n就能给这一页打一个标签。</string>
+    <string name="sheets_toc_tags_hint_scroll">下滑打标签是左右翻页模式的手势。\n（上下滚动时下滑是翻正文，所以这里打不了）\n在设置里切回「左右翻页」即可。</string>
+    <string name="sheets_tag_delete">删除这个标签</string>
+
+    <!-- ==================== 排版设置 ==================== -->
+    <string name="sheets_section_theme">主题</string>
+    <string name="sheets_preview_text">墨色深浅，行距疏密，皆可调。</string>
+    <string name="sheets_label_font_size">字号 · %1$d</string>
+    <string name="sheets_label_line_height">行距 · %1$s</string>
+    <string name="sheets_label_para_spacing">段间距 · %1$s</string>
+    <string name="sheets_label_letter_spacing">字距 · %1$s</string>
+    <string name="sheets_label_margin">页边距 · %1$d</string>
+    <string name="sheets_action_reset_typography">恢复默认字号行距</string>
+    <string name="sheets_section_font">字体</string>
+    <string name="sheets_font_sans">无衬线</string>
+    <string name="sheets_font_serif">衬线</string>
+    <string name="sheets_section_page_mode">翻页方式</string>
+    <string name="sheets_page_mode_page">左右翻页</string>
+    <string name="sheets_page_mode_scroll">上下滚动</string>
+    <string name="sheets_page_mode_hint_page">翻到本章最后一页继续往后滑，直接进下一章。</string>
+    <string name="sheets_page_mode_hint_scroll">滚到本章末尾会直接接上下一章，往回滚则回到上一章末尾。</string>
+    <string name="sheets_section_page_animation">翻页动画</string>
+    <string name="sheets_anim_slide">平移</string>
+    <string name="sheets_anim_cover">覆盖</string>
+    <string name="sheets_anim_fold">仿真</string>
+    <string name="sheets_anim_none">无动画</string>
+    <string name="sheets_page_anim_hint">只作用于「左右翻页」：平移=两页一起滑动；覆盖=新页先铺在下面不动，旧页像被抽走一样整体平移出去，逐渐露出新页；仿真=像翻纸一样把当前页折过去，纸背透出旧页的字；无动画=立刻切换、不做缓动。覆盖和仿真都支持左右拖动、点击左右边缘和音量键翻页。</string>
+    <string name="sheets_switch_indent">首行缩进</string>
+    <string name="sheets_switch_indent_hint">每段开头空两格</string>
+    <string name="sheets_switch_volume_keys">音量键翻页</string>
+    <string name="sheets_switch_volume_keys_hint">收起工具栏时：音量下翻下一页、音量上翻上一页；呼出工具栏时会恢复成调音量</string>
+    <string name="sheets_switch_tag_sound">打标签音效</string>
+    <string name="sheets_switch_tag_sound_hint">下拉打标签时「咚」一声（走媒体音量）</string>
+    <string name="sheets_switch_chapter_flash">切章提示卡片</string>
+    <string name="sheets_switch_chapter_flash_hint">跨章翻页/滚动时，屏幕中央淡入淡出显示新章节名</string>
+    <string name="sheets_section_brightness">屏幕亮度</string>
+    <string name="sheets_brightness_follow">跟随系统</string>
+    <string name="sheets_brightness_follow_back">改回跟随</string>
+
+    <!-- ==================== 排版弹层专属 ==================== -->
+    <string name="sheets_reader_settings_title">排版与更多</string>
+    <string name="sheets_reader_settings_note">以上设置全局通用，在任何一本书里改完，别的书也是这一套。</string>
+    <string name="sheets_section_this_book">这本书</string>
+    <string name="sheets_action_notes_bookmarks">笔记与书签</string>
+    <string name="sheets_action_edit_chapter">编辑本章</string>
+    <string name="sheets_action_manage_chapters">章节管理</string>
+
+    <!-- ==================== 搜索 ==================== -->
+    <string name="sheets_search_title">全文搜索</string>
+    <string name="sheets_search_placeholder">输入关键词，搜索整本书</string>
+    <string name="sheets_search_searching">检索中 %1$d%%</string>
+    <string name="sheets_search_no_result">没有找到「%1$s」</string>
+    <plurals name="sheets_search_result_count">
+        <item quantity="other">共 %1$d 处结果</item>
+    </plurals>
+
+    <!-- ==================== 朗读 ==================== -->
+    <string name="sheets_tts_title">朗读</string>
+    <string name="sheets_tts_engine_missing">没有检测到系统语音引擎。请在系统设置 → 无障碍 → 文字转语音中安装一个 TTS 引擎（如 Google 语音服务、讯飞、小米语音）后再试。</string>
+    <string name="sheets_tts_status_playing">正在朗读</string>
+    <string name="sheets_tts_status_paused">已暂停</string>
+    <string name="sheets_tts_chapter_progress">第 %1$d / %2$d 章</string>
+    <string name="sheets_tts_sleep_suffix">"  ·  %1$d 分钟后停止"</string>
+    <string name="sheets_tts_start_position">起始位置</string>
+    <string name="sheets_tts_from_page">从本页继续</string>
+    <string name="sheets_tts_from_chapter">从本章开头</string>
+    <string name="sheets_tts_rate">语速 · %1$sx</string>
+    <string name="sheets_tts_pitch">音调 · %1$s</string>
+    <string name="sheets_tts_timer">定时停止</string>
+    <string name="sheets_tts_sleep_off">不限时</string>
+    <string name="sheets_tts_sleep_15">15 分</string>
+    <string name="sheets_tts_sleep_30">30 分</string>
+    <string name="sheets_tts_sleep_60">60 分</string>
+    <string name="sheets_tts_sleep_chapter">读完本章</string>
+    <string name="sheets_tts_stop">停止朗读</string>
+    <string name="sheets_tts_start">开始朗读</string>
+</resources>

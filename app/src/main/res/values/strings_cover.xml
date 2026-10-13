@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 封面裁切 ==================== -->
+    <string name="cover_title">调整封面</string>
+    <string name="cover_hint">拖动平移 · 双指缩放 · 框内就是最终封面</string>
+    <string name="cover_ratio_hint">封面比例固定为 %1$s（宽:高）</string>
+</resources>

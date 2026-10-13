@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Themes ==================== -->
+    <string name="sheets_theme_mist">Moonlight</string>
+    <string name="sheets_theme_paper">Paper</string>
+    <string name="sheets_theme_green">Eye Care</string>
+    <string name="sheets_theme_ink">Deep Ink</string>
+    <string name="sheets_theme_night">Pure Black</string>
+    <string name="sheets_theme_sample">Aa</string>
+
+    <!-- ==================== TOC drawer ==================== -->
+    <plurals name="sheets_toc_summary">
+        <item quantity="one">%1$d chapter · %2$d%% read</item>
+        <item quantity="other">%1$d chapters · %2$d%% read</item>
+    </plurals>
+    <plurals name="sheets_tab_chapters">
+        <item quantity="one">Chapter %1$d</item>
+        <item quantity="other">Chapters %1$d</item>
+    </plurals>
+    <plurals name="sheets_tab_notes">
+        <item quantity="one">Note %1$d</item>
+        <item quantity="other">Notes %1$d</item>
+    </plurals>
+    <string name="sheets_toc_empty_chapters">No chapters</string>
+    <string name="sheets_toc_empty_tags_title">No tags yet</string>
+    <string name="sheets_toc_tags_hint_page">While reading, swipe down on the page\nto tag this page.</string>
+    <string name="sheets_toc_tags_hint_scroll">Swipe-down tagging is a gesture in Horizontal mode.\n(In vertical scroll, swiping down turns the text, so you can\'t tag here.)\nSwitch back to Horizontal mode in Settings.</string>
+    <string name="sheets_tag_delete">Delete this tag</string>
+
+    <!-- ==================== Typography settings ==================== -->
+    <string name="sheets_section_theme">Theme</string>
+    <string name="sheets_preview_text">Ink shades and line spacing, all adjustable.</string>
+    <string name="sheets_label_font_size">Font size · %1$d</string>
+    <string name="sheets_label_line_height">Line spacing · %1$s</string>
+    <string name="sheets_label_para_spacing">Paragraph spacing · %1$s</string>
+    <string name="sheets_label_letter_spacing">Letter spacing · %1$s</string>
+    <string name="sheets_label_margin">Margin · %1$d</string>
+    <string name="sheets_action_reset_typography">Reset font size &amp; spacing</string>
+    <string name="sheets_section_font">Font</string>
+    <string name="sheets_font_sans">Sans-serif</string>
+    <string name="sheets_font_serif">Serif</string>
+    <string name="sheets_section_page_mode">Page turning</string>
+    <string name="sheets_page_mode_page">Horizontal</string>
+    <string name="sheets_page_mode_scroll">Vertical scroll</string>
+    <string name="sheets_page_mode_hint_page">Swipe past the last page of a chapter to continue into the next one.</string>
+    <string name="sheets_page_mode_hint_scroll">Scrolling past the end of a chapter continues into the next; scrolling back returns to the previous chapter\'s end.</string>
+    <string name="sheets_section_page_animation">Page animation</string>
+    <string name="sheets_anim_slide">Slide</string>
+    <string name="sheets_anim_cover">Cover</string>
+    <string name="sheets_anim_fold">Simulation</string>
+    <string name="sheets_anim_none">None</string>
+    <string name="sheets_page_anim_hint">Applies only to Horizontal mode: Slide = both pages move together; Cover = the new page stays beneath while the old page slides away to reveal it; Simulation = the current page folds over like paper, showing the previous page\'s text through the back; None = an instant switch with no easing. Cover and Simulation both support drag, tapping the left/right edges, and the volume keys.</string>
+    <string name="sheets_switch_indent">First-line indent</string>
+    <string name="sheets_switch_indent_hint">Leave two spaces at the start of each paragraph</string>
+    <string name="sheets_switch_volume_keys">Volume keys turn pages</string>
+    <string name="sheets_switch_volume_keys_hint">When the toolbar is hidden: Volume Down goes to the next page, Volume Up to the previous page; when the toolbar is shown, the keys control volume again.</string>
+    <string name="sheets_switch_tag_sound">Tag sound effect</string>
+    <string name="sheets_switch_tag_sound_hint">Plays a thud sound when you tag by swiping down (uses media volume).</string>
+    <string name="sheets_switch_chapter_flash">Chapter switch card</string>
+    <string name="sheets_switch_chapter_flash_hint">Shows the new chapter name with a fade in/out in the center of the screen when turning or scrolling across chapters.</string>
+    <string name="sheets_section_brightness">Screen brightness</string>
+    <string name="sheets_brightness_follow">Follow system</string>
+    <string name="sheets_brightness_follow_back">Follow system again</string>
+
+    <!-- ==================== Reader settings sheet ==================== -->
+    <string name="sheets_reader_settings_title">Layout &amp; more</string>
+    <string name="sheets_reader_settings_note">These settings are global. Change them in any book and every book uses the same setup.</string>
+    <string name="sheets_section_this_book">This book</string>
+    <string name="sheets_action_notes_bookmarks">Notes &amp; bookmarks</string>
+    <string name="sheets_action_edit_chapter">Edit this chapter</string>
+    <string name="sheets_action_manage_chapters">Manage chapters</string>
+
+    <!-- ==================== Search ==================== -->
+    <string name="sheets_search_title">Search in book</string>
+    <string name="sheets_search_placeholder">Enter a keyword to search the whole book</string>
+    <string name="sheets_search_searching">Searching %1$d%%</string>
+    <string name="sheets_search_no_result">No results for “%1$s”</string>
+    <plurals name="sheets_search_result_count">
+        <item quantity="one">%1$d result</item>
+        <item quantity="other">%1$d results</item>
+    </plurals>
+
+    <!-- ==================== Read aloud ==================== -->
+    <string name="sheets_tts_title">Read aloud</string>
+    <string name="sheets_tts_engine_missing">No system text-to-speech engine was found. Please install a TTS engine (such as Google Speech Services, iFlytek, or Xiaomi Voice) in System Settings → Accessibility → Text-to-speech, then try again.</string>
+    <string name="sheets_tts_status_playing">Reading aloud</string>
+    <string name="sheets_tts_status_paused">Paused</string>
+    <string name="sheets_tts_chapter_progress">Chapter %1$d / %2$d</string>
+    <string name="sheets_tts_sleep_suffix">"  ·  Stops in %1$d min"</string>
+    <string name="sheets_tts_start_position">Starting point</string>
+    <string name="sheets_tts_from_page">Resume from this page</string>
+    <string name="sheets_tts_from_chapter">From chapter start</string>
+    <string name="sheets_tts_rate">Speed · %1$sx</string>
+    <string name="sheets_tts_pitch">Pitch · %1$s</string>
+    <string name="sheets_tts_timer">Sleep timer</string>
+    <string name="sheets_tts_sleep_off">Off</string>
+    <string name="sheets_tts_sleep_15">15 min</string>
+    <string name="sheets_tts_sleep_30">30 min</string>
+    <string name="sheets_tts_sleep_60">60 min</string>
+    <string name="sheets_tts_sleep_chapter">End of chapter</string>
+    <string name="sheets_tts_stop">Stop reading</string>
+    <string name="sheets_tts_start">Start reading</string>
+</resources>

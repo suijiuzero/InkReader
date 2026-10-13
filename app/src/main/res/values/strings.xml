@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">墨阅</string>
+    <string name="notif_channel">朗读播放</string>
+    <string name="notif_playing">正在朗读</string>
+    <string name="notif_channel_desc">朗读播放控制</string>
+
+    <!-- ==================== 通用操作 ==================== -->
+    <string name="action_cancel">取消</string>
+    <string name="action_confirm">确定</string>
+    <string name="action_delete">删除</string>
+    <string name="action_save">保存</string>
+    <string name="action_done">完成</string>
+    <string name="action_back">返回</string>
+    <string name="action_back_shelf">返回书架</string>
+    <string name="action_back_home">返回首页</string>
+    <string name="action_more">更多</string>
+    <string name="action_detail">详情</string>
+    <string name="action_add">添加</string>
+    <string name="action_settings">设置</string>
+    <string name="action_new">新建</string>
+    <string name="action_import">导入</string>
+    <string name="action_search">搜索</string>
+    <string name="action_sort">排序</string>
+    <string name="action_rename">重命名</string>
+    <string name="action_create">创建</string>
+    <string name="action_loading">处理中…</string>
+    <string name="action_close">关闭</string>
+    <string name="action_unknown_error">未知错误</string>
+
+    <!-- ==================== 通用计数 / 标签 ==================== -->
+    <plurals name="plural_books">
+        <item quantity="other">%1$d 本</item>
+    </plurals>
+    <plurals name="plural_chapters">
+        <item quantity="other">%1$d 章</item>
+    </plurals>
+    <plurals name="plural_files">
+        <item quantity="other">%1$d 个</item>
+    </plurals>
+
+    <!-- 第 N 章 -->
+    <string name="label_chapter_n">第 %1$d 章</string>
+    <!-- 已读 N% -->
+    <string name="label_read_percent">已读 %1$d%%</string>
+
+    <!-- ==================== 朗读悬浮条 / 通知 ==================== -->
+    <string name="tts_paused">已暂停</string>
+    <string name="tts_stop_after_min">%1$d 分钟后停止</string>
+    <string name="tts_prev_sentence">上一句</string>
+    <string name="tts_next_sentence">下一句</string>
+    <string name="tts_pause">暂停</string>
+    <string name="tts_resume">继续</string>
+    <string name="tts_stop">停止</string>
+
+    <!-- 自动生成封面：书名缺失时的兜底字 -->
+    <string name="cover_fallback_char">书</string>
+</resources>

@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Book detail / chapter management ==================== -->
+    <string name="detail_cover_unreadable">Couldn\'t read this image. Try another one.</string>
+    <string name="detail_cover_updated">Cover updated</string>
+    <string name="detail_cover_restored">Default cover restored</string>
+
+    <plurals name="detail_appended_chapters">
+        <item quantity="one">Appended %1$d chapter</item>
+        <item quantity="other">Appended %1$d chapters</item>
+    </plurals>
+    <string name="detail_appended_with_failures">Appended %1$d chapters, %2$d files failed</string>
+    <string name="detail_exported_ok">Exported \'%1$s\'\nYou can find it in Downloads; opening the share sheet now</string>
+    <string name="detail_exported_no_download">Exported \'%1$s\'\n(Couldn\'t write to Downloads; save it from the share sheet instead)</string>
+    <string name="detail_share_txt">Share TXT</string>
+    <string name="detail_export_failed">Export failed: %1$s</string>
+
+    <string name="detail_chapter_management">Chapter Management</string>
+    <string name="detail_subtitle">%1$s · %2$s · %3$s</string>
+    <string name="detail_export_whole_txt">Export whole book as TXT</string>
+    <string name="detail_export_single_chapter">Export a single chapter…</string>
+    <string name="detail_edit_title_author">Edit title &amp; author</string>
+    <string name="detail_append_files_as_chapters">Append files as chapters</string>
+    <string name="detail_import_cover">Import cover</string>
+    <string name="detail_restore_default_cover">Restore default cover</string>
+    <string name="detail_new_blank_chapter">New blank chapter</string>
+    <string name="detail_auto_sort_chapters">Auto-sort chapters</string>
+    <string name="detail_delete_whole_book">Delete whole book</string>
+    <string name="detail_book_not_found">Book not found</string>
+
+    <string name="detail_type_txt">TXT import</string>
+    <string name="detail_type_word">WORD import</string>
+    <string name="detail_type_merged">Multi-file collection</string>
+    <string name="detail_type_manual">Handwritten book</string>
+    <string name="detail_type_markdown">MARKDOWN import</string>
+    <string name="detail_type_pdf">PDF import</string>
+    <string name="detail_type_html">HTML import</string>
+    <string name="detail_type_epub">EPUB import</string>
+
+    <string name="detail_continue_reading">Continue reading</string>
+    <string name="detail_start_reading">Start reading</string>
+    <string name="detail_read_from_start">Read from start</string>
+    <string name="detail_chapters_count">Chapters (%1$d)</string>
+    <string name="detail_tap_title_to_read">Tap a title to read</string>
+
+    <string name="detail_exporting_txt">Exporting TXT</string>
+    <string name="detail_export_share_hint">The share sheet appears when the export finishes</string>
+
+    <string name="detail_book_info">Book info</string>
+    <string name="detail_field_title">Title</string>
+    <string name="detail_field_author">Author</string>
+
+    <string name="detail_rename_chapter">Rename chapter</string>
+    <string name="detail_chapter_title_field">Chapter title</string>
+
+    <string name="detail_delete_chapter">Delete chapter</string>
+    <string name="detail_delete_chapter_confirm">Delete \'%1$s\'? The chapter and its annotations will be removed and can\'t be recovered.</string>
+    <string name="detail_delete_book_confirm">\'%1$s\' and all its chapters, annotations, and bookmarks will be permanently deleted.</string>
+
+    <string name="detail_select_chapter_export">Select a chapter to export</string>
+    <string name="detail_export_single_hint">Exports only this chapter\'s title and body, without any annotations.</string>
+
+    <plurals name="detail_append_files_title">
+        <item quantity="one">Append %1$d file</item>
+        <item quantity="other">Append %1$d files</item>
+    </plurals>
+    <string name="detail_start_append">Append</string>
+    <string name="detail_file_separator">", "</string>
+
+    <string name="detail_chapter_split">Chapter splitting</string>
+    <string name="detail_split_smart">Smart parsing (recommended)</string>
+    <string name="detail_split_smart_desc">If a file contains several chapter headings, it\'s split into multiple chapters; a file with a single chapter becomes one chapter named after the file</string>
+    <string name="detail_split_in_file">Always parse in-file chapters</string>
+    <string name="detail_split_in_file_desc">Every file is split by its internal chapter headings; if none are found, it falls back to splitting by length</string>
+    <string name="detail_split_per_file">Each file as one chapter</string>
+    <string name="detail_split_per_file_desc">No splitting: each file becomes one chapter named after the file</string>
+
+    <string name="detail_new_chapter">New chapter</string>
+    <string name="detail_chapter_title_hint">e.g. Chapter 2</string>
+    <string name="detail_untitled_chapter">New chapter</string>
+
+    <string name="detail_auto_sort_desc">Reorders chapters by the chapter number in their titles (%1$d chapters).\n\n· \'Preface / Prologue / Foreword\' go before the first chapter;\n· \'Afterword / Epilogue / Extra / Finale\' go last;\n· Chapters without a readable number go near the end of the middle, keeping their current order;\n· Tags and notes move along with their chapters.</string>
+    <string name="detail_start_sort">Sort</string>
+    <plurals name="detail_sorted_chapters">
+        <item quantity="one">Reordered %1$d chapter by number</item>
+        <item quantity="other">Reordered %1$d chapters by number</item>
+    </plurals>
+
+    <string name="detail_chapter_actions">Chapter actions</string>
+    <string name="detail_read_this_chapter">Read this chapter</string>
+    <string name="detail_export_this_chapter_txt">Export this chapter as TXT</string>
+    <string name="detail_edit_content">Edit text</string>
+    <string name="detail_move_up">Move up</string>
+    <string name="detail_move_down">Move down</string>
+    <string name="detail_delete_this_chapter">Delete this chapter</string>
+    <string name="detail_from_source">From %1$s</string>
+
+    <string name="detail_words_yi">%.2f hundred million words</string>
+    <string name="detail_words_wan">%.1f ten-thousand words</string>
+    <string name="detail_words_ge">%d words</string>
+</resources>

@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== インポートの進行 / 結果 ==================== -->
+    <string name="repo_stage_start_import">インポートを開始</string>
+    <string name="repo_stage_prepare_merge">結合の準備中</string>
+    <string name="repo_stage_parse">%1$s を解析中</string>
+    <string name="repo_stage_sort">章番号で並べ替え</string>
+    <string name="repo_stage_done">完了</string>
+    <string name="repo_fallback_file_n">ファイル %1$d</string>
+    <string name="repo_fallback_doc_n">文書 %1$d</string>
+    <string name="repo_no_content">インポートできる内容がありません</string>
+    <string name="repo_import_failed">インポートに失敗しました（%1$s）</string>
+    <string name="repo_import_failed_plain">インポート失敗</string>
+    <string name="repo_merged_collection">コレクション</string>
+    <string name="repo_collection_named">%1$s コレクション</string>
+    <string name="repo_collection_etc">%1$s ほか %2$d 篇</string>
+    <string name="repo_untitled_book">無題の本</string>
+    <string name="repo_first_chapter">第1章</string>
+    <string name="repo_untitled_group">無題のグループ</string>
+    <string name="repo_imported_partial">%1$d 冊をインポートしました（%2$d 件のファイルが失敗）</string>
+    <string name="repo_deleted">削除しました</string>
+    <plurals name="repo_imported_books">
+        <item quantity="other">%1$d 冊をインポートしました</item>
+    </plurals>
+
+    <!-- ==================== 書き出し ==================== -->
+    <string name="export_author_prefix">著者：</string>
+    <string name="export_no_chapters">書き出せる章がありません</string>
+    <string name="export_dir_create_failed">書き出しフォルダを作成できません：%1$s</string>
+    <string name="export_overwrite_failed">同名の書き出しファイルを上書きできません：%1$s</string>
+    <string name="export_downloads_unwritable">ダウンロードフォルダに書き込めません</string>
+
+    <!-- ==================== 解析エラー ==================== -->
+    <string name="err_unsupported_doc">旧形式の .doc には対応していません。.docx か .txt に変換してください</string>
+    <string name="err_unsupported_format">このファイル形式には対応していません（%1$s）</string>
+    <string name="err_corrupted">ファイルが破損しているか、解析できません（%1$s）</string>
+    <string name="err_empty">ファイルの内容が空です</string>
+    <string name="err_no_content">本文を解析できませんでした</string>
+    <string name="err_encrypted">文書が暗号化されているため、本文を読み取れません</string>
+    <string name="err_needs_ocr">文字を抽出できませんでした。スキャン文書の可能性があります（OCR は未対応）</string>
+    <string name="err_read_failed">ファイルの読み取りに失敗しました</string>
+    <string name="err_too_large">ファイルが大きすぎます（1 ファイル 200MB まで）。インポートできません</string>
+    <string name="err_detail_wrap">%1$s（%2$s）</string>
+    <string name="err_file_reason">%1$s：%2$s</string>
+
+    <!-- ==================== 形式名 ==================== -->
+    <string name="fmt_txt">プレーンテキスト</string>
+    <string name="fmt_markdown">Markdown 文書</string>
+    <string name="fmt_docx">Word 文書</string>
+    <string name="fmt_pdf">PDF 文書</string>
+    <string name="fmt_html">Web ページ</string>
+    <string name="fmt_epub">EPUB 電子書籍</string>
+    <string name="fmt_doc">旧形式の Word 文書</string>
+    <string name="fmt_zip">ZIP アーカイブ</string>
+    <string name="fmt_xlsx">Excel 表</string>
+    <string name="fmt_pptx">PowerPoint プレゼン</string>
+    <string name="fmt_unknown">不明な形式</string>
+</resources>

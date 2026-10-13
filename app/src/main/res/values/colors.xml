@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 启动窗口底色：与默认主题「月白」一致，避免启动瞬间闪黑 -->
+    <color name="ink_bg">#F4F5F7</color>
+    <color name="ink_splash">#F4F5F7</color>
+    <!-- 应用主色：墨蓝 -->
+    <color name="ink_accent">#3E63DD</color>
+    <!-- 自适应图标背景 -->
+    <color name="icon_bg">#3E63DD</color>
+</resources>

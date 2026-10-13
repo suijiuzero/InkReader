@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 设置页 ==================== -->
+    <string name="settings_global_note">这里的设置是全局的，和阅读页里打开的是同一套，改一次到处生效。</string>
+</resources>

@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Settings screen ==================== -->
+    <string name="settings_global_note">These settings are global and shared with the reading view — change them once and they apply everywhere.</string>
+</resources>

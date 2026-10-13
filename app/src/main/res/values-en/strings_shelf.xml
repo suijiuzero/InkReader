@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Shelf top bar / empty state ==================== -->
+    <string name="shelf_search_books">Search books</string>
+    <string name="shelf_toggle_view">Toggle view</string>
+    <string name="shelf_empty_subtitle">No books yet</string>
+    <plurals name="shelf_count_hint">
+        <item quantity="one">%1$d book · Long-press to multi-select</item>
+        <item quantity="other">%1$d books · Long-press to multi-select</item>
+    </plurals>
+    <string name="shelf_sort_recent">Recently read</string>
+    <string name="shelf_sort_added">Recently imported</string>
+    <string name="shelf_sort_title">By title</string>
+    <string name="shelf_sort_progress">By progress</string>
+    <string name="shelf_import_docs">Import documents</string>
+    <string name="shelf_new_book">New book</string>
+    <string name="shelf_empty_title">Your bookshelf is empty</string>
+    <string name="shelf_empty_hint">Supports TXT, Word, Markdown, PDF, HTML and EPUB;\nyou can also merge several files into one book, or create a blank handwritten one.</string>
+    <string name="shelf_new_blank_book">Create a blank book</string>
+    <string name="shelf_chapter_progress">%1$d chapters · %2$d%% read</string>
+    <string name="shelf_source_merged">Collection</string>
+    <string name="shelf_source_manual">Handwritten</string>
+
+    <!-- ==================== Selection / bulk actions ==================== -->
+    <plurals name="shelf_selected_count">
+        <item quantity="one">%1$d book selected</item>
+        <item quantity="other">%1$d books selected</item>
+    </plurals>
+    <plurals name="shelf_delete_books">
+        <item quantity="one">Delete %1$d book</item>
+        <item quantity="other">Delete %1$d books</item>
+    </plurals>
+    <string name="shelf_delete_books_desc">The chapters and annotations of these books will be deleted too and can\'t be recovered.</string>
+    <string name="shelf_move_to_group_action">Move to group</string>
+    <string name="shelf_remove_from_group_action">Remove from group</string>
+    <string name="shelf_removed_from_group">Removed from group</string>
+    <string name="shelf_moved_to_group">Moved to group</string>
+
+    <!-- ==================== Groups ==================== -->
+    <string name="shelf_new_group">New group</string>
+    <string name="shelf_group_created">Created group \"%1$s\"</string>
+    <string name="shelf_group_name_hint">Group name</string>
+    <plurals name="shelf_group_books_count">
+        <item quantity="one">%1$d book · Group</item>
+        <item quantity="other">%1$d books · Group</item>
+    </plurals>
+    <plurals name="shelf_group_row_hint">
+        <item quantity="one">%1$d book · Long-press a book to remove or move it</item>
+        <item quantity="other">%1$d books · Long-press a book to remove or move it</item>
+    </plurals>
+    <plurals name="shelf_move_to_group">
+        <item quantity="one">Move %1$d book to</item>
+        <item quantity="other">Move %1$d books to</item>
+    </plurals>
+    <string name="shelf_no_groups">No groups yet. Create one first.</string>
+
+    <!-- ==================== Import ==================== -->
+    <string name="shelf_picker_open_failed">Can\'t open the system file picker: %1$s</string>
+    <string name="shelf_picker_reopened">The file picker was closed by the system; reopened</string>
+    <string name="shelf_importing">Importing</string>
+    <plurals name="shelf_import_files_title">
+        <item quantity="one">Import %1$d file</item>
+        <item quantity="other">Import %1$d files</item>
+    </plurals>
+    <string name="shelf_start_import">Start import</string>
+    <string name="shelf_file_name_separator">", "</string>
+    <string name="shelf_file_names_more">" etc."</string>
+    <string name="shelf_import_mode">Import mode</string>
+    <string name="shelf_mode_separate_title">Each file as its own book</string>
+    <string name="shelf_mode_separate_desc">Each file becomes its own book; chapters are detected automatically (also sorted by the chapter number in the file name).</string>
+    <string name="shelf_mode_merge_title">Merge into one book</string>
+    <string name="shelf_mode_merge_desc">Each file becomes one chapter; files named with \"Chapter N\" are sorted by chapter number.</string>
+    <string name="shelf_single_file_hint">Chapters are detected automatically from \"Chapter X\" headings and sorted by number — even if the chapter order inside the file is scrambled, it gets corrected.</string>
+    <string name="shelf_book_title_label">Title</string>
+    <string name="shelf_title_auto_placeholder">Leave blank to auto-generate</string>
+    <string name="shelf_chapter_split">Chapter splitting</string>
+    <string name="shelf_split_smart_title">Smart parsing (recommended)</string>
+    <string name="shelf_split_smart_desc">Files with several \"Chapter X\" headings are split into multiple chapters; a file with only one chapter stays whole. All are sorted by chapter number.</string>
+    <string name="shelf_split_in_file_title">Always split by in-file chapters</string>
+    <string name="shelf_split_in_file_desc">Split every file by its internal \"Chapter X\" headings; if there are none, it falls back to splitting by length.</string>
+    <string name="shelf_split_per_file_title">One chapter per file</string>
+    <string name="shelf_split_per_file_desc">No splitting; the whole file becomes one chapter, named after the file.</string>
+
+    <!-- ==================== Import result ==================== -->
+    <string name="shelf_import_report_title">Import result</string>
+    <string name="shelf_got_it">Got it</string>
+    <string name="shelf_import_result">%1$d succeeded, %2$d failed</string>
+    <string name="shelf_import_result_ok">%1$d succeeded</string>
+    <string name="shelf_failed_files">Failed files</string>
+    <string name="shelf_import_failed_item">Import failed</string>
+    <string name="shelf_imported">Imported</string>
+
+    <!-- ==================== New book ==================== -->
+    <string name="shelf_book_title_example">e.g. Reading notes</string>
+    <string name="shelf_author_optional">Author (optional)</string>
+    <string name="shelf_author_placeholder">Can be left blank</string>
+</resources>

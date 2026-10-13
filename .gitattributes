@@ -1,0 +1,15 @@
+# 统一换行符处理，保证 Gradle wrapper 脚本在 Windows / macOS / Linux 上都能运行
+* text=auto
+
+# Unix shell 脚本必须是 LF
+gradlew text eol=lf
+
+# Windows 批处理必须是 CRLF
+*.bat text eol=crlf
+
+# 二进制文件按原样处理
+*.jar binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.wav binary

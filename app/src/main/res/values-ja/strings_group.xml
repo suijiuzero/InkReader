@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- グループ名の既定値 -->
+    <string name="group_fallback_name">グループ</string>
+    <plurals name="group_selected_books">
+        <item quantity="other">%1$d 冊選択中</item>
+    </plurals>
+    <string name="group_edit">グループを編集</string>
+    <string name="group_add_books">本を追加</string>
+    <string name="group_disband">グループを解散</string>
+    <string name="group_empty_title">このグループはまだ空です</string>
+    <string name="group_empty_hint">右上の ⋮ →「本を追加」から本を入れられます。\n本棚の本を長押しして「グループへ移動」でも追加できます。</string>
+    <plurals name="group_book_meta">
+        <item quantity="other">%1$d章 · 読了 %2$d%%</item>
+    </plurals>
+    <string name="group_remove">グループから外す</string>
+    <string name="group_toast_removed">グループから外しました</string>
+    <string name="group_move_other">別のグループへ移動</string>
+    <string name="group_rename_title">グループ名を変更</string>
+    <string name="group_toast_moved">別のグループへ移動しました</string>
+    <plurals name="group_toast_added">
+        <item quantity="other">%1$d 冊追加しました</item>
+    </plurals>
+    <plurals name="group_delete_books_title">
+        <item quantity="other">%1$d 冊の本を削除しますか？</item>
+    </plurals>
+    <string name="group_delete_books_message">本と章の本文がまとめて削除され、読書の進捗・タグ・メモも消去されます。元に戻せません。</string>
+    <string name="group_disband_title">グループを解散しますか？</string>
+    <plurals name="group_disband_message">
+        <item quantity="other">「%1$s」の %2$d 冊は本棚に戻ります。本そのものは削除されません。</item>
+    </plurals>
+    <string name="group_disband_button">解散</string>
+    <string name="group_add_dialog_title">グループに本を追加</string>
+    <string name="group_add_dialog_empty">追加できる本がありません。</string>
+    <string name="group_add_confirm">追加 (%1$d)</string>
+</resources>

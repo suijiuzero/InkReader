@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Mark types / filter pills ==================== -->
+    <string name="marks_type_all">All</string>
+    <string name="marks_type_tag">Tags</string>
+    <string name="marks_type_bookmark">Bookmarks</string>
+    <string name="marks_type_highlight">Highlights</string>
+    <string name="marks_type_note">Notes</string>
+    <string name="marks_filter_count">%1$s %2$d</string>
+
+    <!-- ==================== Top bar / empty state ==================== -->
+    <string name="marks_title">Notes &amp; Bookmarks</string>
+    <string name="marks_empty_all">No marks yet</string>
+    <string name="marks_empty_tag">No tags yet</string>
+    <string name="marks_empty_bookmark">No bookmarks yet</string>
+    <string name="marks_empty_highlight">No highlights yet</string>
+    <string name="marks_empty_note">No notes yet</string>
+    <string name="marks_empty_hint">Long-press the text while reading to select it,\nthen highlight it, bookmark it, or write a note.</string>
+
+    <!-- ==================== Bookmark position ==================== -->
+    <string name="marks_bookmark_position">Chapter %1$d · Position %2$d</string>
+
+    <!-- ==================== Delete confirmation ==================== -->
+    <string name="marks_delete_title">Delete this mark</string>
+    <string name="marks_delete_message">The matching bookmark or highlight in the text will also disappear and cannot be restored.</string>
+</resources>

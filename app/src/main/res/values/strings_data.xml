@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 导入进度 / 结果 ==================== -->
+    <string name="repo_stage_start_import">开始导入</string>
+    <string name="repo_stage_prepare_merge">准备合并</string>
+    <string name="repo_stage_parse">解析 %1$s</string>
+    <string name="repo_stage_sort">按章号排序</string>
+    <string name="repo_stage_done">完成</string>
+    <string name="repo_fallback_file_n">文件 %1$d</string>
+    <string name="repo_fallback_doc_n">文档 %1$d</string>
+    <string name="repo_no_content">没有可导入的内容</string>
+    <string name="repo_import_failed">导入失败（%1$s）</string>
+    <string name="repo_import_failed_plain">导入失败</string>
+    <string name="repo_merged_collection">合集</string>
+    <string name="repo_collection_named">%1$s 合集</string>
+    <string name="repo_collection_etc">%1$s 等 %2$d 篇</string>
+    <string name="repo_untitled_book">未命名书籍</string>
+    <string name="repo_first_chapter">第一章</string>
+    <string name="repo_untitled_group">未命名分组</string>
+    <string name="repo_imported_partial">已导入 %1$d 本，%2$d 个文件失败</string>
+    <string name="repo_deleted">已删除</string>
+    <plurals name="repo_imported_books">
+        <item quantity="other">已导入 %1$d 本书</item>
+    </plurals>
+
+    <!-- ==================== 导出 ==================== -->
+    <string name="export_author_prefix">作者：</string>
+    <string name="export_no_chapters">没有可导出的章节</string>
+    <string name="export_dir_create_failed">无法创建导出目录：%1$s</string>
+    <string name="export_overwrite_failed">无法覆盖同名导出文件：%1$s</string>
+    <string name="export_downloads_unwritable">下载目录不可写</string>
+
+    <!-- ==================== 解析错误 ==================== -->
+    <string name="err_unsupported_doc">暂不支持老式 .doc，请先另存为 .docx 或 .txt</string>
+    <string name="err_unsupported_format">暂不支持该文件格式（%1$s）</string>
+    <string name="err_corrupted">文件已损坏或无法解析（%1$s）</string>
+    <string name="err_empty">文件内容为空</string>
+    <string name="err_no_content">没有解析出正文内容</string>
+    <string name="err_encrypted">文档已加密，无法读取正文</string>
+    <string name="err_needs_ocr">没有提取到文字，可能是扫描件（暂不支持 OCR）</string>
+    <string name="err_read_failed">读取文件失败</string>
+    <string name="err_too_large">文件过大，超出导入上限（单个文件 200MB），暂不支持导入</string>
+    <string name="err_detail_wrap">%1$s（%2$s）</string>
+    <string name="err_file_reason">%1$s：%2$s</string>
+
+    <!-- ==================== 格式名 ==================== -->
+    <string name="fmt_txt">纯文本</string>
+    <string name="fmt_markdown">Markdown 文档</string>
+    <string name="fmt_docx">Word 文档</string>
+    <string name="fmt_pdf">PDF 文档</string>
+    <string name="fmt_html">网页</string>
+    <string name="fmt_epub">EPUB 电子书</string>
+    <string name="fmt_doc">老式 Word 文档</string>
+    <string name="fmt_zip">ZIP 压缩包</string>
+    <string name="fmt_xlsx">Excel 表格</string>
+    <string name="fmt_pptx">PPT 演示文稿</string>
+    <string name="fmt_unknown">未知格式</string>
+</resources>

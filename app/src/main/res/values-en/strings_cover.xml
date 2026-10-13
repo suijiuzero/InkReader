@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Cover cropping ==================== -->
+    <string name="cover_title">Adjust Cover</string>
+    <string name="cover_hint">Drag to move · pinch to zoom · the frame is your final cover</string>
+    <string name="cover_ratio_hint">Cover ratio is fixed at %1$s (width:height)</string>
+</resources>

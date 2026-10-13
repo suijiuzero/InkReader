@@ -1,0 +1,30 @@
+# ---- Gradle / Android 构建产物 ----
+.gradle/
+build/
+app/build/
+.kotlin/
+captures/
+.cxx/
+
+# ---- 本机配置（含 SDK 绝对路径，绝不入仓库）----
+local.properties
+.idea/
+*.iml
+*.hprof
+
+# ---- 构建产物与安装包 ----
+*.apk
+*.aab
+*.ap_
+*.dex
+*.class
+
+# ---- 正式签名配置与密钥库：绝不入库 ----
+keystore.properties
+*.jks
+*.keystore
+
+# ---- 系统与运行时杂物 ----
+.DS_Store
+Thumbs.db
+*.log

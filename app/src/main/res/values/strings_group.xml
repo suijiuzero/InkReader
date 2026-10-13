@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 分组名缺省值 -->
+    <string name="group_fallback_name">分组</string>
+    <plurals name="group_selected_books">
+        <item quantity="other">已选 %1$d 本</item>
+    </plurals>
+    <string name="group_edit">编辑分组</string>
+    <string name="group_add_books">添加书籍</string>
+    <string name="group_disband">解散分组</string>
+    <string name="group_empty_title">这个分组还是空的</string>
+    <string name="group_empty_hint">右上角 ⋮ →「添加书籍」把书放进来；\n也可以长按书架上的书「移动到分组」。</string>
+    <plurals name="group_book_meta">
+        <item quantity="other">%1$d 章 · 已读 %2$d%%</item>
+    </plurals>
+    <string name="group_remove">移出分组</string>
+    <string name="group_toast_removed">已移出分组</string>
+    <string name="group_move_other">移动到别的分组</string>
+    <string name="group_rename_title">重命名分组</string>
+    <string name="group_toast_moved">已移动到别的分组</string>
+    <plurals name="group_toast_added">
+        <item quantity="other">已添加 %1$d 本</item>
+    </plurals>
+    <plurals name="group_delete_books_title">
+        <item quantity="other">删除 %1$d 本书？</item>
+    </plurals>
+    <string name="group_delete_books_message">书和它的章节正文会一起删掉，阅读进度、标签、笔记也一并清除，删了恢复不了。</string>
+    <string name="group_disband_title">解散分组？</string>
+    <plurals name="group_disband_message">
+        <item quantity="other">「%1$s」里的 %2$d 本书会回到书架，书本本身不会被删除。</item>
+    </plurals>
+    <string name="group_disband_button">解散</string>
+    <string name="group_add_dialog_title">添加书籍到分组</string>
+    <string name="group_add_dialog_empty">没有可添加的书了。</string>
+    <string name="group_add_confirm">添加 (%1$d)</string>
+</resources>

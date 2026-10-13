@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 书籍详情 / 章节管理 ==================== -->
+    <string name="detail_cover_unreadable">这张图片读不出来，换一张试试</string>
+    <string name="detail_cover_updated">封面已更新</string>
+    <string name="detail_cover_restored">已恢复默认封面</string>
+
+    <plurals name="detail_appended_chapters">
+        <item quantity="other">已追加 %1$d 章</item>
+    </plurals>
+    <string name="detail_appended_with_failures">已追加 %1$d 章，%2$d 个文件失败</string>
+    <string name="detail_exported_ok">已导出《%1$s》\n下载目录里可以找到，同时打开分享面板</string>
+    <string name="detail_exported_no_download">已导出《%1$s》\n（未能写入下载目录，可在分享面板里另存）</string>
+    <string name="detail_share_txt">分享 TXT</string>
+    <string name="detail_export_failed">导出失败：%1$s</string>
+
+    <string name="detail_chapter_management">章节管理</string>
+    <string name="detail_subtitle">%1$s · %2$s · %3$s</string>
+    <string name="detail_export_whole_txt">整本导出为 TXT</string>
+    <string name="detail_export_single_chapter">单章导出…</string>
+    <string name="detail_edit_title_author">修改书名与作者</string>
+    <string name="detail_append_files_as_chapters">追加文件为章节</string>
+    <string name="detail_import_cover">导入封面</string>
+    <string name="detail_restore_default_cover">恢复默认封面</string>
+    <string name="detail_new_blank_chapter">新建空白章节</string>
+    <string name="detail_auto_sort_chapters">自动排序章节</string>
+    <string name="detail_delete_whole_book">删除整本书</string>
+    <string name="detail_book_not_found">书籍不存在</string>
+
+    <string name="detail_type_txt">TXT 导入</string>
+    <string name="detail_type_word">WORD 导入</string>
+    <string name="detail_type_merged">多文件合集</string>
+    <string name="detail_type_manual">手写书籍</string>
+    <string name="detail_type_markdown">MARKDOWN 导入</string>
+    <string name="detail_type_pdf">PDF 导入</string>
+    <string name="detail_type_html">HTML 导入</string>
+    <string name="detail_type_epub">EPUB 导入</string>
+
+    <string name="detail_continue_reading">继续阅读</string>
+    <string name="detail_start_reading">开始阅读</string>
+    <string name="detail_read_from_start">从头读</string>
+    <string name="detail_chapters_count">章节（%1$d）</string>
+    <string name="detail_tap_title_to_read">点标题阅读</string>
+
+    <string name="detail_exporting_txt">正在导出 TXT</string>
+    <string name="detail_export_share_hint">导出完成后会弹出系统分享面板</string>
+
+    <string name="detail_book_info">书籍信息</string>
+    <string name="detail_field_title">书名</string>
+    <string name="detail_field_author">作者</string>
+
+    <string name="detail_rename_chapter">重命名章节</string>
+    <string name="detail_chapter_title_field">章节标题</string>
+
+    <string name="detail_delete_chapter">删除章节</string>
+    <string name="detail_delete_chapter_confirm">确定删除「%1$s」？该章内容与其中的批注都会一并移除，无法恢复。</string>
+    <string name="detail_delete_book_confirm">「%1$s」及其全部章节、批注、书签都会被永久删除。</string>
+
+    <string name="detail_select_chapter_export">选择要导出的章节</string>
+    <string name="detail_export_single_hint">只导出这一章的标题与正文，不含任何批注。</string>
+
+    <plurals name="detail_append_files_title">
+        <item quantity="other">追加 %1$d 个文件</item>
+    </plurals>
+    <string name="detail_start_append">开始追加</string>
+    <string name="detail_file_separator">、</string>
+
+    <string name="detail_chapter_split">章节划分</string>
+    <string name="detail_split_smart">智能解析（推荐）</string>
+    <string name="detail_split_smart_desc">文件里有多个「第X章」就拆成多章；只有一个章节的文件整篇作为一章（章名取文件名）</string>
+    <string name="detail_split_in_file">一律解析文件内章节</string>
+    <string name="detail_split_in_file_desc">每个文件都按内部「第X章」标题拆；没有内部标题时会按字数兜底切分</string>
+    <string name="detail_split_per_file">每个文件作为一章</string>
+    <string name="detail_split_per_file_desc">不拆分，文件整体成为一章，章节名取文件名</string>
+
+    <string name="detail_new_chapter">新建章节</string>
+    <string name="detail_chapter_title_hint">例如：第二章</string>
+    <string name="detail_untitled_chapter">新章节</string>
+
+    <string name="detail_auto_sort_desc">按章节标题里的「第N章」重新排列本章顺序，共 %1$d 章。\n\n· 「序 / 楔子 / 引子 / 前言」排在第一章前；\n· 「后记 / 尾声 / 番外 / 终章」排在最后；\n· 解析不出章号的排在中间靠后（保持它们现在的相对顺序）；\n· 章节里的标签、笔记会跟着章节一起移动。</string>
+    <string name="detail_start_sort">开始排序</string>
+    <plurals name="detail_sorted_chapters">
+        <item quantity="other">已按章号重排 %1$d 章</item>
+    </plurals>
+
+    <string name="detail_chapter_actions">章节操作</string>
+    <string name="detail_read_this_chapter">阅读本章</string>
+    <string name="detail_export_this_chapter_txt">导出本章为 TXT</string>
+    <string name="detail_edit_content">编辑正文</string>
+    <string name="detail_move_up">上移</string>
+    <string name="detail_move_down">下移</string>
+    <string name="detail_delete_this_chapter">删除本章</string>
+    <string name="detail_from_source">来自 %1$s</string>
+
+    <string name="detail_words_yi">%.2f 亿字</string>
+    <string name="detail_words_wan">%.1f 万字</string>
+    <string name="detail_words_ge">%d 字</string>
+</resources>

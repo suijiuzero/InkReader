@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== マークの種類 / フィルター ==================== -->
+    <string name="marks_type_all">すべて</string>
+    <string name="marks_type_tag">タグ</string>
+    <string name="marks_type_bookmark">ブックマーク</string>
+    <string name="marks_type_highlight">ハイライト</string>
+    <string name="marks_type_note">ノート</string>
+    <string name="marks_filter_count">%1$s %2$d</string>
+
+    <!-- ==================== トップバー / 空の状態 ==================== -->
+    <string name="marks_title">ノートとブックマーク</string>
+    <string name="marks_empty_all">マークはまだありません</string>
+    <string name="marks_empty_tag">タグはまだありません</string>
+    <string name="marks_empty_bookmark">ブックマークはまだありません</string>
+    <string name="marks_empty_highlight">ハイライトはまだありません</string>
+    <string name="marks_empty_note">ノートはまだありません</string>
+    <string name="marks_empty_hint">読書中に本文を長押しすると文字を選択できます。\nハイライトやブックマークの追加、ノートの作成ができます。</string>
+
+    <!-- ==================== ブックマークの位置 ==================== -->
+    <string name="marks_bookmark_position">第 %1$d 章 · 位置 %2$d</string>
+
+    <!-- ==================== 削除の確認 ==================== -->
+    <string name="marks_delete_title">このマークを削除</string>
+    <string name="marks_delete_message">原文の対応するブックマークまたはハイライトも一緒に消え、元に戻せません。</string>
+</resources>

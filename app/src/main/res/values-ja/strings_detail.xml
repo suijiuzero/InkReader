@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 本の詳細 / 章の管理 ==================== -->
+    <string name="detail_cover_unreadable">この画像を読み込めません。別の画像をお試しください</string>
+    <string name="detail_cover_updated">表紙を更新しました</string>
+    <string name="detail_cover_restored">既定の表紙に戻しました</string>
+
+    <plurals name="detail_appended_chapters">
+        <item quantity="other">%1$d 章を追加しました</item>
+    </plurals>
+    <string name="detail_appended_with_failures">%1$d 章を追加しました（%2$d 件のファイルが失敗）</string>
+    <string name="detail_exported_ok">「%1$s」を書き出しました\nダウンロードフォルダに保存され、共有シートを開きます</string>
+    <string name="detail_exported_no_download">「%1$s」を書き出しました\n（ダウンロードフォルダに保存できませんでした。共有シートから保存できます）</string>
+    <string name="detail_share_txt">TXT を共有</string>
+    <string name="detail_export_failed">書き出しに失敗しました：%1$s</string>
+
+    <string name="detail_chapter_management">章の管理</string>
+    <string name="detail_subtitle">%1$s · %2$s · %3$s</string>
+    <string name="detail_export_whole_txt">本全体を TXT で書き出す</string>
+    <string name="detail_export_single_chapter">1 章だけ書き出す…</string>
+    <string name="detail_edit_title_author">タイトルと著者を編集</string>
+    <string name="detail_append_files_as_chapters">ファイルを章として追加</string>
+    <string name="detail_import_cover">表紙をインポート</string>
+    <string name="detail_restore_default_cover">既定の表紙に戻す</string>
+    <string name="detail_new_blank_chapter">空の章を新規作成</string>
+    <string name="detail_auto_sort_chapters">章を自動整理</string>
+    <string name="detail_delete_whole_book">本を丸ごと削除</string>
+    <string name="detail_book_not_found">本が見つかりません</string>
+
+    <string name="detail_type_txt">TXT インポート</string>
+    <string name="detail_type_word">WORD インポート</string>
+    <string name="detail_type_merged">複数ファイル集約</string>
+    <string name="detail_type_manual">手書きの本</string>
+    <string name="detail_type_markdown">MARKDOWN インポート</string>
+    <string name="detail_type_pdf">PDF インポート</string>
+    <string name="detail_type_html">HTML インポート</string>
+    <string name="detail_type_epub">EPUB インポート</string>
+
+    <string name="detail_continue_reading">続きを読む</string>
+    <string name="detail_start_reading">読み始める</string>
+    <string name="detail_read_from_start">最初から読む</string>
+    <string name="detail_chapters_count">章（%1$d）</string>
+    <string name="detail_tap_title_to_read">タイトルをタップして読む</string>
+
+    <string name="detail_exporting_txt">TXT を書き出し中</string>
+    <string name="detail_export_share_hint">書き出しが完了すると共有シートが開きます</string>
+
+    <string name="detail_book_info">本の情報</string>
+    <string name="detail_field_title">タイトル</string>
+    <string name="detail_field_author">著者</string>
+
+    <string name="detail_rename_chapter">章の名前を変更</string>
+    <string name="detail_chapter_title_field">章のタイトル</string>
+
+    <string name="detail_delete_chapter">章を削除</string>
+    <string name="detail_delete_chapter_confirm">「%1$s」を削除しますか？この章の内容と注釈もすべて削除され、元に戻せません。</string>
+    <string name="detail_delete_book_confirm">「%1$s」と、そのすべての章・注釈・ブックマークが永久に削除されます。</string>
+
+    <string name="detail_select_chapter_export">書き出す章を選択</string>
+    <string name="detail_export_single_hint">この章のタイトルと本文のみを書き出します（注釈は含みません）</string>
+
+    <plurals name="detail_append_files_title">
+        <item quantity="other">%1$d 件のファイルを追加</item>
+    </plurals>
+    <string name="detail_start_append">追加を開始</string>
+    <string name="detail_file_separator">、</string>
+
+    <string name="detail_chapter_split">章の分割</string>
+    <string name="detail_split_smart">スマート解析（推奨）</string>
+    <string name="detail_split_smart_desc">ファイル内に複数の「第X章」があれば複数の章に分割します。章が 1 つだけのファイルは全体を 1 章とし、章名はファイル名にします</string>
+    <string name="detail_split_in_file">常にファイル内の章を解析</string>
+    <string name="detail_split_in_file_desc">各ファイルを内部の「第X章」見出しで分割します。見出しがない場合は文字数で分割します</string>
+    <string name="detail_split_per_file">各ファイルを 1 章として扱う</string>
+    <string name="detail_split_per_file_desc">分割せず、ファイル全体を 1 章とし、章名はファイル名にします</string>
+
+    <string name="detail_new_chapter">章を新規作成</string>
+    <string name="detail_chapter_title_hint">例：第 2 章</string>
+    <string name="detail_untitled_chapter">新しい章</string>
+
+    <string name="detail_auto_sort_desc">章タイトルの「第N章」に従って並べ替えます（全 %1$d 章）。\n\n・「序 / 序章 / 前書き / はじめに」は第 1 章の前に配置；\n・「あとがき / エピローグ / 番外 / 終章」は最後に配置；\n・章番号を解析できないものは中央より後ろに配置（現在の相対順序は維持）；\n・章内のタグやメモは章と一緒に移動します。</string>
+    <string name="detail_start_sort">並べ替えを開始</string>
+    <plurals name="detail_sorted_chapters">
+        <item quantity="other">章番号で %1$d 章を並べ替えました</item>
+    </plurals>
+
+    <string name="detail_chapter_actions">章の操作</string>
+    <string name="detail_read_this_chapter">この章を読む</string>
+    <string name="detail_export_this_chapter_txt">この章を TXT で書き出す</string>
+    <string name="detail_edit_content">本文を編集</string>
+    <string name="detail_move_up">上へ移動</string>
+    <string name="detail_move_down">下へ移動</string>
+    <string name="detail_delete_this_chapter">この章を削除</string>
+    <string name="detail_from_source">%1$s より</string>
+
+    <string name="detail_words_yi">%.2f 億字</string>
+    <string name="detail_words_wan">%.1f 万字</string>
+    <string name="detail_words_ge">%d 字</string>
+</resources>

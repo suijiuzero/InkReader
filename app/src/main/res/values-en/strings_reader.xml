@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Reader chrome / selection bar ==================== -->
+    <string name="reader_toc">Contents</string>
+    <string name="reader_chapter_manage">Chapter management</string>
+    <string name="reader_theme">Theme</string>
+    <string name="reader_read_aloud">Read aloud</string>
+    <string name="reader_chapter_preview">Chapter %1$d · %2$s</string>
+    <string name="reader_prev_chapter">Previous chapter</string>
+    <string name="reader_next_chapter">Next chapter</string>
+    <string name="reader_selected">Selected</string>
+    <string name="reader_expand_sentence">Sentence</string>
+    <string name="reader_expand_paragraph">Paragraph</string>
+    <string name="reader_cancel_selection">Deselect</string>
+    <string name="reader_remove_highlight">Remove highlight</string>
+    <string name="reader_tag_range">Tag this passage</string>
+    <string name="reader_untag_range">Remove tag</string>
+    <string name="reader_read_from_here">Read from here</string>
+    <string name="reader_write_note">Add note</string>
+    <string name="reader_note_placeholder">Write your thoughts…</string>
+    <string name="reader_note_quote">“%1$s”</string>
+
+    <!-- ==================== Reader states / hints ==================== -->
+    <string name="reader_tag_added">Tagged this page</string>
+    <string name="reader_tag_removed">Removed tag from this page</string>
+    <string name="reader_book_deleted">This book has been deleted</string>
+    <string name="reader_empty_chapter">No content in this chapter</string>
+    <string name="reader_paginating">Laying out…</string>
+    <string name="reader_joining_next_chapter">Loading next chapter…</string>
+    <string name="reader_page_tagged">Page tagged</string>
+    <string name="reader_tag_release_cancel">Release to remove tag</string>
+    <string name="reader_tag_release_add">Release to tag this page</string>
+    <string name="reader_tag_keep_pull_cancel">Keep pulling to remove tag</string>
+    <string name="reader_tag_keep_pull_add">Keep pulling to tag this page</string>
+
+    <plurals name="reader_total_chapters">
+        <item quantity="one">%1$d chapter in total</item>
+        <item quantity="other">%1$d chapters in total</item>
+    </plurals>
+</resources>

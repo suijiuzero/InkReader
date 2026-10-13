@@ -1,0 +1,90 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 本棚トップバー / 空の状態 ==================== -->
+    <string name="shelf_search_books">本を検索</string>
+    <string name="shelf_toggle_view">表示を切り替え</string>
+    <string name="shelf_empty_subtitle">まだ本がありません</string>
+    <plurals name="shelf_count_hint">
+        <item quantity="other">%1$d 冊 · 長押しで複数選択</item>
+    </plurals>
+    <string name="shelf_sort_recent">最近読んだ順</string>
+    <string name="shelf_sort_added">最近追加した順</string>
+    <string name="shelf_sort_title">書名順</string>
+    <string name="shelf_sort_progress">進捗順</string>
+    <string name="shelf_import_docs">文書をインポート</string>
+    <string name="shelf_new_book">本を新規作成</string>
+    <string name="shelf_empty_title">本棚はまだ空です</string>
+    <string name="shelf_empty_hint">TXT、Word、Markdown、PDF、HTML、EPUB に対応。\n複数のファイルを1冊にまとめたり、手書きの本を新規作成することもできます。</string>
+    <string name="shelf_new_blank_book">空白の本を新規作成</string>
+    <string name="shelf_chapter_progress">%1$d 章 · 読了 %2$d%%</string>
+    <string name="shelf_source_merged">コレクション</string>
+    <string name="shelf_source_manual">手書き</string>
+
+    <!-- ==================== 選択 / 一括操作 ==================== -->
+    <plurals name="shelf_selected_count">
+        <item quantity="other">%1$d 冊を選択中</item>
+    </plurals>
+    <plurals name="shelf_delete_books">
+        <item quantity="other">%1$d 冊を削除</item>
+    </plurals>
+    <string name="shelf_delete_books_desc">これらの本の章と注釈もまとめて削除され、元に戻せません。</string>
+    <string name="shelf_move_to_group_action">グループへ移動</string>
+    <string name="shelf_remove_from_group_action">グループから外す</string>
+    <string name="shelf_removed_from_group">グループから外しました</string>
+    <string name="shelf_moved_to_group">グループへ移動しました</string>
+
+    <!-- ==================== グループ ==================== -->
+    <string name="shelf_new_group">グループを新規作成</string>
+    <string name="shelf_group_created">グループ「%1$s」を作成しました</string>
+    <string name="shelf_group_name_hint">グループ名</string>
+    <plurals name="shelf_group_books_count">
+        <item quantity="other">%1$d 冊 · グループ</item>
+    </plurals>
+    <plurals name="shelf_group_row_hint">
+        <item quantity="other">%1$d 冊 · 本を長押しでグループから外す/移動</item>
+    </plurals>
+    <plurals name="shelf_move_to_group">
+        <item quantity="other">%1$d 冊の移動先</item>
+    </plurals>
+    <string name="shelf_no_groups">グループがまだありません。先に作成してください。</string>
+
+    <!-- ==================== インポート ==================== -->
+    <string name="shelf_picker_open_failed">システムのファイル選択を開けません：%1$s</string>
+    <string name="shelf_picker_reopened">前回のファイル選択がシステムに回収されたため、開き直しました</string>
+    <string name="shelf_importing">インポート中</string>
+    <plurals name="shelf_import_files_title">
+        <item quantity="other">%1$d 件のファイルをインポート</item>
+    </plurals>
+    <string name="shelf_start_import">インポート開始</string>
+    <string name="shelf_file_name_separator">、</string>
+    <string name="shelf_file_names_more">" ほか"</string>
+    <string name="shelf_import_mode">インポート方法</string>
+    <string name="shelf_mode_separate_title">それぞれを1冊にする</string>
+    <string name="shelf_mode_separate_desc">各ファイルを個別の本にし、章を自動で認識します（ファイル名の章番号でも並べ替え）。</string>
+    <string name="shelf_mode_merge_title">1冊にまとめる</string>
+    <string name="shelf_mode_merge_desc">各ファイルを1章にします。ファイル名に「第N章」があるものは章番号で自動的に並べ替えます。</string>
+    <string name="shelf_single_file_hint">ファイル内の「第X章」の見出しを自動で認識して章に分割し、章番号で並べ替えます —— ファイル内の章の順番が乱れていても修正できます。</string>
+    <string name="shelf_book_title_label">書名</string>
+    <string name="shelf_title_auto_placeholder">空欄の場合は自動生成</string>
+    <string name="shelf_chapter_split">章の分割</string>
+    <string name="shelf_split_smart_title">スマート解析（推奨）</string>
+    <string name="shelf_split_smart_desc">「第X章」が複数あるファイルは複数の章に分割し、1章しかないものは全体を1章として、章番号で自動的に並べ替えます。</string>
+    <string name="shelf_split_in_file_title">ファイル内の章で必ず分割</string>
+    <string name="shelf_split_in_file_desc">各ファイルを内部の「第X章」の見出しで分割します。見出しがない場合は文字数で分割します。</string>
+    <string name="shelf_split_per_file_title">各ファイルを1章として扱う</string>
+    <string name="shelf_split_per_file_desc">分割せず、ファイル全体を1章とし、章名はファイル名にします。</string>
+
+    <!-- ==================== インポート結果 ==================== -->
+    <string name="shelf_import_report_title">インポート結果</string>
+    <string name="shelf_got_it">OK</string>
+    <string name="shelf_import_result">%1$d 件成功、%2$d 件失敗</string>
+    <string name="shelf_import_result_ok">%1$d 件成功</string>
+    <string name="shelf_failed_files">失敗したファイル</string>
+    <string name="shelf_import_failed_item">インポート失敗</string>
+    <string name="shelf_imported">インポート済み</string>
+
+    <!-- ==================== 本の新規作成 ==================== -->
+    <string name="shelf_book_title_example">例：読書ノート</string>
+    <string name="shelf_author_optional">著者（任意）</string>
+    <string name="shelf_author_placeholder">空欄でも可</string>
+</resources>

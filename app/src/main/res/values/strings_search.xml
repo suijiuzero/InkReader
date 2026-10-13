@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="search_placeholder">搜书名或作者</string>
+    <string name="search_clear">清空</string>
+    <string name="search_empty_title">搜一本书</string>
+    <string name="search_empty_hint">输入书名或作者的关键字，结果以卡片网格呈现。</string>
+    <string name="search_no_result">没找到「%1$s」</string>
+    <string name="search_no_result_hint">换个关键字试试，或者回到书架导入更多书。</string>
+    <plurals name="search_result_count">
+        <item quantity="other">找到 %1$d 本</item>
+    </plurals>
+    <plurals name="search_book_meta">
+        <item quantity="other">%1$d 章 · 已读 %2$d%%</item>
+    </plurals>
+</resources>

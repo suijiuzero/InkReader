@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 表紙のトリミング ==================== -->
+    <string name="cover_title">表紙を調整</string>
+    <string name="cover_hint">ドラッグで移動 · ピンチで拡大縮小 · 枠内が最終的な表紙です</string>
+    <string name="cover_ratio_hint">表紙の比率は %1$s で固定（幅:高さ）</string>
+</resources>
