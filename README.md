@@ -21,7 +21,7 @@
 
 - **不联网、不上传**：所有解析与阅读都在设备上完成，书籍与笔记只存在应用私有目录里。
 - **中文优先**：章节识别对中文（`第X章 / 回 / 節 / 話 / 卷 / 集 / 部 / 篇 / 幕 / 折`）与中/日/英数字编号做了专门处理，`Chapter 10` 排在 `Chapter 2` 之后（按数字而非字符串）。
-- **界面多语言**：应用界面随系统语言自动切换 **简体中文 / English / 日本語**。
+- **界面多语言**：应用界面随系统语言自动切换 **简体中文 / English / 日本語**，应用内「使用说明」也随之切换。
 
 ### 特性
 
@@ -101,7 +101,7 @@ app/src/main/java/com/inkreader/
 ├─ data/                  存储层（SQLite + 正文文件 + 阅读偏好 + 导出）
 ├─ parse/                 统一解析管线（格式识别 → 解析器 → 章节装配）
 ├─ tts/                   朗读服务、句子切分、全局状态
-└─ ui/                    主题 / 通用控件 / 书架 / 阅读器 / 详情 / 编辑器 / 标记
+└─ ui/                    主题 / 通用控件 / 书架 / 阅读器 / 详情 / 编辑器 / 标记 / 使用说明
 ```
 
 - 存储：SQLite（手写 DAO，未用 ORM / 注解处理器）+ 正文以 UTF-8 文件存在应用私有目录，数据库只存索引；
@@ -134,7 +134,7 @@ Ink Reader (墨阅) is a **fully offline** Android e-book reader — no account,
 
 - **Offline & private**: all parsing and reading happen on-device; books and notes live only in the app's private storage.
 - **Number-aware chapter ordering**: chapter numbers are parsed into integers before sorting, so `Chapter 10` comes after `Chapter 2` (numeric, not lexicographic).
-- **Localized UI**: the interface follows your system language — **简体中文 / English / 日本語**.
+- **Localized UI**: the interface follows your system language — **简体中文 / English / 日本語**, and so does the in-app user guide.
 
 ### Features
 
@@ -211,7 +211,7 @@ app/src/main/java/com/inkreader/
 ├─ data/                 storage (SQLite + body files + prefs + export)
 ├─ parse/                unified parsing pipeline (detect → parse → assemble)
 ├─ tts/                  read-aloud service, sentence splitting, state
-└─ ui/                   theme / components / shelf / reader / detail / editor / marks
+└─ ui/                   theme / components / shelf / reader / detail / editor / marks / guide
 ```
 
 - Storage: SQLite (hand-written DAO, no ORM / annotation processor) + bodies as UTF-8 files in app-private storage; the DB holds indexes only.

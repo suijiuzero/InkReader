@@ -27,6 +27,7 @@ import com.inkreader.tts.TtsBus
 import com.inkreader.ui.bookdetail.BookDetailScreen
 import com.inkreader.ui.component.MiniTtsBar
 import com.inkreader.ui.editor.EditorScreen
+import com.inkreader.ui.help.HelpScreen
 import com.inkreader.ui.marks.MarksScreen
 import com.inkreader.ui.reader.ReaderScreen
 import com.inkreader.ui.shelf.GroupScreen
@@ -46,6 +47,7 @@ sealed class Dest {
     data class Editor(val bookId: Long, val chapterId: Long, val title: String) : Dest()
     data class Marks(val bookId: Long, val bookTitle: String) : Dest()
     data object Settings : Dest()
+    data object Help : Dest()
 }
 
 class MainActivity : ComponentActivity() {
@@ -167,8 +169,11 @@ fun InkRoot() {
 
                     is Dest.Settings -> SettingsScreen(
                         container = container,
-                        onBack = { pop() }
+                        onBack = { pop() },
+                        onOpenHelp = { push(Dest.Help) }
                     )
+
+                    is Dest.Help -> HelpScreen(onBack = { pop() })
 
                     is Dest.Search -> SearchScreen(
                         container = container,

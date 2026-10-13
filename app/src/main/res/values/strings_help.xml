@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== 使用说明页 ==================== -->
+    <string name="help_title">使用说明</string>
+    <string name="help_load_failed">说明内容加载失败。</string>
+</resources>

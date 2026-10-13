@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- ==================== Help screen ==================== -->
+    <string name="help_title">User Guide</string>
+    <string name="help_load_failed">Failed to load the guide.</string>
+</resources>
