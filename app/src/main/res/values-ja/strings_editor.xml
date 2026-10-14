@@ -8,4 +8,12 @@
     <string name="editor_saved">保存しました</string>
     <string name="editor_title_hint">章のタイトル</string>
     <string name="editor_body_hint">ここに本文を書きます…\n\n空行は段落の区切りになります。</string>
+
+    <string name="editor_split_here">ここから章を分割</string>
+    <string name="editor_split_cursor_hint">分割したい本文の位置にカーソルを置いてください</string>
+    <string name="editor_split_dialog_title">カーソル位置から次の章へ分割</string>
+    <string name="editor_split_dialog_desc">カーソルより前の本文はこの章に残り、カーソル以降の本文が新しい次の章になります。しおりやメモも自動的に引き継がれます。</string>
+    <string name="editor_split_new_title_label">新しい章のタイトル</string>
+    <string name="editor_split_confirm">分割する</string>
+    <string name="editor_split_done_toast">カーソル位置から新しい章に分割しました</string>
 </resources>

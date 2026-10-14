@@ -7,7 +7,7 @@
 [![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20(API%2024)-brightgreen.svg)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)
 [![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20(M3)-4285F4.svg)](https://developer.android.com/jetpack/compose)
-[![Version](https://img.shields.io/badge/version-1.10.10-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.11.8-orange.svg)](CHANGELOG.md)
 
 [简体中文](#简体中文) ｜ [English](#english)
 

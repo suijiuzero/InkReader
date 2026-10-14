@@ -36,4 +36,8 @@
     <plurals name="reader_total_chapters">
         <item quantity="other">全%1$d章</item>
     </plurals>
+
+    <string name="reader_split_from_here">新章に分割</string>
+    <string name="reader_split_done_toast">ここから次の章に分割しました</string>
+    <string name="reader_split_failed_toast">章の先頭または末尾では分割できません</string>
 </resources>

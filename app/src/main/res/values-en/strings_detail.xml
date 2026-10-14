@@ -98,4 +98,16 @@
     <string name="detail_words_yi">%.2f hundred million words</string>
     <string name="detail_words_wan">%.1f ten-thousand words</string>
     <string name="detail_words_ge">%d words</string>
+
+    <!-- ==================== Chapter merge & whole-book re-split ==================== -->
+    <string name="detail_resplit_book">Re-split chapters…</string>
+    <string name="detail_resplit_desc">Re-split the entire book without re-importing; existing bookmarks, highlights, and notes are automatically migrated.</string>
+    <string name="detail_resplit_confirm">Re-split</string>
+    <string name="detail_resplit_done_toast">Re-split into %1$d chapters (annotations preserved)</string>
+    <string name="detail_resplit_too_large">This book is too long to re-split</string>
+    <string name="detail_resplit_failed">Re-split failed: %1$s</string>
+    <string name="detail_merge_prev">Merge into previous chapter</string>
+    <string name="detail_merge_next">Merge into next chapter</string>
+    <string name="detail_merged_prev_toast">Merged into previous chapter (annotations shifted)</string>
+    <string name="detail_merged_next_toast">Merged into next chapter (annotations shifted)</string>
 </resources>

@@ -18,17 +18,6 @@ enum class PageMode { PAGE, SCROLL }
  * 左右翻页时的翻页动画（只作用于 [PageMode.PAGE]）：
  * SLIDE=平移（两页一起动，默认）、COVER=覆盖（新页固定在下层，旧页整页平移离场）、
  * FOLD=仿真（折页覆盖）、NONE=无动画（立刻切换）。
- *
- * 曾经有过 COVER（覆盖）和 CURL（仿真）并删掉过：那两种要「旧页压在新页上面」，
- * 而 `HorizontalPager` 的绘制顺序是页号递增、页号大的在上，靠改位移做不出来 ——
- * 得把旧页单独提到 pager 之上再画一层，逻辑和状态都变复杂，还各自带出一串边界问题。
- * 实测收益不值这个复杂度，已删掉。
- *
- * 现在 [COVER] / [FOLD] 重做走的是另一条路：完全不走 `HorizontalPager`，而是自己搭叠层
- * （① 露出页在下 + ② 承载页在上，在自己的 draw pass 里决定怎么动），
- * 绘制顺序由我们自己控制，因此旧页压在新页之上是天然成立的，不需要额外的提层。
- * 两者共用同一套叠层与手势，只有「承载页怎么离开」不同：覆盖=整页平移动画，
- * 仿真=按折线裁剪 + 纸背。切到这两个档只在设置里换一个值，分页与阅读进度完全不受影响。
  */
 enum class PageAnimation { SLIDE, COVER, FOLD, NONE }
 
@@ -55,16 +44,36 @@ enum class ShelfView { GRID, LIST }
 enum class ImportMode { SEPARATE, MERGE }
 
 /**
- * 合并导入 / 追加文件时的「章节划分」方式。
+ * 导入 / 追加文件 / 整书重分章时的「章节划分策略」。
  *
- * SMART（默认）：**按文件内容逐个判断** —— 文件里有多个「第X章」就拆成多章；
- *   只有一个（或压根没有）就整篇作为一章、章名取文件名。
- *   典型场景：一次选了「1~9 章合集.txt」和「第10章 xxx.txt」，
- *   合集拆成 1~9 章，单独的第十二章整篇成为一章，不需要你分别导两次。
- * IN_FILE：一律解析文件内部章节（合集能拆，单章文件若没有内部标题会被按字数兜底切分）。
- * PER_FILE：一律一个文件一章（合集就会变成一整章）。
+ * SMART（默认）：智能自动识别（同族模式投票 + 序号连续性校验 + 奇葩前缀自动归纳）。
+ *   多文件合并时按文件内容逐个判断：有多个章节标题则拆成多章，否则整篇作为一章。
+ * IN_FILE：一律解析文件内部章节（合集能拆，无标题时按字数兜底切分）。
+ * PER_FILE：一律一个文件作为一章（不拆内部标题，章节名取文件名）。
+ * STRICT_CHAP：仅按「第X章 / 第X回 / Chapter N」强章级规则切分，忽略数字序号与小节。
+ * NUMBERED：按数字序号（`1.`、`01 `、`一、`、`（一）`）与章回标题切分。
+ * FIXED_SIZE：不识别标题，直接按固定字数（默认约 1.2 万字）在段落边界切分。
+ * CUSTOM：按用户输入的自定义前缀或正则表达式切分。
  */
-enum class SplitMode { SMART, IN_FILE, PER_FILE }
+enum class SplitMode {
+    SMART,
+    IN_FILE,
+    PER_FILE,
+    STRICT_CHAP,
+    NUMBERED,
+    FIXED_SIZE,
+    CUSTOM
+}
+
+/**
+ * 分章详细配置：承载切分策略、自定义前缀/正则、固定切分字数以及净网去噪开关。
+ */
+data class SplitOptions(
+    val mode: SplitMode = SplitMode.SMART,
+    val cleanWatermark: Boolean = true,
+    val customPattern: String = "",
+    val fixedChunkChars: Int = 12000
+)
 
 data class Book(
     val id: Long = 0,
@@ -102,7 +111,9 @@ data class Chapter(
     val title: String,
     val fileName: String,
     val charCount: Int = 0,
-    val sourceName: String = ""
+    val sourceName: String = "",
+    /** 所属分卷名（如「第一卷 风起」）；为空表示未分卷或默认卷 */
+    val volume: String = ""
 )
 
 data class Mark(

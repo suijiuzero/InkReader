@@ -96,4 +96,10 @@
     <string name="sheets_tts_sleep_chapter">この章の終わり</string>
     <string name="sheets_tts_stop">読み上げを停止</string>
     <string name="sheets_tts_start">読み上げを開始</string>
+
+    <string name="sheets_toc_default_volume">本編</string>
+    <string name="sheets_toc_expand_all">展開</string>
+    <string name="sheets_toc_collapse_all">折りたたむ</string>
+    <string name="sheets_toc_jump_top">先頭へ</string>
+    <string name="sheets_toc_jump_bottom">末尾へ</string>
 </resources>

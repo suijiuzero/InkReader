@@ -51,6 +51,7 @@
     <!-- ==================== インポート ==================== -->
     <string name="shelf_picker_open_failed">システムのファイル選択を開けません：%1$s</string>
     <string name="shelf_picker_reopened">前回のファイル選択がシステムに回収されたため、開き直しました</string>
+    <string name="shelf_picker_no_files">選択したファイルを読み取れませんでした。もう一度選択してください</string>
     <string name="shelf_importing">インポート中</string>
     <plurals name="shelf_import_files_title">
         <item quantity="other">%1$d 件のファイルをインポート</item>
@@ -63,14 +64,11 @@
     <string name="shelf_mode_separate_desc">各ファイルを個別の本にし、章を自動で認識します（ファイル名の章番号でも並べ替え）。</string>
     <string name="shelf_mode_merge_title">1冊にまとめる</string>
     <string name="shelf_mode_merge_desc">各ファイルを1章にします。ファイル名に「第N章」があるものは章番号で自動的に並べ替えます。</string>
-    <string name="shelf_single_file_hint">ファイル内の「第X章」の見出しを自動で認識して章に分割し、章番号で並べ替えます —— ファイル内の章の順番が乱れていても修正できます。</string>
     <string name="shelf_book_title_label">書名</string>
     <string name="shelf_title_auto_placeholder">空欄の場合は自動生成</string>
     <string name="shelf_chapter_split">章の分割</string>
     <string name="shelf_split_smart_title">スマート解析（推奨）</string>
     <string name="shelf_split_smart_desc">「第X章」が複数あるファイルは複数の章に分割し、1章しかないものは全体を1章として、章番号で自動的に並べ替えます。</string>
-    <string name="shelf_split_in_file_title">ファイル内の章で必ず分割</string>
-    <string name="shelf_split_in_file_desc">各ファイルを内部の「第X章」の見出しで分割します。見出しがない場合は文字数で分割します。</string>
     <string name="shelf_split_per_file_title">各ファイルを1章として扱う</string>
     <string name="shelf_split_per_file_desc">分割せず、ファイル全体を1章とし、章名はファイル名にします。</string>
 
@@ -87,4 +85,20 @@
     <string name="shelf_book_title_example">例：読書ノート</string>
     <string name="shelf_author_optional">著者（任意）</string>
     <string name="shelf_author_placeholder">空欄でも可</string>
+
+    <!-- ==================== 章分割プレビューと分割戦略 ==================== -->
+    <string name="shelf_preview_scanning">章構造を事前スキャン中…</string>
+    <string name="shelf_preview_summary">推定 %1$d 章に分割</string>
+    <string name="shelf_preview_summary_volumes">推定 %1$d 章 · 全 %2$d 巻</string>
+    <string name="shelf_split_strict_chap_title">「第X章/話」のみで分割</string>
+    <string name="shelf_split_strict_chap_desc">標準の「第X章 / 第X話 / Chapter N」のみを認識し、数字や節は無視します</string>
+    <string name="shelf_split_numbered_title">数字・番号見出しで分割</string>
+    <string name="shelf_split_numbered_desc">「1. / 01 / 一、/（1）」および標準の章見出しを認識します</string>
+    <string name="shelf_split_fixed_title">固定文字数で分割</string>
+    <string name="shelf_split_fixed_desc">見出しを無視し、約 1.2 万字ごとに段落の区切りで自動分割します</string>
+    <string name="shelf_split_custom_title">カスタム接頭辞 / 正規表現</string>
+    <string name="shelf_split_custom_desc">この本固有の短い行の接頭辞（例：◆）または正規表現を入力</string>
+    <string name="shelf_split_custom_placeholder">例：◆ または ^第.+章</string>
+    <string name="shelf_clean_watermark_title">タイトルと透かしノイズの除去</string>
+    <string name="shelf_clean_watermark_desc">章タイトル末尾の括弧書きや本文中のサイトURL透かし行を自動で除去します</string>
 </resources>

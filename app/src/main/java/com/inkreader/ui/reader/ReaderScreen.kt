@@ -611,7 +611,16 @@ fun ReaderScreen(
                             selection?.let { session.addHighlight(it.start, it.end, 0, note, asNote = true) }
                             selection = null
                         },
-                        onCancel = { selection = null }
+                        onCancel = { selection = null },
+                        onSplitHere = {
+                            val s = selection ?: return@SelectionBar
+                            selection = null
+                            session.splitCurrentChapterAt(s.start) { ok ->
+                                val msg = if (ok) ctx.getString(R.string.reader_split_done_toast)
+                                else ctx.getString(R.string.reader_split_failed_toast)
+                                android.widget.Toast.makeText(ctx, msg, android.widget.Toast.LENGTH_SHORT).show()
+                            }
+                        }
                     )
                 }
             }

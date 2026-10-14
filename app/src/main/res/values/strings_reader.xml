@@ -36,4 +36,8 @@
     <plurals name="reader_total_chapters">
         <item quantity="other">共 %1$d 章</item>
     </plurals>
+
+    <string name="reader_split_from_here">拆为新章</string>
+    <string name="reader_split_done_toast">已从此处拆分为下一章</string>
+    <string name="reader_split_failed_toast">无法在章节最开头或末尾拆分</string>
 </resources>

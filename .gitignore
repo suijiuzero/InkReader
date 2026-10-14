@@ -23,6 +23,11 @@ local.properties
 keystore.properties
 *.jks
 *.keystore
+*.key
+keystore*
+*.p12
+*.pfx
+keys/
 
 # ---- 系统与运行时杂物 ----
 .DS_Store

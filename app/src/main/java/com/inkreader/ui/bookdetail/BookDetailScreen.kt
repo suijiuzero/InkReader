@@ -13,6 +13,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -27,47 +29,62 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import com.inkreader.AppContainer
+import com.inkreader.MainActivity
 import com.inkreader.R
 import com.inkreader.data.export.BookExporter
 import com.inkreader.data.model.Book
 import com.inkreader.data.model.Chapter
 import com.inkreader.data.model.SplitMode
+import com.inkreader.data.model.SplitOptions
 import com.inkreader.ui.component.BookCover
 import com.inkreader.ui.component.CardShape
 import com.inkreader.ui.component.CoverCache
 import com.inkreader.ui.component.CoverCropDialog
 import com.inkreader.ui.component.InkButton
+import com.inkreader.ui.component.InkDialogShell
 import com.inkreader.ui.component.InkIcon
 import com.inkreader.ui.component.InkIconButton
 import com.inkreader.ui.component.InkLoading
@@ -76,19 +93,20 @@ import com.inkreader.ui.component.InkTextButton
 import com.inkreader.ui.component.InkTextField
 import com.inkreader.ui.component.InkTopBar
 import com.inkreader.ui.component.SectionLabel
-import com.inkreader.ui.component.InkDialogShell
 import com.inkreader.ui.component.dangerColor
 import com.inkreader.ui.theme.InkType
 import com.inkreader.ui.theme.LocalInkPalette
 import kotlinx.coroutines.launch
-import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
+import kotlin.math.roundToInt
 
 /**
  * 书籍详情 / 章节管理。
- * 支持：继续读、改书名作者、调整章节顺序、重命名与删除章节、追加文件成章节、
- * 整本或单章导出为 TXT（写入系统下载目录并弹出系统分享面板）、删书。
+ *
+ * 支持：
+ *  · 长按拖动章节卡片排序（带浮层阴影与首项锚点防跳动）
+ *  · 章节菜单新增「并入上一章 / 并入下一章」（自动平移书签、高亮、笔记的 offset）
+ *  · 右上角菜单新增「整书重新分章」（支持切换策略、自定义前缀/正则与净网去噪，保留全书批注）
  */
 @Composable
 fun BookDetailScreen(
@@ -97,7 +115,6 @@ fun BookDetailScreen(
     onBack: () -> Unit,
     onRead: (Int, Int) -> Unit,
     onEdit: (Long, String) -> Unit,
-    /** 删除整本书之后回书架（一路弹到底，避免落回已删除的书） */
     onGoShelf: () -> Unit = onBack
 ) {
     val p = LocalInkPalette.current
@@ -109,6 +126,17 @@ fun BookDetailScreen(
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
 
+    // 长按拖动排序：正在拖的章节、拖动开始时的顺序、手指在列表内的绝对 Y、按下时手指落在卡片内的高度（像素）
+    var dragChapterId by remember { mutableStateOf<Long?>(null) }
+    var dragStartIds by remember { mutableStateOf<List<Long>>(emptyList()) }
+    var dragFingerY by remember { mutableFloatStateOf(0f) }
+    var dragGrab by remember { mutableFloatStateOf(0f) }
+    /** 换位后的滚动锚点修复是否正在跑（一次只允许一个，别和边缘自动滚打架） */
+    var anchorFixInFlight by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val dragEdgeZone = with(LocalDensity.current) { 72.dp.toPx() }
+    val dragMaxSpeed = with(LocalDensity.current) { 15.dp.toPx() }
+
     var editingInfo by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Chapter?>(null) }
     var deleting by remember { mutableStateOf<Chapter?>(null) }
@@ -117,6 +145,7 @@ fun BookDetailScreen(
     var newChapterTitle by remember { mutableStateOf("") }
     var showNewChapter by remember { mutableStateOf(false) }
     var showAutoSort by remember { mutableStateOf(false) }
+    var showResplitDialog by remember { mutableStateOf(false) }
 
     // 导出
     var exporting by remember { mutableStateOf(false) }
@@ -133,17 +162,104 @@ fun BookDetailScreen(
     }
     LaunchedEffect(bookId) { reload() }
 
-    // 追加文件：选完文件后先问「怎么划分章节」，再真正导入
+    fun endChapterDrag() {
+        val moved = dragChapterId
+        dragChapterId = null
+        dragFingerY = 0f
+        dragGrab = 0f
+        if (moved == null) return
+        val ids = chapters.map { it.id }
+        if (ids == dragStartIds) return
+        scope.launch {
+            container.repo.reorderChapters(bookId, ids)
+            chapters = container.repo.chapters(bookId)
+            book = container.repo.book(bookId)
+        }
+    }
+
+    fun dragHitTest() {
+        val moved = dragChapterId ?: return
+        val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+            val key = info.key
+            key is Long && key != moved &&
+                dragFingerY >= info.offset && dragFingerY <= info.offset + info.size
+        } ?: return
+        val list = chapters.toMutableList()
+        val from = list.indexOfFirst { it.id == moved }
+        val to = list.indexOfFirst { it.id == target.key }
+        if (from < 0 || to < 0 || from == to) return
+        // 换位前先记住「可视区第一行是谁、离视口顶多远」。换位后 LazyColumn 会按 key 重新定位，
+        // 第一行若正好是被换走的章，画面会跳一下 —— 要用 **key** 找回它的新下标再滚回原位置；
+        // 用下标去锚是错的：换完之后那个下标已经是别的章了。
+        val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull()
+        val anchorId = visible?.key as? Long
+        val anchorOffset = listState.firstVisibleItemScrollOffset
+        val anchorChapterIndex = if (anchorId != null) list.indexOfFirst { it.id == anchorId } else -1
+        // 章列表前面还有若干个头部 item，换算回 LazyColumn 的下标时要补上
+        val headerCount = if (visible != null && anchorChapterIndex >= 0) visible.index - anchorChapterIndex else 0
+        list.add(to, list.removeAt(from))
+        chapters = list
+        // 一次只跑一个锚点修复：拖动帧循环里每帧都会调到这里，
+        // 并发发起 scrollToItem 会和边缘自动滚的 scrollBy 互相取消。
+        if (anchorId != null && !anchorFixInFlight) {
+            val newChapterIndex = list.indexOfFirst { it.id == anchorId }
+            if (newChapterIndex >= 0) {
+                anchorFixInFlight = true
+                scope.launch {
+                    runCatching { listState.scrollToItem(headerCount + newChapterIndex, anchorOffset) }
+                    anchorFixInFlight = false
+                }
+            }
+        }
+    }
+
+    fun dragEdgeScrollSpeed(): Float {
+        if (dragChapterId == null) return 0f
+        val viewportH = listState.layoutInfo.viewportSize.height.toFloat()
+        if (viewportH <= 0f || dragEdgeZone <= 0f) return 0f
+        val bottomZoneStart = viewportH - dragEdgeZone
+        return when {
+            dragFingerY < dragEdgeZone ->
+                -(dragEdgeZone - dragFingerY) / dragEdgeZone * dragMaxSpeed
+
+            dragFingerY > bottomZoneStart ->
+                (dragFingerY - bottomZoneStart) / dragEdgeZone * dragMaxSpeed
+
+            else -> 0f
+        }
+    }
+
+    LaunchedEffect(dragChapterId) {
+        while (dragChapterId != null) {
+            withFrameNanos { }
+            val speed = dragEdgeScrollSpeed()
+            if (speed != 0f) listState.scrollBy(speed)
+            dragHitTest()
+        }
+    }
+
+    // 追加文件：支持 MainActivity 级固定请求码返回与本地 fallback
     var appendUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var showAppendDialog by remember { mutableStateOf(false) }
     var appendSplit by remember { mutableStateOf(SplitMode.SMART) }
 
     val appendPicker = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenMultipleDocuments()
-    ) { uris: List<Uri> ->
-        if (uris.isEmpty()) return@rememberLauncherForActivityResult
-        appendUris = uris
-        showAppendDialog = true
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        val uris = lenientPickedUris(result.data)
+        if (uris.isNotEmpty()) {
+            appendUris = uris
+            showAppendDialog = true
+        }
+    }
+
+    LaunchedEffect(container.pendingAppendUris) {
+        val pend = container.pendingAppendUris
+        if (pend.isNotEmpty()) {
+            container.pendingAppendUris = emptyList()
+            appendUris = pend
+            showAppendDialog = true
+        }
     }
 
     // 导入封面：选图 → 裁切 → 只把裁切结果存进应用私有目录
@@ -151,7 +267,6 @@ fun BookDetailScreen(
     val coverPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        // 同样不看 resultCode，只要 data 里有图就认（部分 ROM 会回非 OK）
         val uri = lenientPickedUris(result.data).firstOrNull()
         if (uri != null) {
             scope.launch {
@@ -162,6 +277,46 @@ fun BookDetailScreen(
                     coverSource = bmp
                 }
             }
+        }
+    }
+
+    LaunchedEffect(container.pendingCoverUri) {
+        val uri = container.pendingCoverUri ?: return@LaunchedEffect
+        container.pendingCoverUri = null
+        val bmp = container.repo.decodeCoverSource(uri)
+        if (bmp == null) {
+            Toast.makeText(ctx, ctx.getString(R.string.detail_cover_unreadable), Toast.LENGTH_LONG).show()
+        } else {
+            coverSource = bmp
+        }
+    }
+
+    fun launchAppendPicker() {
+        val act = container.docPickerLauncher
+        if (act != null) {
+            act(MainActivity.REQ_PICK_APPEND, "*/*", true, null)
+        } else {
+            appendPicker.launch(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "*/*"
+                    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                }
+            )
+        }
+    }
+
+    fun launchCoverPicker() {
+        val act = container.docPickerLauncher
+        if (act != null) {
+            act(MainActivity.REQ_PICK_COVER, "image/*", false, null)
+        } else {
+            coverPicker.launch(
+                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                    addCategory(Intent.CATEGORY_OPENABLE)
+                    type = "image/*"
+                }
+            )
         }
     }
 
@@ -190,7 +345,6 @@ fun BookDetailScreen(
         }
     }
 
-    /** 真正执行导出：写入下载目录 + 弹出系统分享面板 */
     fun runExport(targets: List<Chapter>, includeHeader: Boolean) {
         val b = book ?: return
         if (targets.isEmpty()) return
@@ -236,7 +390,6 @@ fun BookDetailScreen(
         }
     }
 
-    // API ≤ 28 写公共下载目录需要存储权限；不给也照样导出，只是不落下载目录
     val permLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { _ ->
@@ -261,231 +414,317 @@ fun BookDetailScreen(
 
     Box(Modifier.fillMaxSize().background(p.background)) {
         Column(Modifier.fillMaxSize()) {
-        val subtitleText = book?.let {
-            stringResource(
-                R.string.detail_subtitle,
-                it.title,
-                pluralStringResource(R.plurals.plural_chapters, it.totalChapters, it.totalChapters),
-                formatChars(ctx, it.totalChars)
-            )
-        }
-        InkTopBar(
-            title = stringResource(R.string.detail_chapter_management),
-            subtitle = subtitleText,
-            onBack = {
-                container.library.refresh()
-                onBack()
-            },
-            actions = {
-                Box {
-                    InkIconButton(
-                        R.drawable.ic_more,
-                        stringResource(R.string.action_more),
-                        { showMore = true },
-                        tint = p.textPrimary
-                    )
-                    DropdownMenu(
-                        expanded = showMore,
-                        onDismissRequest = { showMore = false },
-                        containerColor = p.surfaceHigh,
-                        tonalElevation = 0.dp
-                    ) {
-                        MenuRow(R.drawable.ic_share, stringResource(R.string.detail_export_whole_txt)) {
-                            showMore = false
-                            startExport(chapters, includeHeader = true)
-                        }
-                        MenuRow(R.drawable.ic_page, stringResource(R.string.detail_export_single_chapter)) {
-                            showMore = false
-                            showChapterPicker = true
-                        }
-                        MenuRow(R.drawable.ic_edit, stringResource(R.string.detail_edit_title_author)) { showMore = false; editingInfo = true }
-                        MenuRow(R.drawable.ic_import, stringResource(R.string.detail_append_files_as_chapters)) { showMore = false; appendPicker.launch(arrayOf("*/*")) }
-                        MenuRow(R.drawable.ic_page, stringResource(R.string.detail_import_cover)) {
-                            showMore = false
-                            coverPicker.launch(
-                                Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-                                    addCategory(Intent.CATEGORY_OPENABLE)
-                                    type = "image/*"
-                                }
-                            )
-                        }
-                        if ((book?.coverPath ?: "").isNotBlank()) {
-                            MenuRow(R.drawable.ic_theme, stringResource(R.string.detail_restore_default_cover)) {
+            val subtitleText = book?.let {
+                stringResource(
+                    R.string.detail_subtitle,
+                    it.title,
+                    pluralStringResource(R.plurals.plural_chapters, it.totalChapters, it.totalChapters),
+                    formatChars(ctx, it.totalChars)
+                )
+            }
+            InkTopBar(
+                title = stringResource(R.string.detail_chapter_management),
+                subtitle = subtitleText,
+                onBack = {
+                    container.library.refresh()
+                    onBack()
+                },
+                actions = {
+                    Box {
+                        InkIconButton(
+                            R.drawable.ic_more,
+                            stringResource(R.string.action_more),
+                            { showMore = true },
+                            tint = p.textPrimary
+                        )
+                        DropdownMenu(
+                            expanded = showMore,
+                            onDismissRequest = { showMore = false },
+                            containerColor = p.surfaceHigh,
+                            tonalElevation = 0.dp
+                        ) {
+                            MenuRow(R.drawable.ic_share, stringResource(R.string.detail_export_whole_txt)) {
                                 showMore = false
-                                scope.launch {
-                                    container.repo.clearCover(bookId)
-                                    CoverCache.invalidate()
-                                    container.library.refresh()
-                                    reload()
-                                    Toast.makeText(ctx, ctx.getString(R.string.detail_cover_restored), Toast.LENGTH_SHORT).show()
+                                startExport(chapters, includeHeader = true)
+                            }
+                            MenuRow(R.drawable.ic_page, stringResource(R.string.detail_export_single_chapter)) {
+                                showMore = false
+                                showChapterPicker = true
+                            }
+                            MenuRow(R.drawable.ic_edit, stringResource(R.string.detail_edit_title_author)) {
+                                showMore = false; editingInfo = true
+                            }
+                            MenuRow(R.drawable.ic_import, stringResource(R.string.detail_append_files_as_chapters)) {
+                                showMore = false; launchAppendPicker()
+                            }
+                            MenuRow(R.drawable.ic_page, stringResource(R.string.detail_import_cover)) {
+                                showMore = false; launchCoverPicker()
+                            }
+                            if ((book?.coverPath ?: "").isNotBlank()) {
+                                MenuRow(R.drawable.ic_theme, stringResource(R.string.detail_restore_default_cover)) {
+                                    showMore = false
+                                    scope.launch {
+                                        container.repo.clearCover(bookId)
+                                        CoverCache.invalidate()
+                                        container.library.refresh()
+                                        reload()
+                                        Toast.makeText(ctx, ctx.getString(R.string.detail_cover_restored), Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
-                        }
-                        MenuRow(R.drawable.ic_add, stringResource(R.string.detail_new_blank_chapter)) { showMore = false; showNewChapter = true }
-                        MenuRow(R.drawable.ic_sort, stringResource(R.string.detail_auto_sort_chapters)) { showMore = false; showAutoSort = true }
-                        MenuRow(R.drawable.ic_delete, stringResource(R.string.detail_delete_whole_book), danger = true) {
-                            showMore = false; confirmDeleteBook = true
+                            MenuRow(R.drawable.ic_add, stringResource(R.string.detail_new_blank_chapter)) {
+                                showMore = false; showNewChapter = true
+                            }
+                            MenuRow(R.drawable.ic_toc, stringResource(R.string.detail_resplit_book)) {
+                                showMore = false; showResplitDialog = true
+                            }
+                            MenuRow(R.drawable.ic_sort, stringResource(R.string.detail_auto_sort_chapters)) {
+                                showMore = false; showAutoSort = true
+                            }
+                            MenuRow(R.drawable.ic_delete, stringResource(R.string.detail_delete_whole_book), danger = true) {
+                                showMore = false; confirmDeleteBook = true
+                            }
                         }
                     }
                 }
-            }
-        )
+            )
 
-        when {
-            loading -> InkLoading()
-            book == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Text(stringResource(R.string.detail_book_not_found), style = InkType.UiLabel, color = p.textFaint)
-            }
+            when {
+                loading -> InkLoading()
+                book == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    Text(stringResource(R.string.detail_book_not_found), style = InkType.UiLabel, color = p.textFaint)
+                }
 
-            else -> {
-                val b = book!!
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(
-                        start = 20.dp,
-                        end = 20.dp,
-                        top = 4.dp,
-                        bottom = bottomPad + 28.dp
-                    ),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    item {
-                        // 概览卡片
-                        Column(
-                            Modifier
-                                .fillMaxWidth()
-                                .clip(CardShape)
-                                .background(p.surface)
-                                .border(1.dp, p.divider, CardShape)
-                                .padding(16.dp)
-                        ) {
-                            Row(Modifier.fillMaxWidth()) {
-                                BookCover(
-                                    book = b,
-                                    modifier = Modifier.width(96.dp).aspectRatio(0.70f)
-                                )
-                                Spacer(Modifier.width(16.dp))
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        text = b.title,
-                                        fontFamily = FontFamily.SansSerif,
-                                        fontWeight = FontWeight.SemiBold,
-                                        fontSize = 18.sp,
-                                        lineHeight = 25.sp,
-                                        color = p.textPrimary,
-                                        maxLines = 2,
-                                        overflow = TextOverflow.Ellipsis
+                else -> {
+                    val b = book!!
+                    Box(Modifier.fillMaxSize()) {
+                        LazyColumn(
+                            state = listState,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .pointerInput(Unit) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = { pos ->
+                                            val hit = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                                                val key = info.key
+                                                key is Long && pos.y >= info.offset && pos.y <= info.offset + info.size
+                                            } ?: return@detectDragGesturesAfterLongPress
+                                            dragChapterId = hit.key as Long
+                                            dragStartIds = chapters.map { it.id }
+                                            dragFingerY = pos.y
+                                            dragGrab = pos.y - hit.offset
+                                        },
+                                        onDrag = { change, amount ->
+                                            if (dragChapterId == null) return@detectDragGesturesAfterLongPress
+                                            change.consume()
+                                            dragFingerY += amount.y
+                                            dragHitTest()
+                                        },
+                                        onDragEnd = { endChapterDrag() },
+                                        onDragCancel = { endChapterDrag() }
                                     )
-                                    if (b.author.isNotBlank()) {
-                                        Spacer(Modifier.height(4.dp))
-                                        Text(
-                                            text = b.author,
-                                            style = InkType.Caption.copy(fontSize = 12.sp),
-                                            color = p.textSecondary
+                                },
+                            userScrollEnabled = dragChapterId == null,
+                            contentPadding = PaddingValues(
+                                start = 20.dp,
+                                end = 20.dp,
+                                top = 4.dp,
+                                bottom = bottomPad + 28.dp
+                            ),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            item {
+                                Column(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .clip(CardShape)
+                                        .background(p.surface)
+                                        .border(1.dp, p.divider, CardShape)
+                                        .padding(16.dp)
+                                ) {
+                                    Row(Modifier.fillMaxWidth()) {
+                                        BookCover(
+                                            book = b,
+                                            modifier = Modifier.width(96.dp).aspectRatio(0.70f)
+                                        )
+                                        Spacer(Modifier.width(16.dp))
+                                        Column(Modifier.weight(1f)) {
+                                            Text(
+                                                text = b.title,
+                                                fontFamily = FontFamily.SansSerif,
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 18.sp,
+                                                lineHeight = 25.sp,
+                                                color = p.textPrimary,
+                                                maxLines = 2,
+                                                overflow = TextOverflow.Ellipsis
+                                            )
+                                            if (b.author.isNotBlank()) {
+                                                Spacer(Modifier.height(4.dp))
+                                                Text(
+                                                    text = b.author,
+                                                    style = InkType.Caption.copy(fontSize = 12.sp),
+                                                    color = p.textSecondary
+                                                )
+                                            }
+                                            Spacer(Modifier.height(8.dp))
+                                            Text(
+                                                text = typeLabel(ctx, b) + "  ·  " + formatChars(ctx, b.totalChars),
+                                                style = InkType.Caption.copy(fontSize = 11.sp),
+                                                color = p.textFaint
+                                            )
+                                            Spacer(Modifier.height(12.dp))
+                                            InkProgress(b.displayProgress, Modifier.fillMaxWidth())
+                                            Spacer(Modifier.height(6.dp))
+                                            Text(
+                                                text = stringResource(
+                                                    R.string.label_read_percent,
+                                                    (b.displayProgress * 100).toInt()
+                                                ),
+                                                style = InkType.Caption.copy(
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Medium
+                                                ),
+                                                color = p.accent
+                                            )
+                                        }
+                                    }
+                                    Spacer(Modifier.height(16.dp))
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                        InkButton(
+                                            text = if (b.displayProgress > 0f) stringResource(R.string.detail_continue_reading) else stringResource(R.string.detail_start_reading),
+                                            onClick = { onRead(b.lastChapterIndex, b.lastCharOffset) },
+                                            iconRes = R.drawable.ic_book,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        InkButton(
+                                            text = stringResource(R.string.detail_read_from_start),
+                                            onClick = { onRead(0, 0) },
+                                            filled = false,
+                                            modifier = Modifier.weight(1f)
                                         )
                                     }
-                                    Spacer(Modifier.height(8.dp))
+                                }
+                            }
+
+                            item {
+                                Row(
+                                    Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    SectionLabel(stringResource(R.string.detail_chapters_count, chapters.size), Modifier.weight(1f))
                                     Text(
-                                        text = typeLabel(ctx, b) + "  ·  " + formatChars(ctx, b.totalChars),
-                                        style = InkType.Caption.copy(fontSize = 11.sp),
+                                        text = stringResource(R.string.detail_tap_title_to_read),
+                                        style = InkType.Caption.copy(fontSize = 10.5.sp),
                                         color = p.textFaint
                                     )
-                                    Spacer(Modifier.height(12.dp))
-                                    InkProgress(b.displayProgress, Modifier.fillMaxWidth())
-                                    Spacer(Modifier.height(6.dp))
-                                    Text(
-                                        text = stringResource(
-                                            R.string.label_read_percent,
-                                            (b.displayProgress * 100).toInt()
-                                        ),
-                                        style = InkType.Caption.copy(
-                                            fontSize = 11.sp,
-                                            fontWeight = FontWeight.Medium
-                                        ),
-                                        color = p.accent
-                                    )
                                 }
                             }
-                            Spacer(Modifier.height(16.dp))
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                InkButton(
-                                    text = if (b.displayProgress > 0f) stringResource(R.string.detail_continue_reading) else stringResource(R.string.detail_start_reading),
-                                    onClick = { onRead(b.lastChapterIndex, b.lastCharOffset) },
-                                    iconRes = R.drawable.ic_book,
-                                    modifier = Modifier.weight(1f)
+
+                            itemsIndexed(chapters, key = { _, c -> c.id }) { i, c ->
+                                val dragging = dragChapterId == c.id
+                                ChapterCard(
+                                    index = i,
+                                    chapter = c,
+                                    isFirst = i == 0,
+                                    isLast = i == chapters.lastIndex,
+                                    isCurrent = i == b.lastChapterIndex,
+                                    busy = busy,
+                                    onOpen = { onRead(i, 0) },
+                                    onMove = { delta ->
+                                        busy = true
+                                        scope.launch {
+                                            container.repo.moveChapter(bookId, c.id, delta)
+                                            chapters = container.repo.chapters(bookId)
+                                            book = container.repo.book(bookId)
+                                            busy = false
+                                        }
+                                    },
+                                    onMergePrev = {
+                                        busy = true
+                                        scope.launch {
+                                            val ok = container.repo.mergeChapterWithPrev(bookId, c.id)
+                                            chapters = container.repo.chapters(bookId)
+                                            book = container.repo.book(bookId)
+                                            container.library.refresh()
+                                            busy = false
+                                            if (ok) {
+                                                Toast.makeText(ctx, ctx.getString(R.string.detail_merged_prev_toast), Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    onMergeNext = {
+                                        busy = true
+                                        scope.launch {
+                                            val ok = container.repo.mergeChapterWithNext(bookId, c.id)
+                                            chapters = container.repo.chapters(bookId)
+                                            book = container.repo.book(bookId)
+                                            container.library.refresh()
+                                            busy = false
+                                            if (ok) {
+                                                Toast.makeText(ctx, ctx.getString(R.string.detail_merged_next_toast), Toast.LENGTH_SHORT).show()
+                                            }
+                                        }
+                                    },
+                                    onRename = { renaming = c },
+                                    onEditContent = { onEdit(c.id, c.title) },
+                                    onExport = { startExport(listOf(c), includeHeader = false) },
+                                    onDelete = { deleting = c },
+                                    modifier = if (dragging) Modifier.graphicsLayer { alpha = 0f } else Modifier
                                 )
-                                InkButton(
-                                    text = stringResource(R.string.detail_read_from_start),
-                                    onClick = { onRead(0, 0) },
-                                    filled = false,
-                                    modifier = Modifier.weight(1f)
+                            }
+                        }
+
+                        // 跟手的浮层卡片
+                        val draggedId = dragChapterId
+                        if (draggedId != null) {
+                            val dragIndex = chapters.indexOfFirst { it.id == draggedId }
+                            if (dragIndex >= 0) {
+                                ChapterCard(
+                                    index = dragIndex,
+                                    chapter = chapters[dragIndex],
+                                    isFirst = dragIndex == 0,
+                                    isLast = dragIndex == chapters.lastIndex,
+                                    isCurrent = dragIndex == b.lastChapterIndex,
+                                    busy = busy,
+                                    onOpen = {},
+                                    onMove = {},
+                                    onMergePrev = {},
+                                    onMergeNext = {},
+                                    onRename = {},
+                                    onEditContent = {},
+                                    onExport = {},
+                                    onDelete = {},
+                                    modifier = Modifier
+                                        .padding(horizontal = 20.dp)
+                                        .offset { IntOffset(0, (dragFingerY - dragGrab).roundToInt()) }
+                                        .shadow(10.dp, CardShape)
                                 )
                             }
                         }
                     }
-
-                    item {
-                        Row(
-                            Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 2.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            SectionLabel(stringResource(R.string.detail_chapters_count, chapters.size), Modifier.weight(1f))
-                            Text(
-                                text = stringResource(R.string.detail_tap_title_to_read),
-                                style = InkType.Caption.copy(fontSize = 10.5.sp),
-                                color = p.textFaint
-                            )
-                        }
-                    }
-
-                    itemsIndexed(chapters, key = { _, c -> c.id }) { i, c ->
-                        ChapterCard(
-                            index = i,
-                            chapter = c,
-                            isFirst = i == 0,
-                            isLast = i == chapters.lastIndex,
-                            isCurrent = i == b.lastChapterIndex,
-                            busy = busy,
-                            onOpen = { onRead(i, 0) },
-                            onMove = { delta ->
-                                busy = true
-                                scope.launch {
-                                    container.repo.moveChapter(bookId, c.id, delta)
-                                    chapters = container.repo.chapters(bookId)
-                                    book = container.repo.book(bookId)
-                                    busy = false
-                                }
-                            },
-                            onRename = { renaming = c },
-                            onEditContent = { onEdit(c.id, c.title) },
-                            onExport = { startExport(listOf(c), includeHeader = false) },
-                            onDelete = { deleting = c }
-                        )
-                    }
                 }
             }
         }
+
+        // 封面裁切浮层
+        coverSource?.let { bmp ->
+            CoverCropDialog(
+                source = bmp,
+                onCancel = { coverSource = null },
+                onConfirm = { bytes ->
+                    coverSource = null
+                    scope.launch {
+                        container.repo.saveCover(bookId, bytes)
+                        CoverCache.invalidate()
+                        container.library.refresh()
+                        reload()
+                        Toast.makeText(ctx, ctx.getString(R.string.detail_cover_updated), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
         }
 
-    // 封面裁切浮层
-    coverSource?.let { bmp ->
-        CoverCropDialog(
-            source = bmp,
-            onCancel = { coverSource = null },
-            onConfirm = { bytes ->
-                coverSource = null
-                scope.launch {
-                    container.repo.saveCover(bookId, bytes)
-                    CoverCache.invalidate()
-                    container.library.refresh()
-                    reload()
-                    Toast.makeText(ctx, ctx.getString(R.string.detail_cover_updated), Toast.LENGTH_SHORT).show()
-                }
-            }
-        )
-    }
-
-    // 导出进行中：覆盖在内容之上
         if (exporting) {
             Box(
                 Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
@@ -628,8 +867,6 @@ fun BookDetailScreen(
             confirmButton = {
                 InkTextButton(stringResource(R.string.action_delete), color = dangerColor()) {
                     confirmDeleteBook = false
-                    // 删完直接回书架（不是只弹一层）：这本书可能是从阅读器进来的，
-                    // 只弹一层会落回那本已被删掉的书上，阅读器就会一直转圈。
                     container.library.delete(bookId)
                     onGoShelf()
                 }
@@ -640,7 +877,6 @@ fun BookDetailScreen(
         )
     }
 
-    // 单章导出：挑一章
     if (showChapterPicker) {
         InkDialogShell(onDismiss = { showChapterPicker = false }, title = stringResource(R.string.detail_select_chapter_export)) {
             Text(
@@ -772,7 +1008,152 @@ fun BookDetailScreen(
             }
         }
     }
-    // 自动排序：按章节标题里的「第N章」重排整本
+
+    // 整书重新分章弹窗
+    if (showResplitDialog) {
+        var resplitMode by remember { mutableStateOf(SplitMode.SMART) }
+        var customPattern by remember { mutableStateOf("") }
+        var cleanWatermark by remember { mutableStateOf(true) }
+
+        InkDialogShell(
+            onDismiss = { showResplitDialog = false },
+            title = stringResource(R.string.detail_resplit_book),
+            buttons = {
+                Row(horizontalArrangement = Arrangement.End) {
+                    InkTextButton(stringResource(R.string.action_cancel), color = p.textSecondary) {
+                        showResplitDialog = false
+                    }
+                    InkTextButton(stringResource(R.string.detail_resplit_confirm)) {
+                        showResplitDialog = false
+                        busy = true
+                        scope.launch {
+                            // 兜住异常：失败要么是「书太大」（仓库返回 -1），要么是仓库抛错，
+                            // 两种都不能让 busy 卡住，也不能把异常漏到没有处理器的 Main 作用域里
+                            val count = runCatching {
+                                container.repo.resplitBook(
+                                    bookId,
+                                    SplitOptions(
+                                        mode = resplitMode,
+                                        cleanWatermark = cleanWatermark,
+                                        customPattern = customPattern.trim()
+                                    )
+                                )
+                            }.getOrElse { e ->
+                                busy = false
+                                Toast.makeText(
+                                    ctx,
+                                    ctx.getString(
+                                        R.string.detail_resplit_failed,
+                                        e.message ?: ctx.getString(R.string.action_unknown_error)
+                                    ),
+                                    Toast.LENGTH_LONG
+                                ).show()
+                                return@launch
+                            }
+                            reload()
+                            container.library.refresh()
+                            busy = false
+                            Toast.makeText(
+                                ctx,
+                                if (count < 0) {
+                                    ctx.getString(R.string.detail_resplit_too_large)
+                                } else {
+                                    ctx.getString(R.string.detail_resplit_done_toast, count)
+                                },
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                    }
+                }
+            }
+        ) {
+            Text(
+                text = stringResource(R.string.detail_resplit_desc),
+                style = InkType.Caption.copy(fontSize = 12.sp),
+                color = p.textSecondary,
+                lineHeight = 18.sp
+            )
+            Spacer(Modifier.height(14.dp))
+            AppendChoice(
+                checked = resplitMode == SplitMode.SMART,
+                title = stringResource(R.string.shelf_split_smart_title),
+                desc = stringResource(R.string.shelf_split_smart_desc)
+            ) { resplitMode = SplitMode.SMART }
+            Spacer(Modifier.height(8.dp))
+            AppendChoice(
+                checked = resplitMode == SplitMode.STRICT_CHAP,
+                title = stringResource(R.string.shelf_split_strict_chap_title),
+                desc = stringResource(R.string.shelf_split_strict_chap_desc)
+            ) { resplitMode = SplitMode.STRICT_CHAP }
+            Spacer(Modifier.height(8.dp))
+            AppendChoice(
+                checked = resplitMode == SplitMode.NUMBERED,
+                title = stringResource(R.string.shelf_split_numbered_title),
+                desc = stringResource(R.string.shelf_split_numbered_desc)
+            ) { resplitMode = SplitMode.NUMBERED }
+            Spacer(Modifier.height(8.dp))
+            AppendChoice(
+                checked = resplitMode == SplitMode.FIXED_SIZE,
+                title = stringResource(R.string.shelf_split_fixed_title),
+                desc = stringResource(R.string.shelf_split_fixed_desc)
+            ) { resplitMode = SplitMode.FIXED_SIZE }
+            Spacer(Modifier.height(8.dp))
+            AppendChoice(
+                checked = resplitMode == SplitMode.CUSTOM,
+                title = stringResource(R.string.shelf_split_custom_title),
+                desc = stringResource(R.string.shelf_split_custom_desc)
+            ) { resplitMode = SplitMode.CUSTOM }
+
+            if (resplitMode == SplitMode.CUSTOM) {
+                Spacer(Modifier.height(8.dp))
+                InkTextField(
+                    value = customPattern,
+                    onValueChange = { customPattern = it },
+                    placeholder = stringResource(R.string.shelf_split_custom_placeholder)
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(p.background)
+                    .border(1.dp, p.divider, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        text = stringResource(R.string.shelf_clean_watermark_title),
+                        fontFamily = FontFamily.SansSerif,
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.5.sp,
+                        color = p.textPrimary
+                    )
+                    Spacer(Modifier.height(2.dp))
+                    Text(
+                        text = stringResource(R.string.shelf_clean_watermark_desc),
+                        style = InkType.Caption.copy(fontSize = 11.sp),
+                        color = p.textFaint
+                    )
+                }
+                Spacer(Modifier.width(10.dp))
+                Switch(
+                    checked = cleanWatermark,
+                    onCheckedChange = { cleanWatermark = it },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Color.White,
+                        checkedTrackColor = p.accent,
+                        uncheckedThumbColor = p.textFaint,
+                        uncheckedTrackColor = p.background,
+                        uncheckedBorderColor = p.divider
+                    )
+                )
+            }
+        }
+    }
+
     if (showAutoSort) {
         InkDialogShell(onDismiss = { showAutoSort = false }, title = stringResource(R.string.detail_auto_sort_chapters)) {
             Text(
@@ -797,7 +1178,6 @@ fun BookDetailScreen(
     }
 }
 
-/** 从选择器返回的 Intent 里尽力把 Uri 抠出来（不看 resultCode，部分 ROM 不按标准回） */
 private fun lenientPickedUris(data: Intent?): List<Uri> {
     if (data == null) return emptyList()
     val out = LinkedHashSet<Uri>()
@@ -838,10 +1218,13 @@ private fun ChapterCard(
     busy: Boolean,
     onOpen: () -> Unit,
     onMove: (Int) -> Unit,
+    onMergePrev: () -> Unit,
+    onMergeNext: () -> Unit,
     onRename: () -> Unit,
     onEditContent: () -> Unit,
     onExport: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val p = LocalInkPalette.current
     val ctx = LocalContext.current
@@ -850,7 +1233,7 @@ private fun ChapterCard(
         stringResource(R.string.detail_from_source, chapter.sourceName) else null
 
     Row(
-        Modifier
+        modifier
             .fillMaxWidth()
             .clip(CardShape)
             .background(if (isCurrent) p.accentSoft else p.surface)
@@ -871,7 +1254,7 @@ private fun ChapterCard(
                 fontFamily = FontFamily.SansSerif,
                 fontWeight = FontWeight.SemiBold,
                 fontSize = 12.sp,
-                color = if (isCurrent) androidx.compose.ui.graphics.Color.White else p.textSecondary
+                color = if (isCurrent) Color.White else p.textSecondary
             )
         }
         Spacer(Modifier.width(12.dp))
@@ -889,6 +1272,10 @@ private fun ChapterCard(
             Spacer(Modifier.height(2.dp))
             Text(
                 text = buildString {
+                    if (chapter.volume.isNotBlank()) {
+                        append(chapter.volume)
+                        append("  ·  ")
+                    }
                     append(formatChars(ctx, chapter.charCount))
                     if (fromSource != null) append("  ·  $fromSource")
                 },
@@ -916,6 +1303,18 @@ private fun ChapterCard(
                 MenuRow(R.drawable.ic_share, stringResource(R.string.detail_export_this_chapter_txt)) { menu = false; onExport() }
                 MenuRow(R.drawable.ic_edit, stringResource(R.string.detail_edit_content)) { menu = false; onEditContent() }
                 MenuRow(R.drawable.ic_text_size, stringResource(R.string.action_rename)) { menu = false; onRename() }
+                if (!isFirst) {
+                    MenuRow(R.drawable.ic_merge, stringResource(R.string.detail_merge_prev)) {
+                        menu = false
+                        if (!busy) onMergePrev()
+                    }
+                }
+                if (!isLast) {
+                    MenuRow(R.drawable.ic_merge, stringResource(R.string.detail_merge_next)) {
+                        menu = false
+                        if (!busy) onMergeNext()
+                    }
+                }
                 MenuRow(R.drawable.ic_up, stringResource(R.string.detail_move_up)) { menu = false; onMove(-1) }
                 MenuRow(R.drawable.ic_down, stringResource(R.string.detail_move_down)) { menu = false; onMove(1) }
                 MenuRow(R.drawable.ic_delete, stringResource(R.string.detail_delete_this_chapter), danger = true) { menu = false; onDelete() }

@@ -1,19 +1,18 @@
 package com.inkreader.ui.shelf
 
-import android.Manifest
+import android.app.Activity
+import android.content.Context
 import android.content.Intent
 import android.net.Uri
-import android.os.Build
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,6 +39,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.Switch
+import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -63,6 +64,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inkreader.AppContainer
+import com.inkreader.MainActivity
 import com.inkreader.R
 import com.inkreader.data.model.Book
 import com.inkreader.data.model.BookGroup
@@ -70,29 +72,32 @@ import com.inkreader.data.model.ImportMode
 import com.inkreader.data.model.ShelfSort
 import com.inkreader.data.model.ShelfView
 import com.inkreader.data.model.SplitMode
+import com.inkreader.data.model.SplitOptions
+import com.inkreader.data.repo.BookRepository
 import com.inkreader.ui.component.BookCover
 import com.inkreader.ui.component.CardShape
 import com.inkreader.ui.component.EmptyState
 import com.inkreader.ui.component.InkButton
+import com.inkreader.ui.component.buildPickerIntent
+import com.inkreader.ui.component.InkDialogShell
 import com.inkreader.ui.component.InkIcon
 import com.inkreader.ui.component.InkIconButton
 import com.inkreader.ui.component.InkLoading
+import com.inkreader.ui.component.PickerTrace
 import com.inkreader.ui.component.InkProgress
 import com.inkreader.ui.component.InkTextButton
-import com.inkreader.ui.component.InkDialogShell
 import com.inkreader.ui.component.InkTextField
 import com.inkreader.ui.component.InkTopBar
 import com.inkreader.ui.component.SectionLabel
 import com.inkreader.ui.component.dangerColor
 import com.inkreader.ui.theme.InkType
 import com.inkreader.ui.theme.LocalInkPalette
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * 选择器优先展示的 MIME 类型。
- * 这里只影响「默认筛选」，实际能不能导入由解析器决定 ——
- * 所以末尾保留 application/octet-stream 与通配类型，
- * 免得某些 ROM 把 .md / .epub 报成通用二进制而选不中。
  */
 private val SUPPORTED_MIME = arrayOf(
     "text/plain",
@@ -107,28 +112,22 @@ private val SUPPORTED_MIME = arrayOf(
     "*/*"
 )
 
-/** 发起选择器后，超过这个时间才重进 App 就不算「被打断」了 */
-private const val PICKER_RETRY_WINDOW_MS = 5 * 60 * 1000L
-
 private const val TAG = "InkImport"
 
-/** 自己拼 ACTION_OPEN_DOCUMENT 意图 */
-private fun documentPickerIntent(): Intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-    addCategory(Intent.CATEGORY_OPENABLE)
-    type = "*/*"
-    putExtra(Intent.EXTRA_MIME_TYPES, SUPPORTED_MIME)
-    putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
-}
-
 /**
- * 从选择器返回的 Intent 里尽力把 Uri 抠出来。
+ * 「选择器是不是被打断了」的判定宽限期。
  *
- * 这里刻意**不用** `ActivityResultContracts.OpenMultipleDocuments`：它的 parseResult
- * 在 `resultCode != RESULT_OK` 时直接返回空列表，而部分 ROM 的选择器（实测 vivo 自家的
- * 文件管理器选择器）会在用户已经选好文件的情况下回一个非 OK 的 resultCode，
- * 于是 App 拿到空列表就静默什么都不做——用户看到的就是「按了确定却毫无反应」。
- * 所以这里不看 resultCode，只要 data 里有 Uri 就认。
+ * 系统派发 `onActivityResult` 的时机不确定（重建时在 onStart~onResume 之间，也可能更晚），
+ * 所以不能在固定延时后就下结论说「被打断」—— 那样会把刚刚选好的结果冲掉，
+ * 造成「第一次导入失败、第二次才成功」。这段时间里只要结果到了就立刻用结果，
+ * 等满仍没有结果才替用户重开选择器。
  */
+private const val PICKER_RESULT_GRACE_MS = 2500L
+
+/** 兜底 ACTION_OPEN_DOCUMENT 意图：显式走 AOSP 文档选择器，找不到才退回系统默认 */
+private fun documentPickerIntent(ctx: Context): Intent =
+    buildPickerIntent(ctx, mimeType = "*/*", multiple = true, mimeTypes = arrayOf("*/*"), preferAosp = true)
+
 private fun extractPickedUris(data: Intent?): List<Uri> {
     if (data == null) return emptyList()
     val out = LinkedHashSet<Uri>()
@@ -159,8 +158,7 @@ fun ShelfScreen(
     val ctx = LocalContext.current
     val selected = remember { mutableStateListOf<Long>() }
 
-    var showImportPicker by remember { mutableStateOf(false) }
-    var pendingUris by remember { mutableStateOf<List<android.net.Uri>>(emptyList()) }
+    var pendingUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var showImportDialog by remember { mutableStateOf(false) }
     var showNewBookDialog by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -172,92 +170,136 @@ fun ShelfScreen(
     var movingIds by remember { mutableStateOf<List<Long>>(emptyList()) }
     val scope = rememberCoroutineScope()
 
-    val picker = rememberLauncherForActivityResult(
+    // ★ 选文件：**明确指定 AOSP 的文档选择器**（`com.android.documentsui`），
+    //   并沿用「契约托管回调」这条路（`StartActivityForResult`），两者缺一不可：
+    //
+    //   ① 为什么不用 vivo 自家文件管理器：实测这台 vivo，走它时第一次会先弹
+    //      「隐私密码 / 指纹」验证页（属于**另一个任务栈**），平台会把这次 activity result
+    //      判成 CANCELED —— 落盘留痕：
+    //        19:16:49 发起 → 指纹 → 选择器 → 4.93 秒后 res=0 uris=0 data=false   ❌
+    //        19:17:22 发起 → （无密码页）→ 2.39 秒后 res=-1 uris=1 data=true     ✅
+    //      AOSP 的 documentsui 没有这个验证环节，一次就能拿到结果。
+    //   ② 为什么不用手写固定请求码：那种写法在跨任务栈时会丢结果；
+    //      `rememberLauncherForActivityResult` 由 ActivityResultRegistry 托管回调，
+    //      跨任务、Activity 重建都能把结果接住（SJopi / sjapi 就是这么做的，实测可用）。
+    //
+    //   空结果一律按「用户取消」处理，只写一条日志，**绝不自动重开选择器**。
+    val importPicker = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        // 结果回来了（哪怕是取消），标记先清掉，避免下次启动误判成「被打断」
         container.prefs.pickerLaunchedAt = 0L
         container.prefs.pickerRetriedAt = 0L
         val uris = extractPickedUris(result.data)
-        Log.i(TAG, "picker returned: resultCode=${result.resultCode}, uris=${uris.size}")
+        PickerTrace.log(ctx, "importPicker returned res=${result.resultCode} n=${uris.size}")
         if (uris.isEmpty()) {
-            // 用户主动取消；若其实是结果被系统回收，进程已经重启，启动时会自动重开选择器
             container.prefs.pendingImportUris = emptyList()
+            Log.i(TAG, "import picker returned empty (treated as cancel)")
             return@rememberLauncherForActivityResult
         }
-        // 尽力把授权持久化，这样即使进程随即被系统回收，重进 App 也还读得到文件
-        uris.forEach { u ->
-            runCatching {
-                ctx.contentResolver.takePersistableUriPermission(
-                    u, Intent.FLAG_GRANT_READ_URI_PERMISSION
-                )
+        val safe = uris.map { com.inkreader.ui.component.ensureReadableUri(ctx, it) }
+        container.prefs.pendingImportUris = safe.map { it.toString() }
+        container.pendingUris = safe
+    }
+
+    /**
+     * 统一入口：用 AOSP 文档选择器选文件（意图显式指向 documentsui，找不到则退回系统默认）。
+     */
+    fun launchPicker(retry: Boolean = false) {
+        val now = System.currentTimeMillis()
+        container.prefs.pickerLaunchedAt = now
+        container.prefs.pickerRetriedAt = if (retry) now else 0L
+        PickerTrace.log(ctx, "shelf.launchPicker retry=$retry via=aosp")
+        runCatching { importPicker.launch(documentPickerIntent(ctx)) }
+            .onSuccess {
+                PickerTrace.log(ctx, "shelf.launchPicker aosp launched")
             }
-        }
-        val list = uris.toList()
-        container.prefs.pendingImportUris = list.map { it.toString() }
-        pendingUris = list
-        showImportDialog = true
+            .onFailure { e ->
+                PickerTrace.log(
+                    ctx, "shelf.launchPicker aosp FAILED ${e::class.java.simpleName}: ${e.message}"
+                )
+                container.prefs.pickerLaunchedAt = 0L
+                container.prefs.pickerRetriedAt = 0L
+                Toast.makeText(
+                    ctx,
+                    ctx.getString(
+                        R.string.shelf_picker_open_failed,
+                        e.message ?: ctx.getString(R.string.action_unknown_error)
+                    ),
+                    Toast.LENGTH_LONG
+                ).show()
+            }
     }
 
-    /** 统一入口：先落盘「我要发起选择器了」，再打开系统选择器 */
-    fun launchPicker() {
-        container.prefs.pickerLaunchedAt = System.currentTimeMillis()
-        runCatching { picker.launch(documentPickerIntent()) }.onFailure { e ->
-            container.prefs.pickerLaunchedAt = 0L
-            Toast.makeText(ctx, ctx.getString(R.string.shelf_picker_open_failed, e.message ?: ctx.getString(R.string.action_unknown_error)), Toast.LENGTH_LONG).show()
+    // 观察全局待导入队列（含 MainActivity.onActivityResult 投递的文件与外部「用其他应用打开」的文件）
+    LaunchedEffect(container.pendingUris) {
+        val pend = container.pendingUris
+        if (pend.isNotEmpty()) {
+            PickerTrace.log(ctx, "shelf.pendingUris observed n=${pend.size} -> show dialog")
+            container.pendingUris = emptyList()
+            pendingUris = pend
+            showImportDialog = true
         }
     }
 
-    val permLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
+    // 选择器回来的文件名：`contentResolver.query` 属于 IO，不能放在组合阶段做
+    //（每重组一次就会对每个 URI 重新查一遍，界面会卡）。这里预取一次存下来。
+    var pendingNames by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(pendingUris) {
+        pendingNames = if (pendingUris.isEmpty()) {
+            emptyList()
+        } else {
+            withContext(Dispatchers.IO) { pendingUris.mapNotNull { container.repo.displayName(it) } }
+        }
+    }
 
-    // 启动时的现场恢复：两种情况
-    //  1) 上次选完文件还没导，进程就被回收了 → 把「导入设置框」原样恢复出来
-    //  2) 上次刚点开选择器就被回收 → 结果永远不会回来，替用户重新打开一次
+    // 启动时的现场恢复：三种情况
+    //  1) 上次刚点开选择器就被回收 → 结果永远不会回来，替用户重开一次；
+    //  2) 上次选好了文件但还没点开始导入 → 把导入设置框原样恢复出来；
+    //  「是否被打断」由 MainActivity 在 onCreate 里读标记后给出（见 AppContainer.docPickerInterrupted），
+    //  所以陈留的标记不会再在每次启动时误判。
+    //
+    // ⚠ 这里**不能**用「固定延时之后下结论」：`onActivityResult` 的派发时机由系统决定，
+    //   可能比任何固定延时都晚 —— 一旦先判成「被打断」并重开选择器，刚刚选好的结果就被冲掉了，
+    //   表现就是「第一次导入失败、第二次才成功」。所以改成：只要结果到了就立刻收工；
+    //   在宽限期内轮询等待，确认等不到才重开。
     LaunchedEffect(Unit) {
-        val launchedAt = container.prefs.pickerLaunchedAt
-        container.prefs.pickerLaunchedAt = 0L
-
+        com.inkreader.ui.component.PickerTrace.log(
+            ctx,
+            "shelf.recover start interrupted=${container.docPickerInterrupted} pendingPrefs=${container.prefs.pendingImportUris.size} pendingMem=${container.pendingUris.size} marker=${container.prefs.pickerLaunchedAt}"
+        )
+        // ① 先恢复「选完文件还没导」的现场（这段随时读都安全）
         val resumedUris = container.prefs.pendingImportUris
             .mapNotNull { runCatching { Uri.parse(it) }.getOrNull() }
             .filter { it.scheme == "content" || it.scheme == "file" }
         if (resumedUris.isNotEmpty()) {
             Log.i(TAG, "resume pending import: ${resumedUris.size} file(s)")
+            container.docPickerInterrupted = false
             pendingUris = resumedUris
             showImportDialog = true
             return@LaunchedEffect
         }
 
-        val now = System.currentTimeMillis()
-        val age = now - launchedAt
-        val retriedAt = container.prefs.pickerRetriedAt
-        val interrupted = launchedAt > 0L && age in 1..PICKER_RETRY_WINDOW_MS &&
-            now - retriedAt > PICKER_RETRY_WINDOW_MS
-        if (interrupted) {
-            Log.i(TAG, "picker was interrupted after ${age}ms, reopening")
-            container.prefs.pickerRetriedAt = now
-            Toast.makeText(ctx, ctx.getString(R.string.shelf_picker_reopened), Toast.LENGTH_LONG).show()
-            kotlinx.coroutines.delay(300)
-            launchPicker()
-        }
-    }
+        // ② 消费「被打断」判定（只消费一次，避免之后某次回到书架又误重开选择器）
+        val interrupted = container.docPickerInterrupted
+        container.docPickerInterrupted = false
+        if (!interrupted) return@LaunchedEffect
 
-    // 首次进入时申请通知权限（朗读的后台控制条需要）
-    LaunchedEffect(Unit) {
-        if (Build.VERSION.SDK_INT >= 33) {
-            runCatching { permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+        // ③ 宽限期内轮询：结果随时可能还在路上
+        var waited = 0L
+        while (waited < PICKER_RESULT_GRACE_MS) {
+            if (showImportDialog || container.pendingUris.isNotEmpty()) {
+                Log.i(TAG, "picker result arrived within grace, no reopen")
+                return@LaunchedEffect
+            }
+            kotlinx.coroutines.delay(100)
+            waited += 100
         }
-    }
+        if (showImportDialog || container.pendingUris.isNotEmpty()) return@LaunchedEffect
 
-    // 外部「用其他应用打开 / 分享」进来的文件，随时可能被投递
-    LaunchedEffect(container.pendingUris) {
-        val pend = container.pendingUris
-        if (pend.isNotEmpty()) {
-            container.pendingUris = emptyList()
-            pendingUris = pend
-            showImportDialog = true
-        }
+        Log.i(TAG, "picker was interrupted; reopening once")
+        Toast.makeText(ctx, ctx.getString(R.string.shelf_picker_reopened), Toast.LENGTH_LONG).show()
+        kotlinx.coroutines.delay(300)
+        launchPicker(retry = true)
     }
 
     // 导入结果提示
@@ -387,15 +429,14 @@ fun ShelfScreen(
             }
 
             // 浮动操作
-            androidx.compose.animation.AnimatedVisibility(
-                visible = selected.isEmpty() && lib.books.isNotEmpty(),
-                modifier = Modifier.align(Alignment.BottomEnd)
-            ) {
+            if (selected.isEmpty() && lib.books.isNotEmpty()) {
                 Row(
-                    Modifier.padding(
-                        end = 18.dp,
-                        bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 18.dp
-                    ),
+                    Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(
+                            end = 18.dp,
+                            bottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding() + 18.dp
+                        ),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     FloatingAction(R.drawable.ic_edit, stringResource(R.string.action_new)) { showNewBookDialog = true }
@@ -405,10 +446,8 @@ fun ShelfScreen(
             }
 
             // 多选操作条
-            androidx.compose.animation.AnimatedVisibility(
-                visible = selected.isNotEmpty(),
-                modifier = Modifier.align(Alignment.BottomCenter)
-            ) {
+            if (selected.isNotEmpty()) {
+                Box(Modifier.align(Alignment.BottomCenter)) {
                 SelectionBar(
                     count = selected.size,
                     onClear = { selected.clear() },
@@ -432,6 +471,7 @@ fun ShelfScreen(
                         ids.forEach { lib.delete(it) }
                     }
                 )
+                }
             }
 
             // 导入进度
@@ -443,25 +483,25 @@ fun ShelfScreen(
 
     if (showImportDialog) {
         ImportDialog(
+            container = container,
+            uris = pendingUris,
             fileCount = pendingUris.size,
-            names = pendingUris.mapNotNull { container.repo.displayName(it) },
+            names = pendingNames,
             onDismiss = {
                 showImportDialog = false
                 pendingUris = emptyList()
-                // 用户主动放弃，现场保护也一起清掉
                 container.prefs.pendingImportUris = emptyList()
             },
-            onConfirm = { mode, title, split ->
+            onConfirm = { mode, title, options ->
                 showImportDialog = false
                 val uris = pendingUris
                 pendingUris = emptyList()
                 container.prefs.pendingImportUris = emptyList()
-                lib.import(uris, mode, title, split)
+                lib.import(uris, mode, title, options.mode, options)
             }
         )
     }
 
-    // 批量导入明细：有文件失败时一定要说清楚「哪些成了、哪些没成、为什么」
     if (lib.importReport.isNotEmpty()) {
         ImportReportDialog(
             files = lib.importReport,
@@ -479,7 +519,6 @@ fun ShelfScreen(
         )
     }
 
-    // 新建分组（把选中的书放进去）
     if (showCreateGroup) {
         GroupNameDialog(
             title = stringResource(R.string.shelf_new_group),
@@ -500,7 +539,6 @@ fun ShelfScreen(
         }
     }
 
-    // 移动到分组
     if (showGroupPicker) {
         GroupPickerDialog(
             groups = lib.groups,
@@ -578,7 +616,6 @@ private fun BookGrid(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        // 分组卡片排在书本前面：分组也是一张卡片，尺寸和书卡一致
         items(groups, key = { "g${it.id}" }) { g ->
             GroupCard(group = g, books = groupBooks(g.id)) { onOpenGroup(g.id) }
         }
@@ -619,7 +656,6 @@ private fun BookGrid(
                     }
                 }
                 Column(Modifier.padding(start = 3.dp, end = 3.dp, top = 8.dp, bottom = 3.dp)) {
-                    // 书名只占一行，超出用省略号
                     Text(
                         text = b.title,
                         fontFamily = FontFamily.SansSerif,
@@ -664,7 +700,6 @@ private fun BookList(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        // 列表模式下分组也用一行表示（左侧迷你封面拼图）
         items(groups, key = { "g${it.id}" }) { g ->
             GroupRow(group = g, books = groupBooks(g.id)) { onOpenGroup(g.id) }
         }
@@ -789,7 +824,6 @@ private fun SelectionBar(
             InkTextButton(stringResource(R.string.action_delete), color = dangerColor()) { confirmDelete = true }
         }
         Spacer(Modifier.height(4.dp))
-        // 分组相关操作
         Row(verticalAlignment = Alignment.CenterVertically) {
             InkTextButton(stringResource(R.string.shelf_new_group), color = p.accent) { onNewGroup() }
             InkTextButton(stringResource(R.string.shelf_move_to_group_action), color = p.accent) { onMoveToGroup() }
@@ -871,7 +905,7 @@ private fun ImportOverlay(stage: String, fraction: Float) {
 
 @Composable
 private fun ImportReportDialog(
-    files: List<com.inkreader.data.repo.BookRepository.ImportFileResult>,
+    files: List<BookRepository.ImportFileResult>,
     onDismiss: () -> Unit
 ) {
     val p = LocalInkPalette.current
@@ -953,17 +987,42 @@ private fun ImportReportDialog(
     }
 }
 
+/**
+ * 维度二：增强版导入弹窗 —— 实时预分章预览、切分档位切换、自定义前缀/正则与净网清洗开关。
+ */
 @Composable
 private fun ImportDialog(
+    container: AppContainer,
+    uris: List<Uri>,
     fileCount: Int,
     names: List<String>,
     onDismiss: () -> Unit,
-    onConfirm: (ImportMode, String?, SplitMode) -> Unit
+    onConfirm: (ImportMode, String?, SplitOptions) -> Unit
 ) {
     val p = LocalInkPalette.current
     var mode by remember { mutableStateOf(ImportMode.SEPARATE) }
     var title by remember { mutableStateOf("") }
     var splitMode by remember { mutableStateOf(SplitMode.SMART) }
+    var customPattern by remember { mutableStateOf("") }
+    var cleanWatermark by remember { mutableStateOf(true) }
+
+    var preview by remember { mutableStateOf<BookRepository.ImportPreview?>(null) }
+    var previewLoading by remember { mutableStateOf(false) }
+
+    val currentOptions = remember(splitMode, cleanWatermark, customPattern) {
+        SplitOptions(
+            mode = splitMode,
+            cleanWatermark = cleanWatermark,
+            customPattern = customPattern.trim()
+        )
+    }
+
+    LaunchedEffect(uris, mode, currentOptions) {
+        if (uris.isEmpty()) return@LaunchedEffect
+        previewLoading = true
+        preview = container.repo.previewImport(uris, mode, currentOptions)
+        previewLoading = false
+    }
 
     InkDialogShell(
         onDismiss = onDismiss,
@@ -972,23 +1031,75 @@ private fun ImportDialog(
             Row(horizontalArrangement = Arrangement.End) {
                 InkTextButton(stringResource(R.string.action_cancel), color = p.textSecondary) { onDismiss() }
                 InkTextButton(stringResource(R.string.shelf_start_import)) {
-                    onConfirm(mode, title.takeIf { it.isNotBlank() }, splitMode)
+                    onConfirm(mode, title.takeIf { it.isNotBlank() }, currentOptions)
                 }
             }
         }
     ) {
         if (names.isNotEmpty()) {
             Text(
-                text = names.take(6).joinToString(stringResource(R.string.shelf_file_name_separator)) + if (names.size > 6) stringResource(R.string.shelf_file_names_more) else "",
+                text = names.take(6).joinToString(stringResource(R.string.shelf_file_name_separator)) +
+                    if (names.size > 6) stringResource(R.string.shelf_file_names_more) else "",
                 style = InkType.Caption.copy(fontSize = 11.5.sp),
                 color = p.textFaint,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
             )
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
+        }
+
+        // 实时预分章预览卡片
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(p.background)
+                .border(1.dp, p.divider, RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                InkIcon(R.drawable.ic_toc, null, tint = p.accent, size = 16)
+                Spacer(Modifier.width(8.dp))
+                val pv = preview
+                Text(
+                    text = when {
+                        previewLoading && pv == null -> stringResource(R.string.shelf_preview_scanning)
+                        pv != null && pv.volumeCount > 0 -> stringResource(
+                            R.string.shelf_preview_summary_volumes,
+                            pv.estimatedChapters,
+                            pv.volumeCount
+                        )
+                        pv != null -> stringResource(
+                            R.string.shelf_preview_summary,
+                            pv.estimatedChapters
+                        )
+                        else -> stringResource(R.string.shelf_preview_scanning)
+                    },
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.SemiBold,
+                    fontSize = 13.sp,
+                    color = p.accent,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            val samples = preview?.sampleTitles.orEmpty()
+            if (samples.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                samples.take(3).forEachIndexed { idx, sTitle ->
+                    Text(
+                        text = "${idx + 1}. $sTitle",
+                        style = InkType.Caption.copy(fontSize = 11.5.sp),
+                        color = p.textSecondary,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(vertical = 1.5.dp)
+                    )
+                }
+            }
         }
 
         if (fileCount > 1) {
+            Spacer(Modifier.height(16.dp))
             SectionLabel(stringResource(R.string.shelf_import_mode))
             Spacer(Modifier.height(10.dp))
             ChoiceRow(
@@ -1002,18 +1113,10 @@ private fun ImportDialog(
                 title = stringResource(R.string.shelf_mode_merge_title),
                 desc = stringResource(R.string.shelf_mode_merge_desc)
             ) { mode = ImportMode.MERGE }
-        } else {
-            // 单个文件：不显示导入方式，但排序照样生效，说明一下免得以为不会排
-            Text(
-                text = stringResource(R.string.shelf_single_file_hint),
-                style = InkType.Caption.copy(fontSize = 11.5.sp),
-                color = p.textFaint,
-                lineHeight = 17.sp
-            )
         }
 
-        if (mode == ImportMode.MERGE) {
-            Spacer(Modifier.height(18.dp))
+        if (mode == ImportMode.MERGE && fileCount > 1) {
+            Spacer(Modifier.height(16.dp))
             SectionLabel(stringResource(R.string.shelf_book_title_label))
             Spacer(Modifier.height(9.dp))
             InkTextField(
@@ -1021,26 +1124,96 @@ private fun ImportDialog(
                 onValueChange = { title = it },
                 placeholder = stringResource(R.string.shelf_title_auto_placeholder)
             )
-            Spacer(Modifier.height(18.dp))
-            SectionLabel(stringResource(R.string.shelf_chapter_split))
-            Spacer(Modifier.height(10.dp))
-            ChoiceRow(
-                checked = splitMode == SplitMode.SMART,
-                title = stringResource(R.string.shelf_split_smart_title),
-                desc = stringResource(R.string.shelf_split_smart_desc)
-            ) { splitMode = SplitMode.SMART }
+        }
+
+        Spacer(Modifier.height(16.dp))
+        SectionLabel(stringResource(R.string.shelf_chapter_split))
+        Spacer(Modifier.height(10.dp))
+        ChoiceRow(
+            checked = splitMode == SplitMode.SMART,
+            title = stringResource(R.string.shelf_split_smart_title),
+            desc = stringResource(R.string.shelf_split_smart_desc)
+        ) { splitMode = SplitMode.SMART }
+        Spacer(Modifier.height(8.dp))
+        ChoiceRow(
+            checked = splitMode == SplitMode.STRICT_CHAP,
+            title = stringResource(R.string.shelf_split_strict_chap_title),
+            desc = stringResource(R.string.shelf_split_strict_chap_desc)
+        ) { splitMode = SplitMode.STRICT_CHAP }
+        Spacer(Modifier.height(8.dp))
+        ChoiceRow(
+            checked = splitMode == SplitMode.NUMBERED,
+            title = stringResource(R.string.shelf_split_numbered_title),
+            desc = stringResource(R.string.shelf_split_numbered_desc)
+        ) { splitMode = SplitMode.NUMBERED }
+        Spacer(Modifier.height(8.dp))
+        ChoiceRow(
+            checked = splitMode == SplitMode.FIXED_SIZE,
+            title = stringResource(R.string.shelf_split_fixed_title),
+            desc = stringResource(R.string.shelf_split_fixed_desc)
+        ) { splitMode = SplitMode.FIXED_SIZE }
+        Spacer(Modifier.height(8.dp))
+        ChoiceRow(
+            checked = splitMode == SplitMode.CUSTOM,
+            title = stringResource(R.string.shelf_split_custom_title),
+            desc = stringResource(R.string.shelf_split_custom_desc)
+        ) { splitMode = SplitMode.CUSTOM }
+
+        if (splitMode == SplitMode.CUSTOM) {
             Spacer(Modifier.height(8.dp))
-            ChoiceRow(
-                checked = splitMode == SplitMode.IN_FILE,
-                title = stringResource(R.string.shelf_split_in_file_title),
-                desc = stringResource(R.string.shelf_split_in_file_desc)
-            ) { splitMode = SplitMode.IN_FILE }
+            InkTextField(
+                value = customPattern,
+                onValueChange = { customPattern = it },
+                placeholder = stringResource(R.string.shelf_split_custom_placeholder)
+            )
+        }
+
+        if (fileCount > 1 && mode == ImportMode.MERGE) {
             Spacer(Modifier.height(8.dp))
             ChoiceRow(
                 checked = splitMode == SplitMode.PER_FILE,
                 title = stringResource(R.string.shelf_split_per_file_title),
                 desc = stringResource(R.string.shelf_split_per_file_desc)
             ) { splitMode = SplitMode.PER_FILE }
+        }
+
+        Spacer(Modifier.height(14.dp))
+        Row(
+            Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(12.dp))
+                .background(p.background)
+                .border(1.dp, p.divider, RoundedCornerShape(12.dp))
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.shelf_clean_watermark_title),
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.Medium,
+                    fontSize = 13.5.sp,
+                    color = p.textPrimary
+                )
+                Spacer(Modifier.height(2.dp))
+                Text(
+                    text = stringResource(R.string.shelf_clean_watermark_desc),
+                    style = InkType.Caption.copy(fontSize = 11.sp),
+                    color = p.textFaint
+                )
+            }
+            Spacer(Modifier.width(10.dp))
+            Switch(
+                checked = cleanWatermark,
+                onCheckedChange = { cleanWatermark = it },
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = Color.White,
+                    checkedTrackColor = p.accent,
+                    uncheckedThumbColor = p.textFaint,
+                    uncheckedTrackColor = p.background,
+                    uncheckedBorderColor = p.divider
+                )
+            )
         }
     }
 }

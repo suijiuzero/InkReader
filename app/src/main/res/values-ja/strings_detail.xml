@@ -95,4 +95,16 @@
     <string name="detail_words_yi">%.2f 億字</string>
     <string name="detail_words_wan">%.1f 万字</string>
     <string name="detail_words_ge">%d 字</string>
+
+    <!-- ==================== 章の結合 / 本全体の再分割 ==================== -->
+    <string name="detail_resplit_book">章を再分割…</string>
+    <string name="detail_resplit_desc">本を削除せずに全体を再分割します。既存のしおり・ハイライト・メモは新しい章の対応位置へ自動的に引き継がれます。</string>
+    <string name="detail_resplit_confirm">再分割を開始</string>
+    <string name="detail_resplit_done_toast">%1$d 章に再分割しました（注釈を保持）</string>
+    <string name="detail_resplit_too_large">この本は長すぎるため再分割できません</string>
+    <string name="detail_resplit_failed">再分割に失敗しました：%1$s</string>
+    <string name="detail_merge_prev">前の章に結合</string>
+    <string name="detail_merge_next">次の章に結合</string>
+    <string name="detail_merged_prev_toast">前の章に結合しました（注釈の位置を自動調整）</string>
+    <string name="detail_merged_next_toast">次の章に結合しました（注釈の位置を自動調整）</string>
 </resources>

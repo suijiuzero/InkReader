@@ -34,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
@@ -47,16 +46,16 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlin.math.roundToInt
 import com.inkreader.R
 import com.inkreader.ui.component.InkChip
 import com.inkreader.ui.component.InkIcon
 import com.inkreader.ui.component.InkIconButton
-import com.inkreader.ui.component.InkTextField
 import com.inkreader.ui.component.InkTextButton
+import com.inkreader.ui.component.InkTextField
 import com.inkreader.ui.theme.HighlightColors
 import com.inkreader.ui.theme.InkType
 import com.inkreader.ui.theme.LocalInkPalette
+import kotlin.math.roundToInt
 
 private val BarShape = RoundedCornerShape(bottomStart = 16.dp, bottomEnd = 16.dp)
 private val BarShapeTop = RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)
@@ -93,7 +92,6 @@ fun ReaderTopBar(
                     .clickable { onTitleClick() }
                     .padding(vertical = 4.dp)
             ) {
-                // 主行：第几章 + 章节标题（阅读中最需要知道的信息）
                 Text(
                     text = chapterTitle,
                     fontFamily = FontFamily.SansSerif,
@@ -103,7 +101,6 @@ fun ReaderTopBar(
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
-                // 次行：书名
                 Text(
                     text = bookTitle,
                     style = InkType.Caption.copy(fontSize = 11.sp),
@@ -113,7 +110,6 @@ fun ReaderTopBar(
                 )
             }
             InkIconButton(R.drawable.ic_toc, stringResource(R.string.reader_toc), onToc, tint = p.textSecondary)
-            // 三点：直接进章节管理
             InkIconButton(R.drawable.ic_more, stringResource(R.string.reader_chapter_manage), onMore, tint = p.textSecondary)
         }
     }
@@ -144,7 +140,6 @@ fun ReaderBottomBar(
             .background(p.background)
     ) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(p.divider))
-        // 章节进度条：上一章 / 可拖动的进度条（松手跳章）/ 下一章
         ChapterScrubber(
             chapterIndex = chapterIndex,
             chapterCount = chapterCount,
@@ -167,13 +162,6 @@ fun ReaderBottomBar(
     }
 }
 
-/**
- * 章节进度条（照番茄那种）：左右是上一章/下一章，中间一条可拖的进度条。
- *
- * 拖动时**不立刻跳章**（跳一章要读文件、重新分页，跟着手指跳会卡），
- * 而是在手指上方浮出「第 N 章 标题」的预览气泡；松手才真正跳过去。
- * 点一下进度条的某处 = 按比例跳章（省得非要拖）。
- */
 @Composable
 private fun ChapterScrubber(
     chapterIndex: Int,
@@ -186,7 +174,6 @@ private fun ChapterScrubber(
     val p = LocalInkPalette.current
     val density = LocalDensity.current
     var trackWidth by remember { mutableFloatStateOf(0f) }
-    // 拖动中的预览：null = 没在拖
     var dragChapter by remember { mutableStateOf<Int?>(null) }
 
     val safeCount = chapterCount.coerceAtLeast(1)
@@ -200,7 +187,6 @@ private fun ChapterScrubber(
     }
 
     Column(Modifier.fillMaxWidth()) {
-        // 拖动时才出现的预览气泡
         AnimatedVisibility(visible = dragChapter != null) {
             Row(
                 Modifier.fillMaxWidth().padding(top = 8.dp),
@@ -226,7 +212,6 @@ private fun ChapterScrubber(
             verticalAlignment = Alignment.CenterVertically
         ) {
             ChapterStepButton(stringResource(R.string.reader_prev_chapter), enabled = chapterIndex > 0, onClick = onPrev)
-            // 进度条本体
             Box(
                 Modifier
                     .weight(1f)
@@ -241,7 +226,6 @@ private fun ChapterScrubber(
                                 change.consume()
                                 dragChapter = chapterAt(change.position.x)
                             }
-                            // 松手才真正跳章
                             val target = dragChapter
                             dragChapter = null
                             if (target != null && target != chapterIndex) onSeek(target)
@@ -256,7 +240,6 @@ private fun ChapterScrubber(
                     val startX = knobR
                     val endX = size.width - knobR
                     val usable = (endX - startX).coerceAtLeast(1f)
-                    // 底轨
                     drawLine(
                         color = p.divider,
                         start = Offset(startX, cy),
@@ -264,7 +247,6 @@ private fun ChapterScrubber(
                         strokeWidth = barH,
                         cap = StrokeCap.Round
                     )
-                    // 已读部分
                     val x = startX + usable * fraction
                     drawLine(
                         color = p.accent,
@@ -273,7 +255,6 @@ private fun ChapterScrubber(
                         strokeWidth = barH,
                         cap = StrokeCap.Round
                     )
-                    // 滑块：拖动时放大一点，手感更明确
                     drawCircle(
                         color = p.accent,
                         radius = if (dragChapter != null) knobR * 1.5f else knobR,
@@ -305,7 +286,6 @@ private fun ChapterStepButton(label: String, enabled: Boolean, onClick: () -> Un
     }
 }
 
-
 @Composable
 private fun BarItem(icon: Int, label: String, modifier: Modifier = Modifier, onClick: () -> Unit) {
     val p = LocalInkPalette.current
@@ -326,7 +306,7 @@ private fun BarItem(icon: Int, label: String, modifier: Modifier = Modifier, onC
     }
 }
 
-// ==================== 选中操作条 ====================
+// ==================== 选中操作条（含「从此处拆分为下一章」） ====================
 
 @Composable
 fun SelectionBar(
@@ -339,7 +319,8 @@ fun SelectionBar(
     onReadAloud: () -> Unit,
     onHighlight: (Int) -> Unit,
     onNote: (String) -> Unit,
-    onCancel: () -> Unit
+    onCancel: () -> Unit,
+    onSplitHere: () -> Unit = {}
 ) {
     val p = LocalInkPalette.current
     var noteDialog by remember { mutableStateOf(false) }
@@ -376,6 +357,8 @@ fun SelectionBar(
             InkChip(text = stringResource(R.string.reader_expand_sentence), onClick = onExpandSentence)
             Spacer(Modifier.width(5.dp))
             InkChip(text = stringResource(R.string.reader_expand_paragraph), onClick = onExpandParagraph)
+            Spacer(Modifier.width(5.dp))
+            InkChip(text = stringResource(R.string.reader_split_from_here), onClick = onSplitHere)
             InkIconButton(R.drawable.ic_close, stringResource(R.string.reader_cancel_selection), onCancel, tint = p.textFaint, size = 18)
         }
 
@@ -386,7 +369,6 @@ fun SelectionBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            // 点已经生效的那个颜色 = 取消高亮，点别的颜色 = 换个颜色
             Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
                 HighlightColors.forEachIndexed { i, c ->
                     val on = activeColor == i

@@ -248,7 +248,16 @@ class ReaderSession(
         }
     }
 
-    fun loadChapter(index: Int, offset: Int = 0, andPaginate: Boolean = true) {
+    /**
+     * 加载第 [index] 章。[discardOldCache] 为 true 时不把刚离开的章缓存成邻章——
+     * 拆章后旧章正文已被改写，缓存会让往回滑时读到拆分前的整章内容。
+     */
+    fun loadChapter(
+        index: Int,
+        offset: Int = 0,
+        andPaginate: Boolean = true,
+        discardOldCache: Boolean = false
+    ) {
         val chs = chapters
         if (chs.isEmpty() || index !in chs.indices) return
         scope.launch {
@@ -290,7 +299,8 @@ class ReaderSession(
             }
 
             // 把刚离开的章节直接变成邻章缓存：来回翻章都不用重新解析
-            if (oldPages.isNotEmpty() && oldIndex != index) {
+            // discardOldCache=true 时不缓存旧章——拆章后旧章正文已变，缓存会导致往回滑时串正文
+            if (!discardOldCache && oldPages.isNotEmpty() && oldIndex != index) {
                 val old = CachedChapter(oldIndex, oldTitle, oldText, oldBlocks, oldPages, true)
                 if (index == oldIndex + 1) prevChapter = old
                 else if (index == oldIndex - 1) nextChapter = old
@@ -747,12 +757,30 @@ class ReaderSession(
     fun bookProgress(): Float {
         val chs = chapters
         if (chs.isEmpty()) return 0f
-        val total = chs.sumOf { it.charCount.toLong() }.coerceAtLeast(1)
-        val done = chs.take(chapterIndex).sumOf { it.charCount.toLong() }
+        // 用「每章字数前缀和」代替组合期的两次 O(n) 求和；chapters 真正换新时才重算
+        val prefix = chapterCharPrefix()
+        val total = prefix[chs.size].coerceAtLeast(1)
+        val done = prefix.getOrElse(chapterIndex) { 0 }
         val cur = chs.getOrNull(chapterIndex)
         val inChapter = if (cur != null && cur.charCount > 0)
             (cur.charCount * chapterProgress()).toLong() else 0L
         return ((done + inChapter) / total.toFloat()).coerceIn(0f, 1f)
+    }
+
+    // 全书字数前缀和缓存（下标 = 章节序号 + 1，前缀和末位即全书总字数）
+    private var charPrefixCache: LongArray? = null
+    private var charPrefixSource: List<Chapter>? = null
+
+    /** chapters 列表实例没换就复用缓存，换新（导入/拆章等）才重算一次 */
+    private fun chapterCharPrefix(): LongArray {
+        val chs = chapters
+        val cached = charPrefixCache
+        if (cached != null && cached.size == chs.size + 1 && charPrefixSource === chs) return cached
+        val acc = LongArray(chs.size + 1)
+        for (i in chs.indices) acc[i + 1] = acc[i] + chs[i].charCount.toLong()
+        charPrefixCache = acc
+        charPrefixSource = chs
+        return acc
     }
 
     fun saveProgress() {
@@ -890,6 +918,41 @@ class ReaderSession(
 
     fun refreshMarks() {
         scope.launch { marks = repo.marks(bookId) }
+    }
+
+    /**
+     * 在阅读器内直接从 [offset] 处把当前章拆分为两章（批注无损迁移），
+     * 拆分完成后自动刷新章节列表并跳转到新拆出来的下一章开头。
+     */
+    fun splitCurrentChapterAt(offset: Int, onResult: (Boolean) -> Unit = {}) {
+        val ch = currentChapter ?: run { onResult(false); return }
+        if (offset <= 0 || offset >= chapterText.length) {
+            onResult(false)
+            return
+        }
+        scope.launch {
+            val newId = repo.splitChapterAt(bookId, ch.id, offset)
+            if (newId == null) {
+                onResult(false)
+                return@launch
+            }
+            book = repo.book(bookId)
+            chapters = repo.chapters(bookId)
+            marks = repo.marks(bookId)
+            prevChapter = null
+            nextChapter = null
+            pageCountSignature = ""
+            // 章节数变了，页码前缀和整体错位：先清空再用新章节重算，避免页脚显示陈旧页码
+            pagesBefore = null
+            bookTotalPages = 0
+            val nextIdx = (chapterIndex + 1).coerceAtMost(chapters.lastIndex)
+            // 旧章正文已被拆成两半，禁止把拆分前的整章缓存成上一章
+            loadChapter(nextIdx, 0, discardOldCache = true)
+            // 拆章不改变排版尺寸，不会触发 setPaginationContext 里的重算，这里显式补一次
+            startPageCount()
+            container.library.refresh()
+            onResult(true)
+        }
     }
 
     // ==================== 搜索 ====================

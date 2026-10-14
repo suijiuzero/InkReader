@@ -8,4 +8,12 @@
     <string name="editor_saved">Saved</string>
     <string name="editor_title_hint">Chapter title</string>
     <string name="editor_body_hint">Write your text here…\n\nBlank lines start a new paragraph.</string>
+
+    <string name="editor_split_here">Split here</string>
+    <string name="editor_split_cursor_hint">Place the cursor inside the text where you want to split</string>
+    <string name="editor_split_dialog_title">Split into new chapter at cursor</string>
+    <string name="editor_split_dialog_desc">Text before the cursor stays in this chapter, and text from the cursor onward becomes the next chapter. Bookmarks and notes are migrated automatically.</string>
+    <string name="editor_split_new_title_label">New chapter title</string>
+    <string name="editor_split_confirm">Split</string>
+    <string name="editor_split_done_toast">Split into a new chapter at cursor</string>
 </resources>

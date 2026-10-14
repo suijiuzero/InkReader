@@ -96,4 +96,10 @@
     <string name="sheets_tts_sleep_chapter">读完本章</string>
     <string name="sheets_tts_stop">停止朗读</string>
     <string name="sheets_tts_start">开始朗读</string>
+
+    <string name="sheets_toc_default_volume">正文卷</string>
+    <string name="sheets_toc_expand_all">展开</string>
+    <string name="sheets_toc_collapse_all">折叠</string>
+    <string name="sheets_toc_jump_top">跳到顶部</string>
+    <string name="sheets_toc_jump_bottom">跳到底部</string>
 </resources>

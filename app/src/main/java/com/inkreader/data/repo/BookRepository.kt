@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.Log
 import com.inkreader.R
 import com.inkreader.data.db.InkDb
 import com.inkreader.data.file.FileStore
@@ -19,7 +20,10 @@ import com.inkreader.data.model.SearchHit
 import com.inkreader.data.model.ShelfSort
 import com.inkreader.data.model.SourceType
 import com.inkreader.data.model.SplitMode
+import com.inkreader.data.model.SplitOptions
 import com.inkreader.parse.ChapterSplitter
+import com.inkreader.parse.CharsetDetector
+import com.inkreader.parse.DocumentFormat
 import com.inkreader.parse.DocumentParsers
 import com.inkreader.parse.ParseErrorCode
 import com.inkreader.parse.ParseErrors
@@ -33,7 +37,7 @@ import java.io.File
 import java.io.InputStream
 
 /**
- * 书籍仓库：负责导入解析、增删改查、章节重排、全文搜索。
+ * 书籍仓库：负责导入解析、预扫描预览、增删改查、章节合并/拆分（批注无损迁移）、整书重分章、全文搜索。
  * 所有耗时操作都在 IO 线程执行，UI 只拿结果。
  */
 class BookRepository(context: Context) {
@@ -63,6 +67,68 @@ class BookRepository(context: Context) {
             failed.map { context.getString(R.string.err_file_reason, it.name, it.reason) }
     }
 
+    /**
+     * 导入前实时预分章预览数据：
+     * 在 ImportDialog 中展示预计拆分的章数、识别到的卷数及前几章标题预览。
+     */
+    data class ImportPreview(
+        val estimatedChapters: Int,
+        val volumeCount: Int,
+        val sampleTitles: List<String>,
+        val sampleVolumes: List<String> = emptyList()
+    )
+
+    // ==================== 导入前实时预分章预览 ====================
+
+    suspend fun previewImport(
+        uris: List<Uri>,
+        mode: ImportMode,
+        options: SplitOptions
+    ): ImportPreview = withContext(Dispatchers.IO) {
+        if (uris.isEmpty()) return@withContext ImportPreview(0, 0, emptyList())
+        val ordered = if (uris.size > 1) orderByFileName(uris) else uris
+        val sampleTitles = ArrayList<String>()
+        val volumes = LinkedHashSet<String>()
+        var totalChapters = 0
+
+        // 预览最多采样前 5 个文件，兼顾响应速度与准确性
+        val inspectUris = ordered.take(5)
+        for ((i, uri) in inspectUris.withIndex()) {
+            val name = displayName(uri) ?: appContext.getString(R.string.repo_fallback_file_n, i + 1)
+            val fileTitle = ChapterSplitter.titleFromFileName(name)
+            val bytes = runCatching { readBytes(uri) }.getOrNull() ?: continue
+            val parsed = runCatching { parseFile(bytes, name, options) }.getOrNull() ?: continue
+            // 预览必须和真正导入走同一套。单文件「各自成书」时 importSingle 用的是解析器原始分章
+            //（只有 PER_FILE 才整篇成一章），多文件 / 合并导入才走 splitUnitsWithVolume。
+            // 以前这两个分支写重了（effectiveMode 恒等于 options.mode），预览报的章数和导入结果对不上。
+            val units = if (mode == ImportMode.SEPARATE && ordered.size == 1 &&
+                options.mode != SplitMode.PER_FILE
+            ) {
+                parsed.parts.map { ChapterSplitter.Part(it.title, it.content, it.volume) }
+            } else {
+                splitUnitsWithVolume(parsed, fileTitle, options)
+            }
+            totalChapters += units.size
+            for (u in units) {
+                if (u.volume.isNotBlank()) volumes += u.volume
+                if (sampleTitles.size < 4) {
+                    val label = if (u.volume.isNotBlank()) "[${u.volume}] ${u.title}" else u.title
+                    sampleTitles += label
+                }
+            }
+        }
+        if (ordered.size > inspectUris.size && inspectUris.isNotEmpty()) {
+            val avg = (totalChapters.toFloat() / inspectUris.size).coerceAtLeast(1f)
+            totalChapters = (avg * ordered.size).toInt()
+        }
+        ImportPreview(
+            estimatedChapters = totalChapters.coerceAtLeast(1),
+            volumeCount = volumes.size,
+            sampleTitles = sampleTitles,
+            sampleVolumes = volumes.take(3)
+        )
+    }
+
     // ==================== 导入 ====================
 
     suspend fun importDocuments(
@@ -70,12 +136,11 @@ class BookRepository(context: Context) {
         mode: ImportMode,
         customTitle: String?,
         splitMode: SplitMode = SplitMode.SMART,
+        splitOptions: SplitOptions = SplitOptions(mode = splitMode),
         onProgress: (stage: String, fraction: Float) -> Unit
     ): ImportResult = withContext(Dispatchers.IO) {
         val ids = ArrayList<Long>()
         val results = ArrayList<ImportFileResult>()
-        // 多文件导入：文件名里带「第X章」这类章号时，按章号排序再导入。
-        // 系统文件选择器给的顺序通常是乱的，而这类文件名本身已经说明了先后。
         val ordered = if (uris.size > 1) orderByFileName(uris) else uris
         val total = ordered.size.coerceAtLeast(1)
 
@@ -84,7 +149,7 @@ class BookRepository(context: Context) {
                 ?: guessMergedTitle(ordered.mapNotNull { displayName(it) })
             onProgress(appContext.getString(R.string.repo_stage_prepare_merge), 0.02f)
 
-            var hue = hueFromString(title)
+            val hue = hueFromString(title)
             val bookId = db.insertBook(
                 Book(title = title, sourceType = SourceType.MERGED, coverHue = hue, createdAt = now())
             )
@@ -98,7 +163,6 @@ class BookRepository(context: Context) {
                 val bytes = try {
                     readBytes(uri)
                 } catch (e: ParseException) {
-                    // 体积超限等在读之前就能判定的失败，单独给出原因
                     results += ImportFileResult(name, false, ParseErrors.reason(appContext, e))
                     continue
                 }
@@ -107,44 +171,53 @@ class BookRepository(context: Context) {
                     continue
                 }
                 val parsed = try {
-                    parseFile(bytes, name)
+                    parseFile(bytes, name, splitOptions)
                 } catch (e: ParseException) {
                     results += ImportFileResult(name, false, ParseErrors.reason(appContext, e))
                     continue
                 }
                 val fileTitle = ChapterSplitter.titleFromFileName(name)
-                val units: List<Pair<String, String>> = splitUnits(parsed, fileTitle, splitMode)
-                for ((cTitle, content) in units) {
-                    val body = prepareBody(parsed.sourceType, content)
+                val units = splitUnitsWithVolume(parsed, fileTitle, splitOptions)
+                var fileAdded = 0
+                for (u in units) {
+                    val body = prepareBody(parsed.sourceType, u.content)
                     val fileName = files.newFileName()
                     writeChapter(fileName, body)
-                    db.insertChapter(
+                    val vol = ChapterSplitter.detectVolumeFromChapter(u.title, body.text, u.volume)
+                    val newId = db.insertChapter(
                         Chapter(
                             bookId = bookId,
-                            indexInBook = index++,
-                            title = cTitle,
+                            indexInBook = index,
+                            title = u.title,
                             fileName = fileName,
                             charCount = body.text.length,
-                            sourceName = name
+                            sourceName = name,
+                            volume = vol
                         )
                     )
+                    // 插入失败就别把这一章算进去，也别留下「只有正文文件、没有章节记录」的孤儿
+                    if (newId <= 0) {
+                        runCatching { files.deleteChapter(fileName) }
+                        continue
+                    }
+                    index++
+                    fileAdded++
                     totalChars += body.text.length
                 }
-                results += ImportFileResult(name, true, bookId = bookId, chapterCount = units.size)
+                results += ImportFileResult(name, true, bookId = bookId, chapterCount = fileAdded)
             }
             if (index == 0) {
                 db.deleteBook(bookId).forEach { files.deleteChapter(it) }
                 ids.clear()
-                // 逐文件的原因已经记在 results 里了，只有「一个都没失败」时才需要兜底文案
                 if (results.none { !it.ok }) {
                     results += ImportFileResult(title, false, appContext.getString(R.string.repo_no_content))
                 }
             } else {
                 db.updateBookStats(bookId, index, totalChars)
-                // 智能解析：合并完成后按章号把整本排一遍。
-                // 文件名排序只管「文件之间」的先后，合集文件内部各章的顺序、
-                // 以及「单章文件」和「合集」交错的边界，都得靠这一步才保证有序。
-                if (splitMode == SplitMode.SMART && index > 1) {
+                val namedFiles = ordered.count {
+                    ChapterSplitter.chapterOrderFromName(displayName(it) ?: "") != null
+                }
+                if (splitOptions.mode == SplitMode.SMART && index > 1 && namedFiles < 2) {
                     onProgress(appContext.getString(R.string.repo_stage_sort), 0.97f)
                     autoSortChapters(bookId)
                 }
@@ -153,14 +226,13 @@ class BookRepository(context: Context) {
             return@withContext ImportResult(ids, results)
         }
 
-        // 各自成书
+        // 各自成书（含单文件导入）
         for ((i, uri) in ordered.withIndex()) {
             val name = displayName(uri) ?: appContext.getString(R.string.repo_fallback_doc_n, i + 1)
             onProgress(appContext.getString(R.string.repo_stage_parse, name), (i.toFloat() / total) * 0.9f + 0.03f)
             val bytes = try {
                 readBytes(uri)
             } catch (e: ParseException) {
-                // 体积超限等在读之前就能判定的失败，单独给出原因
                 results += ImportFileResult(name, false, ParseErrors.reason(appContext, e))
                 continue
             }
@@ -170,7 +242,7 @@ class BookRepository(context: Context) {
             }
             val before = ids.size
             val chapters = try {
-                importSingle(bytes, name, customTitle, ids)
+                importSingle(bytes, name, customTitle, ids, splitOptions)
             } catch (e: ParseException) {
                 results += ImportFileResult(name, false, ParseErrors.reason(appContext, e))
                 continue
@@ -190,9 +262,7 @@ class BookRepository(context: Context) {
                 bookId = ids.lastOrNull() ?: 0L,
                 chapterCount = chapters
             )
-            // 单个文件导入也按章号排一遍：文件内部章节乱序时能自动纠正，
-            // 本来就顺的不会有任何变化（顺序没变不写库）。
-            if (ids.size > before) {
+            if (ids.size > before && splitOptions.mode == SplitMode.SMART) {
                 onProgress(appContext.getString(R.string.repo_stage_sort), (i.toFloat() / total) * 0.9f + 0.08f)
                 autoSortChapters(ids.last())
             }
@@ -212,13 +282,6 @@ class BookRepository(context: Context) {
     /** 章节正文定稿：正文（纯文本）+ 可选的样式覆盖 */
     private class ChapterBody(val text: String, val rich: RichChapter?)
 
-    /**
-     * 正文定稿。
-     *
-     * 只有 Markdown 需要额外产出样式覆盖：正文仍然落成纯文本（朗读、搜索、
-     * 选区、进度全按它的字符偏移走，一个字都不用改），格式化信息另存一份，
-     * 阅读时两者一起交给分页器 —— 这样加粗跨页、代码块缩进这类事才成立。
-     */
     private fun prepareBody(sourceType: SourceType, content: String): ChapterBody =
         if (sourceType == SourceType.MD) {
             val rendered = RichMarkdown.render(content)
@@ -227,7 +290,6 @@ class BookRepository(context: Context) {
             ChapterBody(content, null)
         }
 
-    /** 落盘正文；没有样式覆盖时顺手清掉旧的，避免编辑过的章节用着过期的样式 */
     private fun writeChapter(fileName: String, body: ChapterBody) {
         files.write(fileName, body.text)
         val rich = body.rich
@@ -235,47 +297,121 @@ class BookRepository(context: Context) {
     }
 
     /**
-     * 统一解析入口：交给 [DocumentParsers] 识别格式并分派解析器
-     * （TXT / DOCX / Markdown / PDF / HTML / EPUB）。
-     *
-     * @throws ParseException 失败时抛出，调用方用 [ParseErrors] 生成统一提示
+     * 统一解析入口：交给 [DocumentParsers] 识别格式并分派解析器。
+     * 当为纯文本 TXT 且用户指定了自定义切分策略 / 净网清洗时，直接按 [options] 切分。
      */
-    private fun parseFile(bytes: ByteArray, name: String): FileParse {
+    private fun parseFile(
+        bytes: ByteArray,
+        name: String,
+        options: SplitOptions = SplitOptions(mode = SplitMode.SMART, cleanWatermark = false)
+    ): FileParse {
         val doc = DocumentParsers.parse(bytes, name)
+        val sourceType = DocumentParsers.sourceTypeOf(doc.format)
+        // 显式档位（强制按章 / 按编号 / 固定字数 / 自定义前缀）：**任何格式**都按提取出来的纯文本重切。
+        // 以前这段只在 TXT 上生效 —— docx / epub / pdf 选了这些档位其实什么都不做，和界面承诺不符。
+        val ruleMode = options.mode == SplitMode.STRICT_CHAP ||
+            options.mode == SplitMode.NUMBERED ||
+            options.mode == SplitMode.FIXED_SIZE ||
+            options.mode == SplitMode.CUSTOM
+        val parts = if (ruleMode) {
+            val raw = if (doc.format == DocumentFormat.TXT) {
+                CharsetDetector.decode(bytes)
+            } else {
+                // 非 TXT 先把解析器提取出的正文（含它自己识别的小标题）拼成纯文本再切
+                flatten(doc.parts)
+            }
+            val norm = ChapterSplitter.normalize(raw)
+            var splitParts = ChapterSplitter.split(norm, "正文", options)
+            val title = doc.title
+            if (splitParts.isNotEmpty() && title != null) {
+                val first = splitParts.first().content.trim()
+                if (first.startsWith(title) && first.length - title.length < 60) {
+                    val rest = first.removePrefix(title).trim()
+                    splitParts = if (rest.isEmpty()) splitParts.drop(1).ifEmpty { splitParts }
+                    else listOf(splitParts.first().copy(content = rest)) + splitParts.drop(1)
+                }
+            }
+            splitParts
+        } else if (doc.format == DocumentFormat.TXT &&
+            (options.cleanWatermark || options.customPattern.isNotBlank())
+        ) {
+            val raw = CharsetDetector.decode(bytes)
+            val norm = ChapterSplitter.normalize(raw)
+            var splitParts = ChapterSplitter.split(norm, "正文", options)
+            val title = doc.title
+            if (splitParts.isNotEmpty() && title != null) {
+                val first = splitParts.first().content.trim()
+                if (first.startsWith(title) && first.length - title.length < 60) {
+                    val rest = first.removePrefix(title).trim()
+                    splitParts = if (rest.isEmpty()) splitParts.drop(1).ifEmpty { splitParts }
+                    else listOf(splitParts.first().copy(content = rest)) + splitParts.drop(1)
+                }
+            }
+            splitParts
+        } else if (options.cleanWatermark) {
+            doc.parts.map { p ->
+                p.copy(
+                    title = ChapterSplitter.cleanChapterTitle(p.title),
+                    content = ChapterSplitter.cleanBodyWatermarks(p.content),
+                    volume = ChapterSplitter.detectVolumeFromChapter(p.title, p.content, p.volume)
+                )
+            }
+        } else {
+            doc.parts
+        }
+        // 水印净网有可能把整篇清空（纯导航页 / 纯水印文本）。DocumentParsers 的「无正文」校验
+        // 发生在清洗之前，所以这里要再验一次 —— 否则会导入成一堆只有标题、正文为空的空章。
+        if (parts.all { it.content.isBlank() }) {
+            throw ParseException(ParseErrorCode.NO_CONTENT)
+        }
         return FileParse(
-            parts = doc.parts,
+            parts = parts,
             metaTitle = doc.title,
             author = doc.author,
-            sourceType = DocumentParsers.sourceTypeOf(doc.format)
+            sourceType = sourceType
         )
     }
 
-    /**
-     * 把一个文件切成「章节（标题, 正文）」列表，按 [SplitMode] 决定粒度。
-     *
-     * SMART 是逐文件判断的：文件内有多个章节标题才拆，否则整篇算一章 ——
-     * 这样「1~9 章合集」和「第10章」混在一起导入时，两边都能得到正确结果。
-     */
-    private fun splitUnits(
+    private fun splitUnitsWithVolume(
         parsed: FileParse,
         fileTitle: String,
-        mode: SplitMode
-    ): List<Pair<String, String>> {
+        options: SplitOptions
+    ): List<ChapterSplitter.Part> {
         val parts = parsed.parts
+        val mode = options.mode
         return when {
-            mode == SplitMode.IN_FILE ->
-                parts.map { it.title.ifBlank { fileTitle } to ChapterSplitter.normalize(it.content) }
+            mode == SplitMode.IN_FILE ||
+                mode == SplitMode.STRICT_CHAP ||
+                mode == SplitMode.NUMBERED ||
+                mode == SplitMode.FIXED_SIZE ||
+                mode == SplitMode.CUSTOM ->
+                parts.map {
+                    ChapterSplitter.Part(
+                        title = it.title.ifBlank { fileTitle },
+                        content = ChapterSplitter.normalize(it.content),
+                        volume = it.volume
+                    )
+                }
 
             mode == SplitMode.PER_FILE ->
-                listOf(fileTitle to ChapterSplitter.normalize(flatten(parts)))
+                listOf(
+                    ChapterSplitter.Part(
+                        title = if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(fileTitle) else fileTitle,
+                        content = ChapterSplitter.normalize(flatten(parts)),
+                        volume = ""
+                    )
+                )
 
             looksLikeRealChapters(parts) ->
-                parts.map { it.title.ifBlank { fileTitle } to ChapterSplitter.normalize(it.content) }
+                parts.map {
+                    ChapterSplitter.Part(
+                        title = it.title.ifBlank { fileTitle },
+                        content = ChapterSplitter.normalize(it.content),
+                        volume = it.volume
+                    )
+                }
 
             else -> {
-                // 智能 + 不算「一章一章分好的文件」：整篇作为一章。
-                // 章名优先用文件名（通常就是「第10章 破境」这种干净写法），
-                // 文件名里没有章号时才退回文件内部识别出的标题。
                 val only = parts.firstOrNull()
                 val title = when {
                     ChapterSplitter.chapterOrderFromTitle(fileTitle) != null -> fileTitle
@@ -283,20 +419,17 @@ class BookRepository(context: Context) {
                     else -> fileTitle
                 }
                 val body = if (parts.size == 1) parts[0].content else flatten(parts)
-                listOf(title to ChapterSplitter.normalize(body))
+                listOf(
+                    ChapterSplitter.Part(
+                        title = if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(title) else title,
+                        content = ChapterSplitter.normalize(body),
+                        volume = only?.volume.orEmpty()
+                    )
+                )
             }
         }
     }
 
-    /**
-     * 判断这个文件是不是「真的按章排好的」（而不是解析器在没找到标题时按字数兜底切的，
-     * 也不是只按「第X节」这种小节切的）。
-     *
-     * 判据：**出现两个以上不同的「章/回/卷」级章号**才算合集。
-     * 这一点同时挡住了两种情况：
-     *  · 「第10章 xxx」内部只有三节 → 章号只有一个（10）或没有 → 不拆，整篇作为一章；
-     *  · 内部没标题、被按字数兜底切成几段 → 各段标题章号相同或没有 → 不拆。
-     */
     private fun looksLikeRealChapters(parts: List<ChapterSplitter.Part>): Boolean {
         if (parts.size < 2) return false
         val distinct = parts
@@ -306,27 +439,18 @@ class BookRepository(context: Context) {
         return distinct >= 2
     }
 
-    /** 把整个文件压平成一坨纯文本（「一个文件就是一章」时用） */
     private fun flatten(parts: List<ChapterSplitter.Part>): String =
         parts.joinToString("\n\n") {
-            if (it.title.isNotBlank() && it.content.isNotBlank()) "${it.title}\n\n${it.content}"
+            val realTitle = it.title.isNotBlank() && !ChapterSplitter.isFallbackSectionTitle(it.title)
+            if (realTitle && it.content.isNotBlank()) "${it.title}\n\n${it.content}"
             else it.content
         }
 
-    /**
-     * 按文件名里的章号排序。
-     *
-     * 系统文件选择器返回的顺序通常和用户预期不一致（比如倒序、按文件系统顺序），
-     * 而「第52章 取舍之间.txt」这种文件名本身已经带了先后。这里：
-     *  · 解析得出章号的，按章号升序排在前面；
-     *  · 解析不出来的，保持原相对顺序排到最后（不会因为排序丢文件）。
-     * 章号相同时用文件名兜底比较，保证结果稳定。
-     */
     private fun orderByFileName(uris: List<Uri>): List<Uri> =
         uris.withIndex()
             .sortedWith(
                 compareBy(
-                    { (i, u) -> ChapterSplitter.chapterOrderFromName(displayName(u) ?: "") ?: Int.MAX_VALUE },
+                    { (_, u) -> ChapterSplitter.chapterOrderFromName(displayName(u) ?: "") ?: Int.MAX_VALUE },
                     { (_, u) -> displayName(u) ?: "" },
                     { (i, _) -> i }
                 )
@@ -338,17 +462,23 @@ class BookRepository(context: Context) {
         bytes: ByteArray,
         name: String,
         customTitle: String?,
-        ids: MutableList<Long>
+        ids: MutableList<Long>,
+        splitOptions: SplitOptions = SplitOptions()
     ): Int {
-        val parsedFile = parseFile(bytes, name)
-        val parts = parsedFile.parts
+        val parsedFile = parseFile(bytes, name, splitOptions)
+        val fileTitle = ChapterSplitter.titleFromFileName(name)
+        val parts = if (splitOptions.mode == SplitMode.PER_FILE) {
+            splitUnitsWithVolume(parsedFile, fileTitle, splitOptions)
+        } else {
+            parsedFile.parts
+        }
         val metaTitle = parsedFile.metaTitle
         val author = parsedFile.author
         val sourceType = parsedFile.sourceType
 
         val title = customTitle?.takeIf { it.isNotBlank() }
             ?: metaTitle?.takeIf { it.isNotBlank() }
-            ?: ChapterSplitter.titleFromFileName(name)
+            ?: fileTitle
 
         val bookId = db.insertBook(
             Book(
@@ -362,24 +492,34 @@ class BookRepository(context: Context) {
         ids += bookId
 
         var totalChars = 0
+        var inserted = 0
         for ((i, p) in parts.withIndex()) {
             val body = prepareBody(sourceType, p.content)
             val fileName = files.newFileName()
             writeChapter(fileName, body)
-            db.insertChapter(
+            val chTitle = p.title.ifBlank { appContext.getString(R.string.label_chapter_n, i + 1) }
+            val vol = ChapterSplitter.detectVolumeFromChapter(chTitle, body.text, p.volume)
+            val newId = db.insertChapter(
                 Chapter(
                     bookId = bookId,
-                    indexInBook = i,
-                    title = p.title.ifBlank { appContext.getString(R.string.label_chapter_n, i + 1) },
+                    indexInBook = inserted,
+                    title = chTitle,
                     fileName = fileName,
                     charCount = body.text.length,
-                    sourceName = name
+                    sourceName = name,
+                    volume = vol
                 )
             )
+            // 插入失败别计入：否则统计数据虚高，还留下「只有正文文件、没有章节记录」的孤儿
+            if (newId <= 0) {
+                runCatching { files.deleteChapter(fileName) }
+                continue
+            }
+            inserted++
             totalChars += body.text.length
         }
-        db.updateBookStats(bookId, parts.size, totalChars)
-        return parts.size
+        db.updateBookStats(bookId, inserted, totalChars)
+        return inserted
     }
 
     private fun guessMergedTitle(names: List<String>): String {
@@ -387,7 +527,6 @@ class BookRepository(context: Context) {
         if (names.size == 1) return appContext.getString(
             R.string.repo_collection_named, ChapterSplitter.titleFromFileName(names[0])
         )
-        // 取共同前缀，否则用「首篇 等 N 篇」
         val base = names.map { ChapterSplitter.titleFromFileName(it) }
         val common = commonPrefix(base)
         return if (common.length >= 2) appContext.getString(R.string.repo_collection_named, common)
@@ -441,20 +580,18 @@ class BookRepository(context: Context) {
 
     /**
      * 往已有书籍追加文件。
-     *
-     * @param splitMode 章节划分方式：SMART（默认，按文件内容逐个判断）/ IN_FILE / PER_FILE
      */
     suspend fun appendFilesAsChapters(
         bookId: Long,
         uris: List<Uri>,
         splitMode: SplitMode = SplitMode.SMART,
+        splitOptions: SplitOptions = SplitOptions(mode = splitMode),
         onProgress: (String, Float) -> Unit = { _, _ -> }
     ): List<String> = withContext(Dispatchers.IO) {
         val errors = ArrayList<String>()
         val chapters = db.chaptersOf(bookId)
         var index = chapters.size
         val total = uris.size.coerceAtLeast(1)
-        // 新插入的章节（id 与标题），用于随后按章号插到正确位置
         val inserted = ArrayList<Pair<Long, String>>()
         for ((i, uri) in uris.withIndex()) {
             val name = displayName(uri) ?: appContext.getString(R.string.repo_fallback_file_n, i + 1)
@@ -468,40 +605,34 @@ class BookRepository(context: Context) {
                 errors += appContext.getString(R.string.err_file_reason, name, ParseErrors.reason(appContext, ParseErrorCode.READ_FAILED)); continue
             }
             val parsed = try {
-                parseFile(bytes, name)
+                parseFile(bytes, name, splitOptions)
             } catch (e: ParseException) {
                 errors += appContext.getString(R.string.err_file_reason, name, ParseErrors.reason(appContext, e)); continue
             }
             val fileTitle = ChapterSplitter.titleFromFileName(name)
-            val units: List<Pair<String, String>> = splitUnits(parsed, fileTitle, splitMode)
-            for ((title, content) in units) {
-                val body = prepareBody(parsed.sourceType, content)
+            val units = splitUnitsWithVolume(parsed, fileTitle, splitOptions)
+            for (u in units) {
+                val body = prepareBody(parsed.sourceType, u.content)
                 val fileName = files.newFileName()
                 writeChapter(fileName, body)
+                val vol = ChapterSplitter.detectVolumeFromChapter(u.title, body.text, u.volume)
                 val newId = db.insertChapter(
                     Chapter(
                         bookId = bookId, indexInBook = index++,
-                        title = title, fileName = fileName,
-                        charCount = body.text.length, sourceName = name
+                        title = u.title, fileName = fileName,
+                        charCount = body.text.length, sourceName = name,
+                        volume = vol
                     )
                 )
-                if (newId > 0) inserted += newId to title
+                if (newId > 0) inserted += newId to u.title
             }
         }
-        // 追加进来的章节如果文件名带章号（「第2章 …」），插到对应位置而不是一律扔到末尾
         insertByChapterOrder(bookId, inserted)
         onProgress(appContext.getString(R.string.repo_stage_done), 1f)
         refreshStats(bookId)
         errors
     }
 
-    /**
-     * 把刚插入的章节按章号移动到正确位置。
-     *
-     * 只移动「新章节」，已有章节之间的相对顺序不动 —— 插入第 2 章时，
-     * 已有 [1, 3] 会变成 [1, 2, 3]，而不是把整本按章号重排一遍。
-     * 解析不出章号的新章节保持追加在末尾。
-     */
     private suspend fun insertByChapterOrder(bookId: Long, inserted: List<Pair<Long, String>>) {
         if (inserted.isEmpty()) return
         val withOrder = inserted.mapNotNull { (id, title) ->
@@ -511,7 +642,6 @@ class BookRepository(context: Context) {
         val all = db.chaptersOf(bookId)
         val newIds = inserted.map { it.first }.toSet()
         val order = all.filter { it.id !in newIds }.toMutableList()
-        // 章号小的先插，保证多章一起追加时它们的相对顺序也对
         withOrder.sortedBy { it.second }.forEach { (id, n) ->
             val ch = all.firstOrNull { it.id == id } ?: return@forEach
             val pos = order.indexOfFirst { exist ->
@@ -520,7 +650,6 @@ class BookRepository(context: Context) {
             }
             if (pos >= 0) order.add(pos, ch) else order.add(ch)
         }
-        // 剩下的（没有章号的）保持追加顺序接在后面
         inserted.mapNotNull { (id, _) -> all.firstOrNull { it.id == id } }
             .filter { ch -> order.none { it.id == ch.id } }
             .forEach { order.add(it) }
@@ -529,20 +658,14 @@ class BookRepository(context: Context) {
 
     /**
      * 按章节标题里的章号把整本重排一遍（章节管理里的「自动排序」）。
-     *
-     * 只动「能解析出章号」的章节：把它们按编号升序填回**原来占据的那几个位置**；
-     * 认不出章号的（幕间、Interlude、没有编号的标题…）一律**钉在原位**，
-     * 既不前移也不后甩 —— 早期实现把它们统一甩到书末，会把夹在正文中间的插曲排错。
-     * 章号支持中文 / 英语 / 日语写法，`Chapter 10` 会排在 `Chapter 2` 之后。
-     * 返回章节总数。
      */
     suspend fun autoSortChapters(bookId: Long): Int = withContext(Dispatchers.IO) {
         val all = db.chaptersOf(bookId)
         if (all.size <= 1) return@withContext all.size
         val orders = all.map { ChapterSplitter.chapterOrderFromTitle(it.title) }
+        if (ChapterSplitter.hasChapterNumberReset(orders)) return@withContext all.size
         val slots = all.indices.filter { orders[it] != null }
         if (slots.size < 2) return@withContext all.size
-        // 待排序的章节按（章号, 原下标）稳定升序，再依次填回原来的槽位
         val ranked = slots.sortedWith(compareBy({ orders[it]!! }, { it }))
         val sorted = all.toMutableList()
         slots.forEachIndexed { k, slot -> sorted[slot] = all[ranked[k]] }
@@ -550,6 +673,339 @@ class BookRepository(context: Context) {
             reorderChapters(bookId, sorted.map { it.id })
         }
         sorted.size
+    }
+
+    // ==================== 补救层：合并章节 / 拆分章节（批注无损迁移） / 整书重新分章 ====================
+
+    /**
+     * 将 [chapterId] 并入上一章末尾，并把本章内的所有书签、标签、高亮、笔记无损平移到上一章
+     * （偏移自动加上 `上一章字数 + 2`）。后续章节的批注章号同步 -1。
+     */
+    suspend fun mergeChapterWithPrev(bookId: Long, chapterId: Long): Boolean = withContext(Dispatchers.IO) {
+        val all = db.chaptersOf(bookId)
+        val currIdx = all.indexOfFirst { it.id == chapterId }
+        if (currIdx <= 0) return@withContext false
+        val prev = all[currIdx - 1]
+        val curr = all[currIdx]
+
+        val prevText = files.read(prev.fileName)
+        val currText = files.read(curr.fileName)
+        val shift = if (prevText.isEmpty()) 0 else prevText.length + 2
+        val mergedText = when {
+            prevText.isEmpty() -> currText
+            currText.isEmpty() -> prevText
+            else -> "$prevText\n\n$currText"
+        }
+
+        files.write(prev.fileName, mergedText)
+        files.deleteRich(prev.fileName)
+
+        // 事务失败就把上一章正文还原：否则盘上的正文已经是合并后的，库里却还是两章
+        val deletedFile = try {
+            db.inTransaction {
+                db.updateChapterFile(prev.id, prev.fileName, mergedText.length)
+                // 平移规则抽在 MarkShifts 里（纯函数、有单测）：算错会静默弄坏用户批注
+                val allMarks = db.marksOf(bookId)
+                MarkShifts.forMergeWithPrev(allMarks, currIdx, shift).forEachIndexed { i, m ->
+                    if (m != allMarks[i]) db.updateMark(m)
+                }
+                val del = db.deleteChapter(curr.id)
+                val remaining = all.filter { it.id != curr.id }
+                db.reindexChapters(bookId, remaining.map { it.id })
+                del
+            }
+        } catch (t: Throwable) {
+            runCatching { files.write(prev.fileName, prevText) }
+            throw t
+        }
+        if (deletedFile != null) runCatching { files.deleteChapter(deletedFile) }
+
+        val book = db.getBook(bookId)
+        if (book != null) {
+            when {
+                book.lastChapterIndex == currIdx ->
+                    db.updateProgress(bookId, currIdx - 1, book.lastCharOffset + shift, book.progress)
+                book.lastChapterIndex > currIdx ->
+                    db.updateProgress(bookId, book.lastChapterIndex - 1, book.lastCharOffset, book.progress)
+            }
+        }
+        refreshStats(bookId)
+        true
+    }
+
+    /**
+     * 将 [chapterId] 并入下一章开头（等价于把下一章并入本章末尾），批注无损迁移。
+     */
+    suspend fun mergeChapterWithNext(bookId: Long, chapterId: Long): Boolean = withContext(Dispatchers.IO) {
+        val all = db.chaptersOf(bookId)
+        val currIdx = all.indexOfFirst { it.id == chapterId }
+        if (currIdx < 0 || currIdx >= all.lastIndex) return@withContext false
+        val next = all[currIdx + 1]
+        mergeChapterWithPrev(bookId, next.id)
+    }
+
+    /**
+     * 从 [chapterId] 的字符偏移 [splitOffset] 处拆分为两章，批注无损迁移：
+     *  · 位于 [splitOffset] 之前的批注留在原章；
+     *  · 位于 [splitOffset] 之后的批注自动迁移到新拆出的下一章，并扣减前半章长度；
+     *  · 若拆出段落的第一行是短标题行，自动提取为新章标题。
+     * @return 新章节的 id，失败返回 null
+     */
+    suspend fun splitChapterAt(
+        bookId: Long,
+        chapterId: Long,
+        splitOffset: Int,
+        customNewTitle: String? = null
+    ): Long? = withContext(Dispatchers.IO) {
+        val all = db.chaptersOf(bookId)
+        val currIdx = all.indexOfFirst { it.id == chapterId }
+        if (currIdx < 0) return@withContext null
+        val curr = all[currIdx]
+        val fullText = files.read(curr.fileName)
+        if (splitOffset <= 0 || splitOffset >= fullText.length) return@withContext null
+
+        val firstRaw = fullText.substring(0, splitOffset)
+        val firstText = firstRaw.trimEnd()
+        val secondRaw = fullText.substring(splitOffset)
+        val leadingTrimmed = secondRaw.length - secondRaw.trimStart().length
+        val secondTrimmed = secondRaw.trimStart()
+        if (firstText.isEmpty() || secondTrimmed.isEmpty()) return@withContext null
+
+        // 推断新章标题：如果未手工指定且后半段首行是短行，则用首行做标题
+        val firstLineEnd = secondTrimmed.indexOf('\n')
+        val candidateLine = if (firstLineEnd >= 0) secondTrimmed.substring(0, firstLineEnd).trim() else secondTrimmed.trim()
+        val autoHeadingUsed = customNewTitle.isNullOrBlank() &&
+            candidateLine.length in 1..38 &&
+            firstLineEnd > 0 &&
+            secondTrimmed.substring(firstLineEnd + 1).isNotBlank()
+
+        val newTitle = when {
+            !customNewTitle.isNullOrBlank() -> customNewTitle.trim()
+            autoHeadingUsed -> ChapterSplitter.cleanChapterTitle(candidateLine)
+            candidateLine.length in 1..28 -> ChapterSplitter.cleanChapterTitle(candidateLine)
+            else -> "${curr.title}（续）"
+        }
+
+        val secondBody: String
+        val bodyShiftFromSplit: Int
+        if (autoHeadingUsed) {
+            val afterFirstLine = secondTrimmed.substring(firstLineEnd + 1)
+            val blankTrim = afterFirstLine.length - afterFirstLine.trimStart().length
+            secondBody = afterFirstLine.trimStart()
+            bodyShiftFromSplit = splitOffset + leadingTrimmed + firstLineEnd + 1 + blankTrim
+        } else {
+            secondBody = secondTrimmed
+            bodyShiftFromSplit = splitOffset + leadingTrimmed
+        }
+
+        files.write(curr.fileName, firstText)
+        files.deleteRich(curr.fileName)
+
+        val newFileName = files.newFileName()
+        files.write(newFileName, secondBody)
+
+        val newVol = ChapterSplitter.detectVolumeFromChapter(newTitle, secondBody, curr.volume)
+
+        val newChapterId = try {
+            db.inTransaction {
+            db.updateChapterFile(curr.id, curr.fileName, firstText.length)
+            // 平移规则抽在 MarkShifts 里（纯函数、有单测）
+            val allMarks = db.marksOf(bookId)
+            MarkShifts.forSplitAt(
+                allMarks,
+                currIdx = currIdx,
+                splitOffset = splitOffset,
+                bodyShiftFromSplit = bodyShiftFromSplit,
+                firstTextLength = firstText.length,
+                secondBodyLength = secondBody.length
+            ).forEachIndexed { i, m ->
+                if (m != allMarks[i]) db.updateMark(m)
+            }
+
+            val insertedId = db.insertChapter(
+                Chapter(
+                    bookId = bookId,
+                    indexInBook = currIdx + 1,
+                    title = newTitle,
+                    fileName = newFileName,
+                    charCount = secondBody.length,
+                    sourceName = curr.sourceName,
+                    volume = newVol
+                )
+            )
+            // 插入失败（-1）不能继续往下：下面还要把这个 id 写进章节顺序表
+            check(insertedId > 0) { "insertChapter failed" }
+            val reordered = ArrayList<Long>(all.size + 1)
+            for ((i, c) in all.withIndex()) {
+                reordered += c.id
+                if (i == currIdx) reordered += insertedId
+            }
+            db.reindexChapters(bookId, reordered)
+            insertedId
+            }
+        } catch (t: Throwable) {
+            // 事务没成：原章正文还原成全文、新章文件删掉，
+            // 别留「前半章有库记录、后半章只剩个孤儿文件」这种半截状态
+            runCatching { files.write(curr.fileName, fullText) }
+            runCatching { files.delete(newFileName) }
+            throw t
+        }
+        refreshStats(bookId)
+        // 新章插在 currIdx 之后：正在读的那一章要是在它后面，编号得跟着 +1
+        db.getBook(bookId)?.let { b ->
+            if (b.lastChapterIndex > currIdx) {
+                db.updateProgress(bookId, b.lastChapterIndex + 1, b.lastCharOffset, b.progress)
+            }
+        }
+        newChapterId
+    }
+
+    /**
+     * 对已导入的整本书按新策略 [options] 重新分章，并无损迁移全书批注（按全文片段或全局字符坐标定位）。
+     * @return 重新切分后的总章数；-1 表示正文超过 [MAX_RESPLIT_CHARS]、为避免 OOM 直接拒绝
+     */
+    suspend fun resplitBook(
+        bookId: Long,
+        options: SplitOptions
+    ): Int = withContext(Dispatchers.IO) {
+        val book = db.getBook(bookId) ?: return@withContext 0
+        val oldChapters = db.chaptersOf(bookId)
+        if (oldChapters.isEmpty()) return@withContext 0
+        val oldMarks = db.marksOf(bookId)
+
+        // 1. 逐章拼合整书全文，并记下每章在**归一化后**全文里的起点。
+        //
+        // 必须逐段归一化再拼接，而不是先拼原始文本再整体 normalize：归一化会折叠连续空行、
+        // 去掉零宽字符，两种做法得到的全文等价，但只有逐段记起点，旧章坐标才与下面新章的
+        // [globalStart, globalEnd] 处在同一基准上（否则批注的回退映射会整体错位）。
+        val fullSb = StringBuilder()
+        val oldChapterGlobalStarts = IntArray(oldChapters.size)
+        for ((i, ch) in oldChapters.withIndex()) {
+            val body = files.read(ch.fileName)
+            val realTitle = ch.title.isNotBlank() && !ChapterSplitter.isFallbackSectionTitle(ch.title)
+            val raw = if (realTitle && !body.trim().startsWith(ch.title.trim())) {
+                "${ch.title.trim()}\n\n$body"
+            } else {
+                body
+            }
+            val seg = ChapterSplitter.normalize(raw)
+            if (seg.isEmpty()) {
+                oldChapterGlobalStarts[i] = fullSb.length
+                continue
+            }
+            if (fullSb.isNotEmpty()) fullSb.append("\n\n")
+            oldChapterGlobalStarts[i] = fullSb.length
+            fullSb.append(seg)
+        }
+        val fullText = fullSb.toString()
+        if (fullText.isBlank()) return@withContext oldChapters.size
+        // 整本重分章得把全文读进内存（切分还会再复制几份），超大书直接把 App 撑爆。
+        // 这是手机上的硬上限，超过就拒绝（返回 -1，由界面给提示），不要硬跑。
+        if (fullText.length > MAX_RESPLIT_CHARS) {
+            Log.w(TAG, "resplit refused: ${fullText.length} chars > $MAX_RESPLIT_CHARS")
+            return@withContext -1
+        }
+
+        // 2. 用新策略重新切分
+        val newParts = ChapterSplitter.split(fullText, book.title, options)
+        if (newParts.isEmpty()) return@withContext oldChapters.size
+
+        // 3. 写入新章节文件，计算新章节的全局区间以迁移批注
+        data class NewChapData(
+            val title: String,
+            val fileName: String,
+            val text: String,
+            val volume: String,
+            val globalStart: Int,
+            val globalEnd: Int
+        )
+
+        val newChapList = ArrayList<NewChapData>(newParts.size)
+        var cursor = 0
+        for ((i, p) in newParts.withIndex()) {
+            val body = prepareBody(book.sourceType, p.content)
+            val fn = files.newFileName()
+            writeChapter(fn, body)
+            val chTitle = p.title.ifBlank { appContext.getString(R.string.label_chapter_n, i + 1) }
+            val vol = ChapterSplitter.detectVolumeFromChapter(chTitle, body.text, p.volume)
+            val start = cursor
+            val end = start + body.text.length
+            cursor = end + 2
+            newChapList += NewChapData(chTitle, fn, body.text, vol, start, end)
+        }
+
+        // 4. 在单个事务中替换章节并迁移所有批注
+        val oldFiles = oldChapters.map { it.fileName }.filter { it.isNotEmpty() }
+        try {
+        db.inTransaction {
+            val wdb = db.writableDatabase
+            wdb.delete("chapters", "book_id=?", arrayOf(bookId.toString()))
+            var totalChars = 0
+            newChapList.forEachIndexed { i, nc ->
+                val newId = db.insertChapter(
+                    Chapter(
+                        bookId = bookId,
+                        indexInBook = i,
+                        title = nc.title,
+                        fileName = nc.fileName,
+                        charCount = nc.text.length,
+                        sourceName = book.title,
+                        volume = nc.volume
+                    )
+                )
+                check(newId > 0) { "insertChapter failed" }
+                totalChars += nc.text.length
+            }
+            db.updateBookStats(bookId, newChapList.size, totalChars)
+
+            // 迁移批注：优先在新章正文里精确搜索 snippet，找不到再按全局偏移映射
+            for (m in oldMarks) {
+                val snippetKey = m.snippet.trim().removeSuffix("…").take(24)
+                var matchedChap = -1
+                var matchedStart = 0
+                var matchedEnd = 0
+                if (snippetKey.length >= 4) {
+                    for ((idx, nc) in newChapList.withIndex()) {
+                        val pos = nc.text.indexOf(snippetKey)
+                        if (pos >= 0) {
+                            matchedChap = idx
+                            matchedStart = pos
+                            val len = (m.endOffset - m.startOffset).coerceAtLeast(snippetKey.length)
+                            matchedEnd = (pos + len).coerceAtMost(nc.text.length)
+                            break
+                        }
+                    }
+                }
+                if (matchedChap < 0) {
+                    val baseGlobal = oldChapterGlobalStarts.getOrElse(m.chapterIndex) { 0 } + m.startOffset
+                    val targetIdx = newChapList.indexOfFirst { baseGlobal in it.globalStart..it.globalEnd }
+                        .let { if (it >= 0) it else newChapList.lastIndex }
+                    val nc = newChapList[targetIdx]
+                    matchedChap = targetIdx
+                    matchedStart = (baseGlobal - nc.globalStart).coerceIn(0, nc.text.length)
+                    val span = (m.endOffset - m.startOffset).coerceAtLeast(0)
+                    matchedEnd = (matchedStart + span).coerceIn(matchedStart, nc.text.length)
+                }
+                db.updateMark(
+                    m.copy(
+                        chapterIndex = matchedChap,
+                        startOffset = matchedStart,
+                        endOffset = matchedEnd
+                    )
+                )
+            }
+
+            val safeLastChap = book.lastChapterIndex.coerceIn(0, newChapList.lastIndex)
+            db.updateProgress(bookId, safeLastChap, 0, book.progress)
+        }
+        } catch (t: Throwable) {
+            // 事务没成：新章节都还没入库，它们刚写下的正文文件全是孤儿，清掉
+            newChapList.forEach { runCatching { files.deleteChapter(it.fileName) } }
+            throw t
+        }
+
+        oldFiles.forEach { runCatching { files.deleteChapter(it) } }
+        newChapList.size
     }
 
     // ==================== 查询 ====================
@@ -568,16 +1024,14 @@ class BookRepository(context: Context) {
         db.updateGroupName(id, name.trim().ifBlank { appContext.getString(R.string.repo_untitled_group) })
     }
 
-    /** 解散分组：组内书籍回到未分组 */
     suspend fun deleteGroup(id: Long) = withContext(Dispatchers.IO) { db.deleteGroup(id) }
 
-    /** 把若干本书放进分组；[groupId] = 0 表示移出分组 */
     suspend fun moveBooksToGroup(ids: List<Long>, groupId: Long) = withContext(Dispatchers.IO) {
         db.setBooksGroup(ids, groupId)
     }
+
     suspend fun chapters(bookId: Long): List<Chapter> = withContext(Dispatchers.IO) { db.chaptersOf(bookId) }
 
-    /** 按 id 顺序取章节（导出用）；ids 为空表示整本 */
     suspend fun chaptersByIds(bookId: Long, ids: List<Long>): List<Chapter> = withContext(Dispatchers.IO) {
         val all = db.chaptersOf(bookId)
         if (ids.isEmpty()) all else ids.mapNotNull { id -> all.firstOrNull { it.id == id } }
@@ -586,12 +1040,6 @@ class BookRepository(context: Context) {
     suspend fun chapterText(chapter: Chapter): String =
         withContext(Dispatchers.IO) { files.read(chapter.fileName) }
 
-    /**
-     * 该章的样式覆盖（只有 Markdown 导入的章节才有）。
-     *
-     * 读盘时会校验长度：正文和覆盖对不上（比如以后改了正文）就返回 null，
-     * 阅读端按普通正文走 —— 宁可没有格式，也不能错位或打不开。
-     */
     suspend fun chapterRich(chapter: Chapter, textLength: Int): RichChapter? =
         withContext(Dispatchers.IO) {
             val raw = files.readRich(chapter.fileName)
@@ -606,13 +1054,12 @@ class BookRepository(context: Context) {
         withContext(Dispatchers.IO) { db.updateBookMeta(bookId, title, author) }
 
     suspend fun deleteBook(bookId: Long) = withContext(Dispatchers.IO) {
-        // 库里的删除已是一个事务；文件删除是 best-effort，个别文件删不掉不该让整次删除失败
         db.deleteBook(bookId).forEach { runCatching { files.deleteChapter(it) } }
     }
 
     suspend fun deleteChapter(bookId: Long, chapterId: Long) = withContext(Dispatchers.IO) {
+        val (curId, curIdx) = currentChapterId(bookId)
         val ch = db.chaptersOf(bookId).firstOrNull { it.id == chapterId }
-        // 删本章行 + 标记前移 + 删本章标记：几条 SQL 放一个事务，避免中途失败留下错位数据
         val file = db.inTransaction {
             val deleted = db.deleteChapter(chapterId)
             ch?.let {
@@ -620,12 +1067,15 @@ class BookRepository(context: Context) {
                     db.updateMark(m.copy(chapterIndex = m.chapterIndex - 1))
                 }
                 db.deleteMarksInChapter(bookId, it.indexInBook)
+                // 章节编号重排也放进同一个事务：批注的章号已经按新编号移好了，
+                // 这一步要是失败，库里的 idx 和批注就对不上
+                reindex(bookId)
             }
             deleted
         }
         if (file != null) runCatching { files.deleteChapter(file) }
         if (ch != null) {
-            reindex(bookId)
+            reanchorLastChapter(bookId, curId, curIdx)
             refreshStats(bookId)
         }
     }
@@ -634,6 +1084,7 @@ class BookRepository(context: Context) {
         withContext(Dispatchers.IO) { db.updateChapterTitle(chapterId, title) }
 
     suspend fun moveChapter(bookId: Long, chapterId: Long, delta: Int) = withContext(Dispatchers.IO) {
+        val (curId, curIdx) = currentChapterId(bookId)
         val list = db.chaptersOf(bookId).toMutableList()
         val from = list.indexOfFirst { it.id == chapterId }
         if (from < 0) return@withContext
@@ -641,39 +1092,42 @@ class BookRepository(context: Context) {
         if (to !in list.indices) return@withContext
         val item = list.removeAt(from)
         list.add(to, item)
-        // 标记跟随章节移动
-        val marks = db.marksOf(bookId)
         val oldIdx = item.indexInBook
         val newIdx = to
-        db.reindexChapters(bookId, list.map { it.id })
-        marks.forEach { m ->
-            when (m.chapterIndex) {
-                oldIdx -> db.updateMark(m.copy(chapterIndex = newIdx))
-                in minOf(oldIdx, newIdx)..maxOf(oldIdx, newIdx) -> {
-                    val shifted = if (oldIdx < newIdx) m.chapterIndex - 1 else m.chapterIndex + 1
+        // 章节编号与批注章号一起改：只改一半会让高亮/笔记落到别的章上
+        db.inTransaction {
+            db.reindexChapters(bookId, list.map { it.id })
+            db.marksOf(bookId)
+                .filter { it.chapterIndex in minOf(oldIdx, newIdx)..maxOf(oldIdx, newIdx) }
+                .forEach { m ->
+                    val shifted = if (m.chapterIndex == oldIdx) newIdx
+                    else if (oldIdx < newIdx) m.chapterIndex - 1 else m.chapterIndex + 1
                     db.updateMark(m.copy(chapterIndex = shifted))
                 }
-            }
         }
+        reanchorLastChapter(bookId, curId, curIdx)
         refreshStats(bookId)
     }
 
     suspend fun reorderChapters(bookId: Long, orderedIds: List<Long>) = withContext(Dispatchers.IO) {
+        val (curId, curIdx) = currentChapterId(bookId)
         val old = db.chaptersOf(bookId).associate { it.id to it.indexInBook }
-        db.reindexChapters(bookId, orderedIds)
-        val marks = db.marksOf(bookId)
         val newPos = orderedIds.withIndex().associate { (i, id) -> (old[id] ?: -1) to i }
-        marks.forEach { m ->
-            val np = newPos[m.chapterIndex]
-            if (np != null && np != m.chapterIndex) db.updateMark(m.copy(chapterIndex = np))
+        // 同上：编号与批注章号必须同一事务
+        db.inTransaction {
+            db.reindexChapters(bookId, orderedIds)
+            db.marksOf(bookId).forEach { m ->
+                val np = newPos[m.chapterIndex]
+                if (np != null && np != m.chapterIndex) db.updateMark(m.copy(chapterIndex = np))
+            }
         }
+        reanchorLastChapter(bookId, curId, curIdx)
         refreshStats(bookId)
     }
 
     /** 保存章节正文（编辑器） */
     suspend fun saveChapterText(chapter: Chapter, text: String) = withContext(Dispatchers.IO) {
         files.write(chapter.fileName, text)
-        // 手改过的正文和原来的样式覆盖对不上了，直接作废，免得按旧偏移乱套样式
         files.deleteRich(chapter.fileName)
         db.updateChapterFile(chapter.id, chapter.fileName, text.length)
         refreshStats(chapter.bookId)
@@ -684,6 +1138,35 @@ class BookRepository(context: Context) {
         db.reindexChapters(bookId, list.map { it.id })
     }
 
+    /**
+     * 改动前先记下「上次读到的那一章」是谁（id + 编号）。
+     * 章节增删移之后再用 [reanchorLastChapter] 把它找回来。
+     */
+    private fun currentChapterId(bookId: Long): Pair<Long?, Int> {
+        val idx = db.getBook(bookId)?.lastChapterIndex ?: 0
+        val id = db.chaptersOf(bookId).firstOrNull { it.indexInBook == idx }?.id
+        return id to idx
+    }
+
+    /**
+     * 章节数量 / 顺序变化后，把「上次读到第几章」重新指到**同一章**上。
+     *
+     * 按章节 id 认章，而不是按编号做 +1/-1 推算：删除、移动、重排之后编号都会变，
+     * 只按编号推在「删掉的正是正在读的那一章」这类情况上会算歪 —— 重新打开书就落到隔壁章去了。
+     * 认不出原来那一章（已被删）时，落到原编号位置并把字符偏移清零。
+     */
+    private fun reanchorLastChapter(bookId: Long, prevChapterId: Long?, fallbackIndex: Int) {
+        val b = db.getBook(bookId) ?: return
+        val list = db.chaptersOf(bookId)
+        if (list.isEmpty()) return
+        val idx = prevChapterId?.let { id -> list.indexOfFirst { it.id == id } } ?: -1
+        if (idx >= 0) {
+            if (idx != b.lastChapterIndex) db.updateProgress(bookId, idx, b.lastCharOffset, b.progress)
+        } else {
+            db.updateProgress(bookId, fallbackIndex.coerceIn(0, list.lastIndex), 0, b.progress)
+        }
+    }
+
     fun refreshStats(bookId: Long) {
         val list = db.chaptersOf(bookId)
         db.updateBookStats(bookId, list.size, list.sumOf { it.charCount })
@@ -691,10 +1174,6 @@ class BookRepository(context: Context) {
 
     // ==================== 自定义封面 ====================
 
-    /**
-     * 解码用户选的图片。先用 inJustDecodeBounds 量尺寸再按 2 的幂降采样，
-     * 避免直接 decode 一张 5000×4000 的照片把内存打爆。
-     */
     suspend fun decodeCoverSource(uri: Uri, maxDim: Int = 1600): Bitmap? = withContext(Dispatchers.IO) {
         runCatching {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -714,7 +1193,6 @@ class BookRepository(context: Context) {
         }.getOrNull()
     }
 
-    /** 保存裁切好的封面（JPEG 字节），返回私有目录里的文件名 */
     suspend fun saveCover(bookId: Long, jpeg: ByteArray): String = withContext(Dispatchers.IO) {
         val name = files.coverNameFor(bookId)
         files.writeCover(name, jpeg)
@@ -722,7 +1200,6 @@ class BookRepository(context: Context) {
         name
     }
 
-    /** 恢复默认封面：清库里的字段 + 删掉私有目录里的图 */
     suspend fun clearCover(bookId: Long) = withContext(Dispatchers.IO) {
         files.deleteCover(files.coverNameFor(bookId))
         db.updateBookCover(bookId, "")
@@ -803,16 +1280,7 @@ class BookRepository(context: Context) {
         return name ?: uri.lastPathSegment?.substringAfterLast('/')
     }
 
-    /**
-     * 读取选择器返回的文件。
-     *
-     * 标准做法是走 ContentResolver；但部分 ROM 的自带文件管理器会回 `file://` 而不是
-     * `content://`（它自己有完整存储权限，就不走 provider 了），这种情况再退一步直接用
-     * File 读。两条路都失败才返回 null，由调用方给出「读取失败」提示。
-     */
     private fun readBytes(uri: Uri): ByteArray? {
-        // 先按「声明大小」快速失败，省掉一次无谓的整文件读取；声明缺失/不准时，
-        // 由 readBounded 边读边数兜底 —— 两条路都保证不会把超大文件整个读进内存。
         declaredSize(uri)?.let { if (it > MAX_IMPORT_BYTES) throw ParseException(ParseErrorCode.TOO_LARGE) }
         val stream = try {
             appContext.contentResolver.openInputStream(uri)
@@ -836,7 +1304,6 @@ class BookRepository(context: Context) {
         return null
     }
 
-    /** 文件的「声明大小」；provider 或文件系统给不出时返回 null */
     private fun declaredSize(uri: Uri): Long? {
         if (uri.scheme == "file") {
             return runCatching { uri.path?.let { File(it).length() } }.getOrNull()
@@ -851,7 +1318,6 @@ class BookRepository(context: Context) {
         }.getOrNull()
     }
 
-    /** 分块读取，累计超过 [limit] 立即抛 TOO_LARGE，绝不把超大文件整个读进内存 */
     private fun readBounded(input: InputStream, limit: Long): ByteArray {
         val out = ByteArrayOutputStream()
         val buf = ByteArray(64 * 1024)
@@ -867,8 +1333,12 @@ class BookRepository(context: Context) {
     private fun now(): Long = System.currentTimeMillis()
 
     private companion object {
-        /** 单个文件的导入体积上限；超过直接拒绝，避免读入内存把进程打爆 */
         const val MAX_IMPORT_BYTES = 200L * 1024 * 1024
+
+        /** 整本重分章的字符数上限（全文要读进内存，切分还会再复制几份） */
+        const val MAX_RESPLIT_CHARS = 20_000_000
+
+        const val TAG = "BookRepo"
     }
 }
 

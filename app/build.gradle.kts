@@ -1,3 +1,4 @@
+import java.io.File
 import java.io.FileInputStream
 import java.util.Properties
 
@@ -24,8 +25,8 @@ android {
         applicationId = "com.inkreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 36
-        versionName = "1.10.10"
+        versionCode = 45
+        versionName = "1.11.8"
         resourceConfigurations += listOf("zh", "en", "ja")
     }
 
@@ -53,11 +54,13 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-            // 有 keystore.properties 就用正式签名，否则回退调试签名
+            // 正式签名：有 keystore.properties 就用 release 配置，没有就**不配签名**（出未签名包）。
+            // 不再回退 debug 签名 —— 那会让全新 clone / CI 静默产出「debug 签名的发布包」，
+            // 正是「禁止用 debug 签名发布」要防的事。缺文件时由下面的任务守卫直接报错。
             signingConfig = if (keystorePropertiesFile.exists())
                 signingConfigs.getByName("release")
             else
-                signingConfigs.getByName("debug")
+                null
         }
     }
 
@@ -81,6 +84,51 @@ android {
     }
 }
 
+tasks.register<JavaExec>("unitTest") {
+    group = "verification"
+    description = "运行纯 Kotlin 规则单测（不受中文工程路径影响；自动发现全部 *Test 类）"
+    val testClasses = tasks.named("compileDebugUnitTestKotlin").map { it.outputs.files }
+    val mainClasses = tasks.named("bundleDebugClassesToRuntimeJar").map { it.outputs.files }
+    // 注意：这里刻意不引用 testDebugUnitTest 任务本身 —— 引用它会让该任务一并执行，
+    // 而它正是被中文路径卡住的那个任务（见文件顶部说明）。类路径改由编译产物手工拼出。
+    classpath = files(testClasses, mainClasses, configurations.named("debugUnitTestRuntimeClasspath"))
+    mainClass.set("org.junit.runner.JUnitCore")
+    dependsOn(testClasses)
+    // 自动发现测试类：以前把类名写死在 args 里，以后新增的测试类会被静默跳过
+    doFirst {
+        val roots = testClasses.get().files.filter { it.isDirectory }
+        val discovered = roots.flatMap { root ->
+            root.walkTopDown()
+                .filter { it.isFile && it.name.endsWith("Test.class") && !it.name.contains('$') }
+                .map {
+                    it.relativeTo(root).path
+                        .removeSuffix(".class")
+                        .replace(File.separatorChar, '.')
+                }
+                .toList()
+        }.distinct().sorted()
+        logger.lifecycle("发现 ${discovered.size} 个测试类：${discovered.joinToString()}")
+        args(discovered)
+    }
+}
+
+// 挂进 check，让 `gradlew check` / `build` 也跑这套回归测试（以前只有手点 :app:unitTest 才跑）
+tasks.named("check") { dependsOn("unitTest") }
+
+// release 必须用正式签名：缺 keystore.properties 时让 release 的打包任务在**执行期**直接失败。
+// 不放配置期（那会连 assembleDebug 一起打断），也不静默回退 debug 签名。
+if (!keystorePropertiesFile.exists()) {
+    tasks.matching { it.name.startsWith("assembleRelease") || it.name.startsWith("bundleRelease") }
+        .configureEach {
+            doFirst {
+                throw GradleException(
+                    "缺少 keystore.properties：release 必须用正式签名，不允许回退 debug 签名。" +
+                        "只想出 debug 包请执行 assembleDebug。"
+                )
+            }
+        }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.03")
     implementation(composeBom)
@@ -101,19 +149,17 @@ dependencies {
     implementation("androidx.media:media:1.7.0")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
 
-    // PDF 正文提取。系统 PdfRenderer 只能把页面渲染成位图、拿不到文字，
-    // 而 PDF 里的中文字体基本都是 CID 子集 + ToUnicode CMap，
-    // 自己解析极易提出乱码，所以这里引入纯 Java 的 pdfbox-android（无 so、无 AWT）。
     implementation("com.tom-roush:pdfbox-android:2.0.27.0")
 
-    // Markdown 正文解析。要求「保留格式阅读」（标题/粗斜体/列表/引用/代码块/表格），
-    // 自己用正则剥标记既处理不了嵌套结构，也没法把样式映射回正文偏移，
-    // 所以引入纯 Java 的 commonmark-java（无 so、无 Android 依赖，约 300KB），
-    // 由它出 AST，我们再走一遍 AST 生成「阅读用纯文本 + 样式覆盖」。
     implementation("org.commonmark:commonmark:0.22.0")
     implementation("org.commonmark:commonmark-ext-gfm-tables:0.22.0")
     implementation("org.commonmark:commonmark-ext-gfm-strikethrough:0.22.0")
     implementation("org.commonmark:commonmark-ext-task-list-items:0.22.0")
 
     debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // 纯 Kotlin 规则（章节识别 / 排序）的回归单测。
+    // 注意：在从未解析过该坐标的机器上，`--offline` 跑测试会失败（普通 assembleDebug 不受影响），
+    // 首次需要联网让它落进 Gradle 缓存。
+    testImplementation("junit:junit:4.13.2")
 }

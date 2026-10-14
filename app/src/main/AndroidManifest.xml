@@ -39,9 +39,17 @@
         android:theme="@style/Theme.InkReader"
         tools:targetApi="34">
 
+        <!--
+          launchMode 用 singleTask —— 与同机可用的 SJopi 保持一致（它的注释是「单 Activity 应用必须这么设」）。
+          之前的 singleTop 改动基于「singleTask 会被国产 ROM 判成 RESULT_CANCELED」的推测，
+          但实测对照推翻了它：SJopi 就是 singleTask，用它打开 vivo 文件管理器一直正常；
+          而墨阅改成 singleTop 后，落盘留痕显示选择器发起成功、5.005 秒后却收到
+          `res=0 uris=0 data=false`（系统侧自动取消）。所以按能用的那套来。
+          singleTask 还能保证「用其他应用打开 / 分享」进来时复用同一实例，不会出现两个 MainActivity。
+        -->
         <activity
             android:name=".MainActivity"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|uiMode|density|fontScale"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden|uiMode|density|fontScale|locale|layoutDirection|colorMode"
             android:exported="true"
             android:launchMode="singleTask"
             android:theme="@style/Theme.InkReader"

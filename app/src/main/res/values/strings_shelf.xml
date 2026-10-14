@@ -51,6 +51,7 @@
     <!-- ==================== 导入 ==================== -->
     <string name="shelf_picker_open_failed">打不开系统文件选择器：%1$s</string>
     <string name="shelf_picker_reopened">上次的文件选择被系统回收了，已重新打开</string>
+    <string name="shelf_picker_no_files">没读到所选文件，请重新选择</string>
     <string name="shelf_importing">正在导入</string>
     <plurals name="shelf_import_files_title">
         <item quantity="other">导入 %1$d 个文件</item>
@@ -63,14 +64,11 @@
     <string name="shelf_mode_separate_desc">每个文件独立成书，自动识别章节（也是按文件名里的章号排序）</string>
     <string name="shelf_mode_merge_title">合并为一本书</string>
     <string name="shelf_mode_merge_desc">每个文件成为一个章节；文件名里有「第N章」的会按章号自动排序</string>
-    <string name="shelf_single_file_hint">会自动识别文件里的「第X章」标题拆成章节，并按章号排序 —— 文件内部章节顺序乱掉也能纠正过来。</string>
     <string name="shelf_book_title_label">书名</string>
     <string name="shelf_title_auto_placeholder">留空则自动生成</string>
     <string name="shelf_chapter_split">章节划分</string>
     <string name="shelf_split_smart_title">智能解析（推荐）</string>
     <string name="shelf_split_smart_desc">有多个「第X章」的文件拆成多章，只有一个章节的整篇作为一章，并按章号自动排序</string>
-    <string name="shelf_split_in_file_title">一律解析文件内章节</string>
-    <string name="shelf_split_in_file_desc">每个文件都按内部「第X章」标题拆；没有内部标题时会按字数兜底切分</string>
     <string name="shelf_split_per_file_title">每个文件作为一章</string>
     <string name="shelf_split_per_file_desc">不拆分，文件整体成为一章，章节名取文件名</string>
 
@@ -87,4 +85,20 @@
     <string name="shelf_book_title_example">例如：读书笔记</string>
     <string name="shelf_author_optional">作者（可选）</string>
     <string name="shelf_author_placeholder">留空也可以</string>
+
+    <!-- ==================== 智能分章预览与切分档位 ==================== -->
+    <string name="shelf_preview_scanning">正在预扫描章节结构…</string>
+    <string name="shelf_preview_summary">预计拆分为 %1$d 章</string>
+    <string name="shelf_preview_summary_volumes">预计拆分为 %1$d 章 · 含 %2$d 卷</string>
+    <string name="shelf_split_strict_chap_title">仅按「第X章/回」</string>
+    <string name="shelf_split_strict_chap_desc">只识别标准「第X章 / 第X回 / Chapter N」，忽略数字与小节</string>
+    <string name="shelf_split_numbered_title">按数字/序号切分</string>
+    <string name="shelf_split_numbered_desc">识别「1. / 01 / 一、/（1）」及标准章回标题</string>
+    <string name="shelf_split_fixed_title">按固定字数切分</string>
+    <string name="shelf_split_fixed_desc">不识别标题，每约 1.2 万字在段落边界自动切分</string>
+    <string name="shelf_split_custom_title">自定义前缀 / 正则</string>
+    <string name="shelf_split_custom_desc">输入本书专属的短行前缀（如 ◆）或正则表达式</string>
+    <string name="shelf_split_custom_placeholder">例如：◆ 或 ^第.+章</string>
+    <string name="shelf_clean_watermark_title">净网清洗（去求票括注与网址水印）</string>
+    <string name="shelf_clean_watermark_desc">剥离标题尾部的（求月票/第一更）与正文夹杂的网址水印行，目录与听书更清爽</string>
 </resources>

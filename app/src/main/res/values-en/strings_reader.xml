@@ -37,4 +37,8 @@
         <item quantity="one">%1$d chapter in total</item>
         <item quantity="other">%1$d chapters in total</item>
     </plurals>
+
+    <string name="reader_split_from_here">Split chapter</string>
+    <string name="reader_split_done_toast">Split into a new chapter from here</string>
+    <string name="reader_split_failed_toast">Cannot split at the very start or end of a chapter</string>
 </resources>

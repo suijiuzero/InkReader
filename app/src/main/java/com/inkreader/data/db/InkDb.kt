@@ -49,7 +49,8 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
               title TEXT DEFAULT '',
               file TEXT DEFAULT '',
               chars INTEGER DEFAULT 0,
-              source TEXT DEFAULT ''
+              source TEXT DEFAULT '',
+              volume TEXT DEFAULT ''
             )
             """.trimIndent()
         )
@@ -85,27 +86,39 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
     }
 
     override fun onUpgrade(db: SQLiteDatabase, old: Int, new: Int) {
-        // v1 → v2：书籍多了自定义封面（cover_path）
-        if (old < 2) {
-            runCatching { db.execSQL("ALTER TABLE books ADD COLUMN cover_path TEXT DEFAULT ''") }
-        }
-        // v2 → v3：书架分组（books.group_id + groups 表）
+        // 加列一律先查 PRAGMA 再 ALTER（幂等），并且**不吞异常**：
+        // 升级期就该失败，而不是把版本号提上去、等到之后某次写库才抛 "no such column"。
+        //（历史上这里用 runCatching 把失败吞掉了，写侧又没有兜底，属于难定位的雷。）
+        if (old < 2) addColumn(db, "books", "cover_path", "TEXT DEFAULT ''")
         if (old < 3) {
-            runCatching { db.execSQL("ALTER TABLE books ADD COLUMN group_id INTEGER DEFAULT 0") }
-            runCatching {
-                db.execSQL(
-                    """
-                    CREATE TABLE IF NOT EXISTS groups(
-                      id INTEGER PRIMARY KEY AUTOINCREMENT,
-                      name TEXT NOT NULL,
-                      sort_order INTEGER DEFAULT 0,
-                      created INTEGER DEFAULT 0
-                    )
-                    """.trimIndent()
+            addColumn(db, "books", "group_id", "INTEGER DEFAULT 0")
+            db.execSQL(
+                """
+                CREATE TABLE IF NOT EXISTS groups(
+                  id INTEGER PRIMARY KEY AUTOINCREMENT,
+                  name TEXT NOT NULL,
+                  sort_order INTEGER DEFAULT 0,
+                  created INTEGER DEFAULT 0
                 )
-            }
+                """.trimIndent()
+            )
         }
+        if (old < 4) addColumn(db, "chapters", "volume", "TEXT DEFAULT ''")
     }
+
+    /** 列不存在才加（ALTER 重复执行会抛 duplicate column name，这里先查一次避开） */
+    private fun addColumn(db: SQLiteDatabase, table: String, column: String, type: String) {
+        if (hasColumn(db, table, column)) return
+        db.execSQL("ALTER TABLE $table ADD COLUMN $column $type")
+    }
+
+    private fun hasColumn(db: SQLiteDatabase, table: String, column: String): Boolean =
+        db.rawQuery("PRAGMA table_info($table)", null).use { c ->
+            while (c.moveToNext()) {
+                if (c.getString(1) == column) return true
+            }
+            false
+        }
 
     // ---------------- 分组 ----------------
 
@@ -123,11 +136,13 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
         writableDatabase.update("groups", cv, "id=?", arrayOf(id.toString()))
     }
 
-    /** 删除分组：组内书籍回到「未分组」，书本身不动 */
+    /** 删除分组：组内书籍回到「未分组」，书本身不动。两步必须同事务，避免出现组没了书还挂着 group_id */
     fun deleteGroup(id: Long) {
-        val db = writableDatabase
-        db.update("books", ContentValues().apply { put("group_id", 0L) }, "group_id=?", arrayOf(id.toString()))
-        db.delete("groups", "id=?", arrayOf(id.toString()))
+        inTransaction {
+            val db = writableDatabase
+            db.update("books", ContentValues().apply { put("group_id", 0L) }, "group_id=?", arrayOf(id.toString()))
+            db.delete("groups", "id=?", arrayOf(id.toString()))
+        }
     }
 
     fun groups(): List<BookGroup> {
@@ -221,7 +236,6 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
     }
 
     fun getBooks(sort: ShelfSort): List<Book> {
-        // ORDER BY 只能取下面这个穷尽 when 出来的常量串，不含任何外部拼接输入，无注入面
         val order = when (sort) {
             ShelfSort.RECENT -> "last_read DESC, created DESC"
             ShelfSort.TITLE -> "title COLLATE NOCASE ASC"
@@ -237,7 +251,7 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
 
     /**
      * 在同一个事务里执行 [block]；块内抛异常则整体回滚。
-     * 用于「多条 SQL 必须同生共死」的场景（删书、删章、重排）。
+     * 用于「多条 SQL 必须同生共死」的场景（删书、删章、重排、合并、拆分）。
      */
     fun <T> inTransaction(block: () -> T): T {
         val db = writableDatabase
@@ -271,11 +285,9 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
             SourceType.valueOf(c.getString(c.getColumnIndexOrThrow("source")) ?: "TXT")
         }.getOrDefault(SourceType.TXT),
         coverHue = c.getInt(c.getColumnIndexOrThrow("hue")),
-        // 老库可能还没迁移出这一列，取不到就当没有自定义封面
         coverPath = c.getColumnIndex("cover_path").let { i ->
             if (i >= 0) c.getString(i) ?: "" else ""
         },
-        // 同理：没有 group_id 列时当未分组
         groupId = c.getColumnIndex("group_id").let { i ->
             if (i >= 0) c.getLong(i) else 0L
         },
@@ -298,6 +310,7 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
             put("file", ch.fileName)
             put("chars", ch.charCount)
             put("source", ch.sourceName)
+            put("volume", ch.volume)
         }
         return writableDatabase.insert("chapters", null, cv)
     }
@@ -315,6 +328,11 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
 
     fun updateChapterTitle(id: Long, title: String) {
         val cv = ContentValues().apply { put("title", title) }
+        writableDatabase.update("chapters", cv, "id=?", arrayOf(id.toString()))
+    }
+
+    fun updateChapterVolume(id: Long, volume: String) {
+        val cv = ContentValues().apply { put("volume", volume) }
         writableDatabase.update("chapters", cv, "id=?", arrayOf(id.toString()))
     }
 
@@ -339,7 +357,7 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
         writableDatabase.update("chapters", cv, "id=?", arrayOf(id.toString()))
     }
 
-    /** 章节重排后统一重建索引，并修正标记所属章节 */
+    /** 章节重排后统一重建索引 */
     fun reindexChapters(bookId: Long, orderedIds: List<Long>) {
         val db = writableDatabase
         db.beginTransaction()
@@ -369,7 +387,10 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
         title = c.getString(c.getColumnIndexOrThrow("title")) ?: "",
         fileName = c.getString(c.getColumnIndexOrThrow("file")) ?: "",
         charCount = c.getInt(c.getColumnIndexOrThrow("chars")),
-        sourceName = c.getString(c.getColumnIndexOrThrow("source")) ?: ""
+        sourceName = c.getString(c.getColumnIndexOrThrow("source")) ?: "",
+        volume = c.getColumnIndex("volume").let { i ->
+            if (i >= 0) c.getString(i) ?: "" else ""
+        }
     )
 
     // ---------------- Mark ----------------
@@ -410,6 +431,9 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
 
     fun updateMark(m: Mark) {
         val cv = ContentValues().apply {
+            put("chapter", m.chapterIndex)
+            put("start_off", m.startOffset)
+            put("end_off", m.endOffset)
             put("type", m.type.name)
             put("color", m.color)
             put("note", m.note)
@@ -446,6 +470,6 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
 
     companion object {
         private const val DB_NAME = "ink_reader.db"
-        private const val DB_VERSION = 3
+        private const val DB_VERSION = 4
     }
 }

@@ -8,4 +8,12 @@
     <string name="editor_saved">已保存</string>
     <string name="editor_title_hint">章节标题</string>
     <string name="editor_body_hint">在这里写下正文…\n\n空行会被当作分段。</string>
+
+    <string name="editor_split_here">拆分为新章</string>
+    <string name="editor_split_cursor_hint">请先将光标点在要拆分的正文位置</string>
+    <string name="editor_split_dialog_title">从光标处拆分为下一章</string>
+    <string name="editor_split_dialog_desc">光标之前的正文留在当前章，光标及之后的正文将独立为下一章，该处的书签、高亮与笔记会自动无损迁移。</string>
+    <string name="editor_split_new_title_label">新章节标题</string>
+    <string name="editor_split_confirm">确认拆分</string>
+    <string name="editor_split_done_toast">已从光标处拆分为新章节</string>
 </resources>

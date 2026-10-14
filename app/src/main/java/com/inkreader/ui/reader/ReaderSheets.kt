@@ -1,5 +1,10 @@
 package com.inkreader.ui.reader
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -36,13 +41,17 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -54,7 +63,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.inkreader.R
+import com.inkreader.data.model.Chapter
 import com.inkreader.data.model.FontChoice
 import com.inkreader.data.model.Mark
 import com.inkreader.data.model.PageAnimation
@@ -62,18 +73,21 @@ import com.inkreader.data.model.PageMode
 import com.inkreader.data.model.ReaderPrefs
 import com.inkreader.data.model.ReaderTheme
 import com.inkreader.data.model.SearchHit
+import com.inkreader.parse.ChapterSplitter
 import com.inkreader.tts.SleepMode
 import com.inkreader.tts.TtsState
 import com.inkreader.ui.component.InkChip
 import com.inkreader.ui.component.InkIcon
 import com.inkreader.ui.component.InkIconButton
 import com.inkreader.ui.component.InkProgress
-import com.inkreader.ui.component.InkTextField
 import com.inkreader.ui.component.InkTextButton
+import com.inkreader.ui.component.InkTextField
 import com.inkreader.ui.component.SectionLabel
 import com.inkreader.ui.theme.InkType
 import com.inkreader.ui.theme.LocalInkPalette
 import com.inkreader.ui.theme.paletteFor
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
 
 private val SheetShape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp)
 private val CardShape = RoundedCornerShape(12.dp)
@@ -89,6 +103,12 @@ val ReaderThemes: List<Pair<ReaderTheme, Int>> = listOf(
 
 /** 目录抽屉的两个页签 */
 private enum class TocTab { CHAPTERS, NOTES }
+
+/** 二级目录中的「卷」分组结构 */
+private data class VolumeBucket(
+    val volumeTitle: String,
+    val items: List<Pair<Int, Chapter>>
+)
 
 // ==================== 通用浮层外壳 ====================
 
@@ -111,7 +131,6 @@ fun InkSheet(
                 .clip(SheetShape)
                 .background(p.surface)
         ) {
-            // 拖动提示条
             Box(Modifier.fillMaxWidth().padding(top = 10.dp), contentAlignment = Alignment.Center) {
                 Box(
                     Modifier
@@ -255,7 +274,7 @@ private fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
     )
 }
 
-// ==================== 目录抽屉 ====================
+// ==================== 目录抽屉（维度四：支持「卷 → 章」二级折叠目录与快速定位） ====================
 
 @Composable
 fun TocDrawer(
@@ -264,17 +283,81 @@ fun TocDrawer(
     onJump: (Int, Int) -> Unit
 ) {
     val p = LocalInkPalette.current
+    val scope = rememberCoroutineScope()
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val chapterListState = rememberLazyListState()
     val tagListState = rememberLazyListState()
     var tab by remember { mutableStateOf(TocTab.CHAPTERS) }
     val tags = session.pageTags()
 
-    LaunchedEffect(session.chapterIndex, session.chapters.size, tab) {
+    val defaultVolLabel = stringResource(R.string.sheets_toc_default_volume)
+
+    // 构建「卷 → 章」二级分组：当至少存在一章带有明确卷名时启用二级折叠目录
+    val volumeBuckets = remember(session.chapters, defaultVolLabel) {
+        val rawHasVolumes = session.chapters.any {
+            it.volume.isNotBlank() || ChapterSplitter.extractVolumeTitle(it.title) != null
+        }
+        if (!rawHasVolumes) {
+            emptyList()
+        } else {
+            val out = ArrayList<VolumeBucket>()
+            var curVol = ""
+            var curList = ArrayList<Pair<Int, Chapter>>()
+            for ((idx, ch) in session.chapters.withIndex()) {
+                val detected = ch.volume.ifBlank { ChapterSplitter.extractVolumeTitle(ch.title).orEmpty() }
+                if (detected.isNotBlank() && detected != curVol) {
+                    if (curList.isNotEmpty()) {
+                        out += VolumeBucket(curVol.ifBlank { defaultVolLabel }, curList)
+                        curList = ArrayList()
+                    }
+                    curVol = detected
+                }
+                curList += idx to ch
+            }
+            if (curList.isNotEmpty()) {
+                out += VolumeBucket(curVol.ifBlank { defaultVolLabel }, curList)
+            }
+            if (out.size >= 1) out else emptyList()
+        }
+    }
+
+    // 记录每个分卷是否被折叠（默认展开所有分卷，且自动展开当前阅读章节所在的卷）
+    val collapsedVolumes = remember { mutableStateMapOf<String, Boolean>() }
+
+    LaunchedEffect(session.chapterIndex, session.chapters.size, tab, volumeBuckets.size) {
         if (tab == TocTab.CHAPTERS && session.chapters.isNotEmpty()) {
-            chapterListState.scrollToItem(
-                (session.chapterIndex - 3).coerceIn(0, session.chapters.lastIndex)
-            )
+            if (volumeBuckets.isEmpty()) {
+                chapterListState.scrollToItem(
+                    (session.chapterIndex - 3).coerceIn(0, session.chapters.lastIndex)
+                )
+            } else {
+                val activeBucket = volumeBuckets.firstOrNull { b ->
+                    b.items.any { it.first == session.chapterIndex }
+                }
+                if (activeBucket != null) {
+                    // 展开当前章所在卷，并把它滚进视野（否则长目录永远停在最顶部）
+                    collapsedVolumes[activeBucket.volumeTitle] = false
+                    // 卷头也是列表项：按「已展开」的最终形态算出当前章的下标
+                    var target = 0
+                    var found = false
+                    for (b in volumeBuckets) {
+                        target += 1 // 卷头项
+                        if (b === activeBucket) {
+                            target += b.items.indexOfFirst { it.first == session.chapterIndex }
+                                .coerceAtLeast(0)
+                            found = true
+                            break
+                        }
+                        if (collapsedVolumes[b.volumeTitle] != true) target += b.items.size
+                    }
+                    if (found) {
+                        // 等列表按展开后的形态完成布局（项数到位）再滚，避免按折叠态下标滚动
+                        snapshotFlow { chapterListState.layoutInfo.totalItemsCount }
+                            .first { it > target }
+                        chapterListState.scrollToItem((target - 3).coerceAtLeast(0))
+                    }
+                }
+            }
         }
     }
 
@@ -284,7 +367,7 @@ fun TocDrawer(
             Modifier
                 .align(Alignment.CenterStart)
                 .fillMaxHeight()
-                .width(310.dp)
+                .width(316.dp)
                 .clip(RoundedCornerShape(topEnd = 20.dp, bottomEnd = 20.dp))
                 .background(p.surface)
                 .padding(top = topInset)
@@ -300,21 +383,58 @@ fun TocDrawer(
                     overflow = TextOverflow.Ellipsis
                 )
                 Spacer(Modifier.height(6.dp))
-                Text(
-                    text = pluralStringResource(
-                        R.plurals.sheets_toc_summary,
-                        session.chapters.size,
-                        session.chapters.size,
-                        (session.bookProgress() * 100).toInt()
-                    ),
-                    style = InkType.Caption.copy(fontSize = 11.sp),
-                    color = p.textFaint
-                )
-                Spacer(Modifier.height(12.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = pluralStringResource(
+                            R.plurals.sheets_toc_summary,
+                            session.chapters.size,
+                            session.chapters.size,
+                            (session.bookProgress() * 100).toInt()
+                        ),
+                        style = InkType.Caption.copy(fontSize = 11.sp),
+                        color = p.textFaint,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (tab == TocTab.CHAPTERS && session.chapters.size > 8) {
+                        val anyCollapsed = volumeBuckets.isNotEmpty() &&
+                            volumeBuckets.any { collapsedVolumes[it.volumeTitle] == true }
+                        if (volumeBuckets.isNotEmpty()) {
+                            InkChip(
+                                text = if (anyCollapsed) stringResource(R.string.sheets_toc_expand_all)
+                                else stringResource(R.string.sheets_toc_collapse_all),
+                                onClick = {
+                                    val target = !anyCollapsed
+                                    volumeBuckets.forEach { collapsedVolumes[it.volumeTitle] = target }
+                                }
+                            )
+                            Spacer(Modifier.width(6.dp))
+                        }
+                        InkIconButton(
+                            res = R.drawable.ic_up,
+                            contentDescription = stringResource(R.string.sheets_toc_jump_top),
+                            onClick = { scope.launch { chapterListState.scrollToItem(0) } },
+                            tint = p.textSecondary,
+                            size = 15
+                        )
+                        InkIconButton(
+                            res = R.drawable.ic_down,
+                            contentDescription = stringResource(R.string.sheets_toc_jump_bottom),
+                            onClick = {
+                                scope.launch {
+                                    val totalItems = chapterListState.layoutInfo.totalItemsCount
+                                    if (totalItems > 0) chapterListState.scrollToItem(totalItems - 1)
+                                }
+                            },
+                            tint = p.textSecondary,
+                            size = 15
+                        )
+                    }
+                }
+                Spacer(Modifier.height(10.dp))
                 InkProgress(session.bookProgress(), Modifier.fillMaxWidth())
             }
 
-            // 页签：章节 / 笔记（笔记里只列下滑打的「按页标签」）
+            // 页签：章节 / 笔记
             InkSegment(
                 options = listOf(
                     TocTab.CHAPTERS to pluralStringResource(
@@ -333,7 +453,79 @@ fun TocDrawer(
                     Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                         Text(stringResource(R.string.sheets_toc_empty_chapters), style = InkType.UiLabel, color = p.textFaint)
                     }
+                } else if (volumeBuckets.isNotEmpty()) {
+                    // 二级折叠目录（卷 → 章）
+                    LazyColumn(
+                        state = chapterListState,
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 12.dp, end = 12.dp, bottom = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        volumeBuckets.forEachIndexed { vIdx, bucket ->
+                            val isCollapsed = collapsedVolumes[bucket.volumeTitle] == true
+                            val hasCurrent = bucket.items.any { it.first == session.chapterIndex }
+                            item(key = "vol_${vIdx}_${bucket.volumeTitle}") {
+                                Row(
+                                    Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = if (vIdx > 0) 6.dp else 0.dp)
+                                        .clip(CardShape)
+                                        .background(if (hasCurrent) p.accentSoft.copy(alpha = 0.65f) else p.background)
+                                        .border(1.dp, if (hasCurrent) p.accent.copy(alpha = 0.3f) else p.divider, CardShape)
+                                        .clickable {
+                                            collapsedVolumes[bucket.volumeTitle] = !isCollapsed
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    InkIcon(
+                                        res = if (isCollapsed) R.drawable.ic_right else R.drawable.ic_down,
+                                        contentDescription = null,
+                                        tint = if (hasCurrent) p.accent else p.textSecondary,
+                                        size = 15
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = bucket.volumeTitle,
+                                        fontFamily = FontFamily.SansSerif,
+                                        fontWeight = FontWeight.SemiBold,
+                                        fontSize = 13.sp,
+                                        color = if (hasCurrent) p.accent else p.textPrimary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(Modifier.width(8.dp))
+                                    Text(
+                                        text = pluralStringResource(
+                                            R.plurals.plural_chapters,
+                                            bucket.items.size,
+                                            bucket.items.size
+                                        ),
+                                        style = InkType.Caption.copy(fontSize = 10.5.sp),
+                                        color = p.textFaint
+                                    )
+                                }
+                            }
+                            if (!isCollapsed) {
+                                itemsIndexed(
+                                    items = bucket.items,
+                                    key = { _, pair -> pair.second.id }
+                                ) { _, (chapIdx, c) ->
+                                    val current = chapIdx == session.chapterIndex
+                                    TocChapterRow(
+                                        index = chapIdx,
+                                        title = c.title,
+                                        current = current,
+                                        indented = true,
+                                        onClick = { onJump(chapIdx, 0) }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 } else {
+                    // 普通单层目录
                     LazyColumn(
                         state = chapterListState,
                         modifier = Modifier.fillMaxSize(),
@@ -341,38 +533,13 @@ fun TocDrawer(
                     ) {
                         itemsIndexed(session.chapters, key = { _, c -> c.id }) { i, c ->
                             val current = i == session.chapterIndex
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .clip(CardShape)
-                                    .background(if (current) p.accentSoft else Color.Transparent)
-                                    .clickable { onJump(i, 0) }
-                                    .padding(horizontal = 12.dp, vertical = 12.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = String.format("%02d", i + 1),
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
-                                    fontSize = 11.sp,
-                                    color = if (current) p.accent else p.textFaint,
-                                    modifier = Modifier.width(26.dp)
-                                )
-                                Text(
-                                    text = c.title,
-                                    fontFamily = FontFamily.SansSerif,
-                                    fontWeight = if (current) FontWeight.Medium else FontWeight.Normal,
-                                    fontSize = 13.5.sp,
-                                    lineHeight = 19.sp,
-                                    color = if (current) p.accent else p.textPrimary,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                if (current) {
-                                    Box(Modifier.size(6.dp).clip(CircleShape).background(p.accent))
-                                }
-                            }
+                            TocChapterRow(
+                                index = i,
+                                title = c.title,
+                                current = current,
+                                indented = false,
+                                onClick = { onJump(i, 0) }
+                            )
                         }
                     }
                 }
@@ -420,6 +587,54 @@ fun TocDrawer(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun TocChapterRow(
+    index: Int,
+    title: String,
+    current: Boolean,
+    indented: Boolean,
+    onClick: () -> Unit
+) {
+    val p = LocalInkPalette.current
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .clip(CardShape)
+            .background(if (current) p.accentSoft else Color.Transparent)
+            .clickable { onClick() }
+            .padding(
+                start = if (indented) 22.dp else 12.dp,
+                end = 12.dp,
+                top = 11.dp,
+                bottom = 11.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = String.format("%02d", index + 1),
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = if (current) FontWeight.SemiBold else FontWeight.Normal,
+            fontSize = 11.sp,
+            color = if (current) p.accent else p.textFaint,
+            modifier = Modifier.width(28.dp)
+        )
+        Text(
+            text = title,
+            fontFamily = FontFamily.SansSerif,
+            fontWeight = if (current) FontWeight.Medium else FontWeight.Normal,
+            fontSize = 13.5.sp,
+            lineHeight = 19.sp,
+            color = if (current) p.accent else p.textPrimary,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f)
+        )
+        if (current) {
+            Box(Modifier.size(6.dp).clip(CircleShape).background(p.accent))
         }
     }
 }
@@ -481,13 +696,6 @@ private fun TagCard(
 
 // ==================== 排版设置 ====================
 
-/**
- * 设置项本体。
- *
- * 阅读器里那个底部面板（[ReaderSettingsSheet]）与书架三点菜单进来的全屏设置页
- * （`com.inkreader.ui.settings.SettingsScreen`）共用这一段，所以这里只认 [prefs] 与 [onUpdate]，
- * 不碰 ReaderSession。[footer] 是阅读器专属的尾巴（「这本书」那几个按钮），全屏时传 null。
- */
 @Composable
 internal fun ReaderSettingsContent(
     prefs: ReaderPrefs,
@@ -534,7 +742,6 @@ internal fun ReaderSettingsContent(
             }
         }
 
-        // 实时预览
         Box(
             Modifier
                 .fillMaxWidth()
@@ -605,7 +812,6 @@ internal fun ReaderSettingsContent(
             color = p.textFaint
         )
 
-        // 翻页动画只在左右翻页时有意义，滚动模式用不到
         if (prefs.pageMode == PageMode.PAGE) {
             SectionLabel(stringResource(R.string.sheets_section_page_animation))
             InkSegment(
@@ -672,7 +878,6 @@ internal fun ReaderSettingsContent(
     }
 }
 
-/** 阅读器里的排版设置：底部弹层，末尾接一段本书专属操作（笔记 / 编辑本章 / 章节管理） */
 @Composable
 fun ReaderSettingsSheet(
     session: ReaderSession,
@@ -825,7 +1030,7 @@ private fun highlightKeyword(text: String, keyword: String, color: Color): Annot
     }
 }
 
-// ==================== 朗读 ====================
+// ==================== 朗读（在此处按需申请通知权限，不在书架冷启动时抢占） ====================
 
 @Composable
 fun TtsSheet(
@@ -838,11 +1043,26 @@ fun TtsSheet(
     onSleep: (SleepMode) -> Unit
 ) {
     val p = LocalInkPalette.current
+    val context = LocalContext.current
     val prefs = session.prefs
     var rate by remember { mutableStateOf(prefs.ttsRate) }
     var pitch by remember { mutableStateOf(prefs.ttsPitch) }
     var sleep by remember { mutableStateOf(SleepMode.OFF) }
     var fromPageStart by remember { mutableStateOf(true) }
+
+    val permLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
+
+    LaunchedEffect(Unit) {
+        // 已授权就别再弹：每次打开朗读面板都申请会打扰用户
+        if (Build.VERSION.SDK_INT >= 33 &&
+            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            runCatching { permLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) }
+        }
+    }
 
     val active = state.active && state.bookId == session.bookId
 

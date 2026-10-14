@@ -57,6 +57,7 @@
     <!-- ==================== Import ==================== -->
     <string name="shelf_picker_open_failed">Can\'t open the system file picker: %1$s</string>
     <string name="shelf_picker_reopened">The file picker was closed by the system; reopened</string>
+    <string name="shelf_picker_no_files">No files were returned; please pick again</string>
     <string name="shelf_importing">Importing</string>
     <plurals name="shelf_import_files_title">
         <item quantity="one">Import %1$d file</item>
@@ -70,14 +71,11 @@
     <string name="shelf_mode_separate_desc">Each file becomes its own book; chapters are detected automatically (also sorted by the chapter number in the file name).</string>
     <string name="shelf_mode_merge_title">Merge into one book</string>
     <string name="shelf_mode_merge_desc">Each file becomes one chapter; files named with \"Chapter N\" are sorted by chapter number.</string>
-    <string name="shelf_single_file_hint">Chapters are detected automatically from \"Chapter X\" headings and sorted by number — even if the chapter order inside the file is scrambled, it gets corrected.</string>
     <string name="shelf_book_title_label">Title</string>
     <string name="shelf_title_auto_placeholder">Leave blank to auto-generate</string>
     <string name="shelf_chapter_split">Chapter splitting</string>
     <string name="shelf_split_smart_title">Smart parsing (recommended)</string>
     <string name="shelf_split_smart_desc">Files with several \"Chapter X\" headings are split into multiple chapters; a file with only one chapter stays whole. All are sorted by chapter number.</string>
-    <string name="shelf_split_in_file_title">Always split by in-file chapters</string>
-    <string name="shelf_split_in_file_desc">Split every file by its internal \"Chapter X\" headings; if there are none, it falls back to splitting by length.</string>
     <string name="shelf_split_per_file_title">One chapter per file</string>
     <string name="shelf_split_per_file_desc">No splitting; the whole file becomes one chapter, named after the file.</string>
 
@@ -94,4 +92,20 @@
     <string name="shelf_book_title_example">e.g. Reading notes</string>
     <string name="shelf_author_optional">Author (optional)</string>
     <string name="shelf_author_placeholder">Can be left blank</string>
+
+    <!-- ==================== Live split preview & strategies ==================== -->
+    <string name="shelf_preview_scanning">Pre-scanning chapter structure…</string>
+    <string name="shelf_preview_summary">Estimated %1$d chapters</string>
+    <string name="shelf_preview_summary_volumes">Estimated %1$d chapters · %2$d volumes</string>
+    <string name="shelf_split_strict_chap_title">Only by "Chapter X"</string>
+    <string name="shelf_split_strict_chap_desc">Only match strict "第X章 / Chapter N" headings; ignore numbers and sections</string>
+    <string name="shelf_split_numbered_title">By numbered headings</string>
+    <string name="shelf_split_numbered_desc">Match "1. / 01 / 一、/ (1)" as well as standard chapter headings</string>
+    <string name="shelf_split_fixed_title">By fixed character count</string>
+    <string name="shelf_split_fixed_desc">Ignore headings and split every ~12,000 characters at paragraph boundaries</string>
+    <string name="shelf_split_custom_title">Custom prefix / regex</string>
+    <string name="shelf_split_custom_desc">Enter a custom short-line prefix (e.g. ◆) or regular expression</string>
+    <string name="shelf_split_custom_placeholder">e.g. ◆ or ^Chapter\s+\d+</string>
+    <string name="shelf_clean_watermark_title">Clean watermarks &amp; title noise</string>
+    <string name="shelf_clean_watermark_desc">Strip vote-begging brackets from titles and website watermark lines from text</string>
 </resources>

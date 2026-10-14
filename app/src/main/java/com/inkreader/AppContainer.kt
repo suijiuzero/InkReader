@@ -1,6 +1,8 @@
 package com.inkreader
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -10,6 +12,7 @@ import com.inkreader.data.model.ImportMode
 import com.inkreader.data.model.ShelfSort
 import com.inkreader.data.model.ShelfView
 import com.inkreader.data.model.SplitMode
+import com.inkreader.data.model.SplitOptions
 import com.inkreader.data.prefs.PrefsStore
 import com.inkreader.data.repo.BookRepository
 import kotlinx.coroutines.CoroutineScope
@@ -35,8 +38,29 @@ class AppContainer(context: Context) {
         com.inkreader.parse.DocumentParsers.init(appContext)
     }
 
-    /** 外部通过 Intent 打开文件时，先把待导入的 Uri 放在这里（可观察，书架会立刻接住） */
-    var pendingUris by mutableStateOf<List<android.net.Uri>>(emptyList())
+    /**
+     * 书架待导入的文档 URI 列表（可观察）。
+     * 无论是系统文件选择器返回（由 MainActivity.onActivityResult 直接投递）、
+     * 进程被回收后从 PrefsStore 恢复，还是外部「用其他应用打开 / 分享」进来，
+     * 统一汇聚到这里，彻底消除 Compose 子树重组或 UUID 丢失导致的「首次点完成无反应」。
+     */
+    var pendingUris by mutableStateOf<List<Uri>>(emptyList())
+
+    /** 详情页「追加文件为章节」选回来的文件 URI 列表 */
+    var pendingAppendUris by mutableStateOf<List<Uri>>(emptyList())
+
+    /** 详情页「导入封面」选回来的图片 URI */
+    var pendingCoverUri by mutableStateOf<Uri?>(null)
+
+    /** 由 MainActivity 注册的固定请求码文件选择器启动器 */
+    var docPickerLauncher: ((target: Int, mimeType: String, multiple: Boolean, mimeTypes: Array<String>?) -> Boolean)? = null
+
+    /**
+     * 「上次发起过选择器、结果却没回来」（多半是开选择器期间进程被系统回收）。
+     * MainActivity 在 onCreate 里把落盘的标记读出来、随即清掉，把结论放这里；
+     * 界面据此替用户重开一次选择器，同时不会因为标记陈留而在每次启动时误判。
+     */
+    var docPickerInterrupted by mutableStateOf(false)
 
     /**
      * 阅读器在前台时注册的音量键处理器：keyCode -> 是否已被消费。
@@ -66,8 +90,6 @@ class LibraryStore(
 
     /**
      * 全站外观跟随阅读主题（出厂默认是月白浅色）。
-     * 书架 / 详情 / 编辑器 / 笔记页都用它渲染；阅读器里换主题后由
-     * [ReaderSession.updatePrefs] 调 [syncUiTheme] 同步过来。
      */
     var uiTheme by mutableStateOf(prefs.load().theme)
         private set
@@ -123,30 +145,60 @@ class LibraryStore(
     }
 
     fun import(
-        uris: List<android.net.Uri>,
+        uris: List<Uri>,
         mode: ImportMode,
         title: String?,
         splitMode: SplitMode = SplitMode.SMART,
+        splitOptions: SplitOptions = SplitOptions(mode = splitMode),
         onDone: (Long?) -> Unit = {}
     ) {
         if (uris.isEmpty()) return
+        com.inkreader.ui.component.PickerTrace.log(
+            appContext,
+            "import.start n=${uris.size} mode=$mode split=${splitOptions.mode} uris=${uris.joinToString { it.scheme + ":" + it.lastPathSegment?.takeLast(24) }}"
+        )
         importing = true
         importErrors = emptyList()
         importReport = emptyList()
         importFraction = 0f
         importStage = appContext.getString(R.string.repo_stage_start_import)
         scope.launch {
-            val result = repo.importDocuments(uris, mode, title, splitMode) { stage, f ->
-                importStage = stage
-                importFraction = f
+            // 导入链路上任何一环抛异常（磁盘写失败、SQLite 异常…）都不能让它冒到
+            // 这个没有 CoroutineExceptionHandler 的 Main 作用域上（那会直接崩），
+            // 也不能把 importing 留在 true 让进度遮罩永久卡死。这里统一兜住并给出可读原因。
+            val result = runCatching {
+                repo.importDocuments(
+                    uris = uris,
+                    mode = mode,
+                    customTitle = title,
+                    splitMode = splitOptions.mode,
+                    splitOptions = splitOptions
+                ) { stage, f ->
+                    importStage = stage
+                    importFraction = f
+                }
+            }.getOrElse { e ->
+                importing = false
+                importFraction = 1f
+                importStage = ""
+                importErrors = listOf(e.message ?: appContext.getString(R.string.action_unknown_error))
+                toast = appContext.getString(
+                    R.string.repo_import_failed,
+                    e.message ?: appContext.getString(R.string.action_unknown_error)
+                )
+                refresh()
+                onDone(null)
+                return@launch
             }
             importing = false
             importFraction = 1f
             importStage = ""
             val errors = result.errors(appContext)
+            com.inkreader.ui.component.PickerTrace.log(
+                appContext,
+                "import.done books=${result.bookIds.size} failed=${result.failed.size} errors=${errors.joinToString(" | ").take(300)}"
+            )
             importErrors = errors
-            // 失败清单交给界面弹明细（哪些成功、哪些失败、为什么），
-            // toast 只做一句话概括。
             importReport = if (result.failed.isEmpty()) emptyList() else result.files
             refresh()
             when {

@@ -100,4 +100,10 @@
     <string name="sheets_tts_sleep_chapter">End of chapter</string>
     <string name="sheets_tts_stop">Stop reading</string>
     <string name="sheets_tts_start">Start reading</string>
+
+    <string name="sheets_toc_default_volume">Main Volume</string>
+    <string name="sheets_toc_expand_all">Expand</string>
+    <string name="sheets_toc_collapse_all">Collapse</string>
+    <string name="sheets_toc_jump_top">Jump to top</string>
+    <string name="sheets_toc_jump_bottom">Jump to bottom</string>
 </resources>

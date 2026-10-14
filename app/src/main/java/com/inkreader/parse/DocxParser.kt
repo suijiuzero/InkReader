@@ -28,6 +28,7 @@ class DocxParser {
     fun parse(input: InputStream): Parsed {
         var documentXml: ByteArray? = null
         var coreXml: ByteArray? = null
+        var stylesXml: ByteArray? = null
 
         ZipInputStream(input.buffered()).use { zip ->
             while (true) {
@@ -39,23 +40,77 @@ class DocxParser {
                 }
                 when {
                     name == "word/document.xml" -> documentXml = readEntry(zip)
+                    name == "word/styles.xml" -> stylesXml = readEntry(zip)
                     name == "docProps/core.xml" -> coreXml = readEntry(zip)
                     name == "word/document2.xml" -> if (documentXml == null) documentXml = readEntry(zip)
                 }
                 zip.closeEntry()
-                if (documentXml != null && coreXml != null) break
             }
         }
 
         val doc = documentXml ?: return Parsed(null, null, emptyList())
         val core = coreXml?.let { parseCore(it) }
+        // styles.xml 里的「样式代号 → 标题层级」映射：document.xml 往往只写了 pStyle 的 val
+        // （如 `a3`），真正的层级信息在 styles.xml 里，不读它就全被当成正文。
+        val styles = stylesXml?.let { parseStyles(it) } ?: emptyMap()
 
-        val paragraphs = parseDocument(doc)
+        val paragraphs = parseDocument(doc, styles)
         val parts = ChapterAssembler.assemble(
             paragraphs.map { ChapterAssembler.Para(it.level, it.text) }
         )
         return Parsed(core?.first, core?.second, parts)
     }
+
+    /**
+     * 解析 word/styles.xml，建一张 `styleId -> 标题层级(0..5)` 的表。
+     *
+     * Word / WPS 生成的文档里，document.xml 的 `<w:pStyle w:val="a3"/>` 只是内部代号，
+     * 「这是第几级标题」定义在这里：`<w:outlineLvl w:val="0"/>`，或样式名 `<w:name w:val="heading 1"/>`。
+     */
+    private fun parseStyles(bytes: ByteArray): Map<String, Int> = runCatching {
+        val map = HashMap<String, Int>()
+        val parser = Xml.newPullParser()
+        parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+        parser.setInput(ByteArrayInputStream(bytes), null)
+
+        var styleId: String? = null
+        var inPPr = false
+        var outline = -1
+        var name = ""
+        var ev = parser.eventType
+        while (ev != XmlPullParser.END_DOCUMENT) {
+            when (ev) {
+                XmlPullParser.START_TAG -> when (local(parser.name)) {
+                    "style" -> {
+                        styleId = attr(parser, "styleId")
+                        inPPr = false
+                        outline = -1
+                        name = ""
+                    }
+
+                    "pPr" -> inPPr = true
+                    "outlineLvl" -> if (inPPr) {
+                        outline = attr(parser, "val")?.trim()?.toIntOrNull() ?: -1
+                    }
+
+                    "name" -> if (styleId != null) name = attr(parser, "val") ?: ""
+                }
+
+                XmlPullParser.END_TAG -> when (local(parser.name)) {
+                    "pPr" -> inPPr = false
+                    "style" -> {
+                        styleId?.let { id ->
+                            val level = if (outline in 0..5) outline else (levelFromName(name) ?: -1)
+                            if (level in 0..5) map[id] = level
+                        }
+                        styleId = null
+                    }
+                }
+            }
+            ev = parser.next()
+        }
+        map
+    }.getOrDefault(emptyMap())
 
     /** 返回 (title, author) */
     private fun parseCore(bytes: ByteArray): Pair<String?, String?>? {
@@ -94,7 +149,7 @@ class DocxParser {
         }.getOrNull()
     }
 
-    private fun parseDocument(bytes: ByteArray): List<Para> {
+    private fun parseDocument(bytes: ByteArray, styles: Map<String, Int>): List<Para> {
         val out = ArrayList<Para>(256)
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
@@ -174,7 +229,7 @@ class DocxParser {
                             if (hasDrawing && txt.isBlank()) txt = IMAGE_PLACEHOLDER
                             else if (hasDrawing) txt = "$txt $IMAGE_PLACEHOLDER"
                             txt = txt.replace("\u00A0", " ").trimEnd()
-                            val level = headingLevel(pStyle, pOutline, numPrSeen)
+                            val level = headingLevel(pStyle, pOutline, numPrSeen, styles)
                             if (tableDepth > 0) {
                                 // 表格单元格内的段落：并进单元格缓冲，避免与行文本重复
                                 if (txt.isNotBlank()) {
@@ -196,21 +251,29 @@ class DocxParser {
 
     /**
      * 从段落样式推断标题层级，返回 0..5；正文返回 BODY(-1)。
-     * 兼容 Word 中文/英文模板与 WPS 的多种样式命名。
+     *
+     * 优先查 styles.xml 给出的映射（能认 `a3` 这类内部代号），认不出再退回按样式名猜；
+     * 两者都没有时用段落自身的 `<w:outlineLvl>`。
      */
-    private fun headingLevel(style: String, outline: Int, numPr: Boolean): Int {
+    private fun headingLevel(style: String, outline: Int, numPr: Boolean, styles: Map<String, Int>): Int {
         if (style.isNotEmpty()) {
             val s = style.trim()
-            Regex("(?i)^heading\\s*([1-6])$").find(s)?.let {
-                return it.groupValues[1].toInt() - 1
-            }
-            Regex("^([1-6])$").find(s)?.let { return it.groupValues[1].toInt() - 1 }
-            Regex("^标题\\s*([1-6])$").find(s)?.let { return it.groupValues[1].toInt() - 1 }
-            Regex("(?i)^title$").find(s)?.let { return 0 }
-            Regex("(?i)^subtitle$").find(s)?.let { return 1 }
+            styles[s]?.let { if (it in 0..5) return it }
+            levelFromName(s)?.let { return it }
         }
         if (outline in 0..5) return outline
         return BODY
+    }
+
+    /** 从样式名 / 样式 id 里认出「第几级标题」（heading 1 / 标题 1 / Title …），认不出返回 null */
+    private fun levelFromName(s: String): Int? {
+        if (s.isEmpty()) return null
+        Regex("(?i)^heading\\s*([1-6])$").find(s)?.let { return it.groupValues[1].toInt() - 1 }
+        Regex("^([1-6])$").find(s)?.let { return it.groupValues[1].toInt() - 1 }
+        Regex("^标题\\s*([1-6])$").find(s)?.let { return it.groupValues[1].toInt() - 1 }
+        Regex("(?i)^title$").find(s)?.let { return 0 }
+        Regex("(?i)^subtitle$").find(s)?.let { return 1 }
+        return null
     }
 
     private fun attr(parser: XmlPullParser, name: String): String? {
