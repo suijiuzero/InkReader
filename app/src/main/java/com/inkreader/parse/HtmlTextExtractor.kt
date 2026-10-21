@@ -33,6 +33,8 @@ object HtmlTextExtractor {
         "summary", "center", "hgroup", "ruby"
     )
 
+    private val VOID_TAGS = setOf("area", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source", "track", "wbr")
+
     private val HEADING = Regex("^h([1-6])$")
 
     private val ATTR = Regex(
@@ -163,7 +165,7 @@ object HtmlTextExtractor {
                 }
 
                 name in SKIP_TAGS -> {
-                    if (!closing && !selfClosing) {
+                    if (!closing && !selfClosing && name !in VOID_TAGS) {
                         flush()
                         skipTag = name
                         skipDepth = 1

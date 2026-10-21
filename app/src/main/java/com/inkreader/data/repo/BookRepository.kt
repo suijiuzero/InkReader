@@ -29,12 +29,16 @@ import com.inkreader.parse.ParseErrorCode
 import com.inkreader.parse.ParseErrors
 import com.inkreader.parse.ParseException
 import com.inkreader.parse.RichChapter
+import com.inkreader.parse.RichBlock
+import com.inkreader.parse.RichKind
+import com.inkreader.parse.RichTransforms
 import com.inkreader.parse.RichMarkdown
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.InputStream
+import java.io.IOException
 
 /**
  * 书籍仓库：负责导入解析、预扫描预览、增删改查、章节合并/拆分（批注无损迁移）、整书重分章、全文搜索。
@@ -45,6 +49,19 @@ class BookRepository(context: Context) {
     private val appContext = context.applicationContext
     val db = InkDb(appContext)
     val files = FileStore(appContext)
+    private val writes = BookWriteGate()
+    private val progressClock = ProgressClock()
+    fun newProgressToken(bookId: Long): Long = progressClock.next(bookId)
+    private suspend fun <T> bookWrite(bookId: Long, block: suspend () -> T): T =
+        withContext(Dispatchers.IO) { writes.write(bookId) { progressClock.next(bookId); block() } }
+
+    private fun chapterBook(id: Long): Long? = db.readableDatabase.rawQuery(
+        "SELECT book_id FROM chapters WHERE id=?", arrayOf(id.toString())
+    ).use { if (it.moveToFirst()) it.getLong(0) else null }
+    private fun markBook(id: Long): Long? = db.readableDatabase.rawQuery(
+        "SELECT book_id FROM marks WHERE id=?", arrayOf(id.toString())
+    ).use { if (it.moveToFirst()) it.getLong(0) else null }
+
 
     /** 单个文件的导入结果：批量导入时要逐个说清楚「成没成、为什么没成」 */
     data class ImportFileResult(
@@ -153,6 +170,7 @@ class BookRepository(context: Context) {
             val bookId = db.insertBook(
                 Book(title = title, sourceType = SourceType.MERGED, coverHue = hue, createdAt = now())
             )
+            check(bookId > 0) { "insertBook failed" }
             ids += bookId
 
             var index = 0
@@ -179,9 +197,15 @@ class BookRepository(context: Context) {
                 val fileTitle = ChapterSplitter.titleFromFileName(name)
                 val units = splitUnitsWithVolume(parsed, fileTitle, splitOptions)
                 var fileAdded = 0
+                val staged = ArrayList<String>()
+                val previousIndex = index
+                val previousChars = totalChars
+                try {
+                db.inTransaction {
                 for (u in units) {
                     val body = prepareBody(parsed.sourceType, u.content)
                     val fileName = files.newFileName()
+                    staged += fileName
                     writeChapter(fileName, body)
                     val vol = ChapterSplitter.detectVolumeFromChapter(u.title, body.text, u.volume)
                     val newId = db.insertChapter(
@@ -195,14 +219,19 @@ class BookRepository(context: Context) {
                             volume = vol
                         )
                     )
-                    // 插入失败就别把这一章算进去，也别留下「只有正文文件、没有章节记录」的孤儿
-                    if (newId <= 0) {
-                        runCatching { files.deleteChapter(fileName) }
-                        continue
-                    }
+                    check(newId > 0) { "insertChapter failed" }
                     index++
                     fileAdded++
                     totalChars += body.text.length
+                }
+                db.updateBookStats(bookId, index, totalChars)
+                }
+                } catch (e: Exception) {
+                    staged.forEach { files.deleteChapter(it) }
+                    index = previousIndex
+                    totalChars = previousChars
+                    results += ImportFileResult(name, false, e.localizedMessage ?: appContext.getString(R.string.action_unknown_error))
+                    continue
                 }
                 results += ImportFileResult(name, true, bookId = bookId, chapterCount = fileAdded)
             }
@@ -480,6 +509,8 @@ class BookRepository(context: Context) {
             ?: metaTitle?.takeIf { it.isNotBlank() }
             ?: fileTitle
 
+        val staged = ArrayList<String>()
+        val result = try { db.inTransaction {
         val bookId = db.insertBook(
             Book(
                 title = title,
@@ -489,13 +520,14 @@ class BookRepository(context: Context) {
                 createdAt = now()
             )
         )
-        ids += bookId
+        check(bookId > 0) { "insertBook failed" }
 
         var totalChars = 0
         var inserted = 0
         for ((i, p) in parts.withIndex()) {
             val body = prepareBody(sourceType, p.content)
             val fileName = files.newFileName()
+            staged += fileName
             writeChapter(fileName, body)
             val chTitle = p.title.ifBlank { appContext.getString(R.string.label_chapter_n, i + 1) }
             val vol = ChapterSplitter.detectVolumeFromChapter(chTitle, body.text, p.volume)
@@ -510,16 +542,19 @@ class BookRepository(context: Context) {
                     volume = vol
                 )
             )
-            // 插入失败别计入：否则统计数据虚高，还留下「只有正文文件、没有章节记录」的孤儿
-            if (newId <= 0) {
-                runCatching { files.deleteChapter(fileName) }
-                continue
-            }
+            check(newId > 0) { "insertChapter failed" }
             inserted++
             totalChars += body.text.length
         }
         db.updateBookStats(bookId, inserted, totalChars)
-        return inserted
+        check(inserted > 0) { "no chapters imported" }
+        bookId to inserted
+        } } catch (t: Throwable) {
+            staged.forEach { files.deleteChapter(it) }
+            throw t
+        }
+        ids += result.first
+        return result.second
     }
 
     private fun guessMergedTitle(names: List<String>): String {
@@ -562,7 +597,7 @@ class BookRepository(context: Context) {
         id
     }
 
-    suspend fun addEmptyChapter(bookId: Long, title: String): Long = withContext(Dispatchers.IO) {
+    suspend fun addEmptyChapter(bookId: Long, title: String): Long = bookWrite(bookId) {
         val chapters = db.chaptersOf(bookId)
         val fileName = files.newFileName()
         files.write(fileName, "")
@@ -587,7 +622,7 @@ class BookRepository(context: Context) {
         splitMode: SplitMode = SplitMode.SMART,
         splitOptions: SplitOptions = SplitOptions(mode = splitMode),
         onProgress: (String, Float) -> Unit = { _, _ -> }
-    ): List<String> = withContext(Dispatchers.IO) {
+    ): List<String> = bookWrite(bookId) {
         val errors = ArrayList<String>()
         val chapters = db.chaptersOf(bookId)
         var index = chapters.size
@@ -611,9 +646,15 @@ class BookRepository(context: Context) {
             }
             val fileTitle = ChapterSplitter.titleFromFileName(name)
             val units = splitUnitsWithVolume(parsed, fileTitle, splitOptions)
+            val staged = ArrayList<String>()
+            val pendingInserted = ArrayList<Pair<Long, String>>()
+            val previousIndex = index
+            try {
+            db.inTransaction {
             for (u in units) {
                 val body = prepareBody(parsed.sourceType, u.content)
                 val fileName = files.newFileName()
+                staged += fileName
                 writeChapter(fileName, body)
                 val vol = ChapterSplitter.detectVolumeFromChapter(u.title, body.text, u.volume)
                 val newId = db.insertChapter(
@@ -624,7 +665,16 @@ class BookRepository(context: Context) {
                         volume = vol
                     )
                 )
-                if (newId > 0) inserted += newId to u.title
+                check(newId > 0) { "insertChapter failed" }
+                pendingInserted += newId to u.title
+            }
+            refreshStats(bookId)
+            }
+            inserted += pendingInserted
+            } catch (e: Exception) {
+                staged.forEach { files.deleteChapter(it) }
+                index = previousIndex
+                errors += appContext.getString(R.string.err_file_reason, name, e.localizedMessage ?: appContext.getString(R.string.action_unknown_error))
             }
         }
         insertByChapterOrder(bookId, inserted)
@@ -640,6 +690,8 @@ class BookRepository(context: Context) {
         }
         if (withOrder.isEmpty()) return
         val all = db.chaptersOf(bookId)
+        val volumes = all.map { it.volume }.filter { it.isNotBlank() }.distinct()
+        if (volumes.size > 1 || ChapterSplitter.hasChapterNumberReset(all.map { ChapterSplitter.chapterOrderFromTitle(it.title) })) return
         val newIds = inserted.map { it.first }.toSet()
         val order = all.filter { it.id !in newIds }.toMutableList()
         withOrder.sortedBy { it.second }.forEach { (id, n) ->
@@ -659,13 +711,13 @@ class BookRepository(context: Context) {
     /**
      * 按章节标题里的章号把整本重排一遍（章节管理里的「自动排序」）。
      */
-    suspend fun autoSortChapters(bookId: Long): Int = withContext(Dispatchers.IO) {
+    suspend fun autoSortChapters(bookId: Long): Int = bookWrite(bookId) {
         val all = db.chaptersOf(bookId)
-        if (all.size <= 1) return@withContext all.size
+        if (all.size <= 1) return@bookWrite all.size
         val orders = all.map { ChapterSplitter.chapterOrderFromTitle(it.title) }
-        if (ChapterSplitter.hasChapterNumberReset(orders)) return@withContext all.size
+        if (ChapterSplitter.hasChapterNumberReset(orders)) return@bookWrite all.size
         val slots = all.indices.filter { orders[it] != null }
-        if (slots.size < 2) return@withContext all.size
+        if (slots.size < 2) return@bookWrite all.size
         val ranked = slots.sortedWith(compareBy({ orders[it]!! }, { it }))
         val sorted = all.toMutableList()
         slots.forEachIndexed { k, slot -> sorted[slot] = all[ranked[k]] }
@@ -681,10 +733,10 @@ class BookRepository(context: Context) {
      * 将 [chapterId] 并入上一章末尾，并把本章内的所有书签、标签、高亮、笔记无损平移到上一章
      * （偏移自动加上 `上一章字数 + 2`）。后续章节的批注章号同步 -1。
      */
-    suspend fun mergeChapterWithPrev(bookId: Long, chapterId: Long): Boolean = withContext(Dispatchers.IO) {
+    suspend fun mergeChapterWithPrev(bookId: Long, chapterId: Long): Boolean = bookWrite(bookId) {
         val all = db.chaptersOf(bookId)
         val currIdx = all.indexOfFirst { it.id == chapterId }
-        if (currIdx <= 0) return@withContext false
+        if (currIdx <= 0) return@bookWrite false
         val prev = all[currIdx - 1]
         val curr = all[currIdx]
 
@@ -697,13 +749,15 @@ class BookRepository(context: Context) {
             else -> "$prevText\n\n$currText"
         }
 
-        files.write(prev.fileName, mergedText)
-        files.deleteRich(prev.fileName)
-
-        // 事务失败就把上一章正文还原：否则盘上的正文已经是合并后的，库里却还是两章
+        val mergedFile = files.newFileName()
+        // 旧文件保持不动；新文件与数据库提交失败都不会破坏原正文。
         val deletedFile = try {
+            val rich = RichTransforms.merge(mergedText,
+                RichChapter.decode(files.readRich(prev.fileName)),
+                RichChapter.decode(files.readRich(curr.fileName)), shift)
+            writeChapter(mergedFile, ChapterBody(mergedText, rich))
             db.inTransaction {
-                db.updateChapterFile(prev.id, prev.fileName, mergedText.length)
+                db.updateChapterFile(prev.id, mergedFile, mergedText.length)
                 // 平移规则抽在 MarkShifts 里（纯函数、有单测）：算错会静默弄坏用户批注
                 val allMarks = db.marksOf(bookId)
                 MarkShifts.forMergeWithPrev(allMarks, currIdx, shift).forEachIndexed { i, m ->
@@ -712,34 +766,31 @@ class BookRepository(context: Context) {
                 val del = db.deleteChapter(curr.id)
                 val remaining = all.filter { it.id != curr.id }
                 db.reindexChapters(bookId, remaining.map { it.id })
+                db.getBook(bookId)?.let { book ->
+                    when {
+                        book.lastChapterIndex == currIdx -> db.updateProgress(bookId, currIdx - 1, book.lastCharOffset + shift, book.progress)
+                        book.lastChapterIndex > currIdx -> db.updateProgress(bookId, book.lastChapterIndex - 1, book.lastCharOffset, book.progress)
+                    }
+                }
+                refreshStats(bookId)
                 del
             }
         } catch (t: Throwable) {
-            runCatching { files.write(prev.fileName, prevText) }
+            files.deleteChapter(mergedFile)
             throw t
         }
+        files.deleteChapter(prev.fileName)
         if (deletedFile != null) runCatching { files.deleteChapter(deletedFile) }
-
-        val book = db.getBook(bookId)
-        if (book != null) {
-            when {
-                book.lastChapterIndex == currIdx ->
-                    db.updateProgress(bookId, currIdx - 1, book.lastCharOffset + shift, book.progress)
-                book.lastChapterIndex > currIdx ->
-                    db.updateProgress(bookId, book.lastChapterIndex - 1, book.lastCharOffset, book.progress)
-            }
-        }
-        refreshStats(bookId)
         true
     }
 
     /**
      * 将 [chapterId] 并入下一章开头（等价于把下一章并入本章末尾），批注无损迁移。
      */
-    suspend fun mergeChapterWithNext(bookId: Long, chapterId: Long): Boolean = withContext(Dispatchers.IO) {
+    suspend fun mergeChapterWithNext(bookId: Long, chapterId: Long): Boolean = bookWrite(bookId) {
         val all = db.chaptersOf(bookId)
         val currIdx = all.indexOfFirst { it.id == chapterId }
-        if (currIdx < 0 || currIdx >= all.lastIndex) return@withContext false
+        if (currIdx < 0 || currIdx >= all.lastIndex) return@bookWrite false
         val next = all[currIdx + 1]
         mergeChapterWithPrev(bookId, next.id)
     }
@@ -756,20 +807,20 @@ class BookRepository(context: Context) {
         chapterId: Long,
         splitOffset: Int,
         customNewTitle: String? = null
-    ): Long? = withContext(Dispatchers.IO) {
+    ): Long? = bookWrite(bookId) {
         val all = db.chaptersOf(bookId)
         val currIdx = all.indexOfFirst { it.id == chapterId }
-        if (currIdx < 0) return@withContext null
+        if (currIdx < 0) return@bookWrite null
         val curr = all[currIdx]
         val fullText = files.read(curr.fileName)
-        if (splitOffset <= 0 || splitOffset >= fullText.length) return@withContext null
+        if (splitOffset <= 0 || splitOffset >= fullText.length) return@bookWrite null
 
         val firstRaw = fullText.substring(0, splitOffset)
         val firstText = firstRaw.trimEnd()
         val secondRaw = fullText.substring(splitOffset)
         val leadingTrimmed = secondRaw.length - secondRaw.trimStart().length
         val secondTrimmed = secondRaw.trimStart()
-        if (firstText.isEmpty() || secondTrimmed.isEmpty()) return@withContext null
+        if (firstText.isEmpty() || secondTrimmed.isEmpty()) return@bookWrite null
 
         // 推断新章标题：如果未手工指定且后半段首行是短行，则用首行做标题
         val firstLineEnd = secondTrimmed.indexOf('\n')
@@ -798,17 +849,17 @@ class BookRepository(context: Context) {
             bodyShiftFromSplit = splitOffset + leadingTrimmed
         }
 
-        files.write(curr.fileName, firstText)
-        files.deleteRich(curr.fileName)
-
+        val firstFileName = files.newFileName()
         val newFileName = files.newFileName()
-        files.write(newFileName, secondBody)
 
         val newVol = ChapterSplitter.detectVolumeFromChapter(newTitle, secondBody, curr.volume)
 
         val newChapterId = try {
+            val oldRich = RichChapter.decode(files.readRich(curr.fileName))
+            writeChapter(firstFileName, ChapterBody(firstText, RichTransforms.slice(oldRich, fullText, 0, firstText.length)))
+            writeChapter(newFileName, ChapterBody(secondBody, RichTransforms.slice(oldRich, fullText, bodyShiftFromSplit, fullText.length)))
             db.inTransaction {
-            db.updateChapterFile(curr.id, curr.fileName, firstText.length)
+            db.updateChapterFile(curr.id, firstFileName, firstText.length)
             // 平移规则抽在 MarkShifts 里（纯函数、有单测）
             val allMarks = db.marksOf(bookId)
             MarkShifts.forSplitAt(
@@ -841,22 +892,23 @@ class BookRepository(context: Context) {
                 if (i == currIdx) reordered += insertedId
             }
             db.reindexChapters(bookId, reordered)
+            refreshStats(bookId)
+            db.getBook(bookId)?.let { b ->
+                when {
+                    b.lastChapterIndex > currIdx -> db.updateProgress(bookId, b.lastChapterIndex + 1, b.lastCharOffset, b.progress)
+                    b.lastChapterIndex == currIdx && b.lastCharOffset >= splitOffset ->
+                        db.updateProgress(bookId, currIdx + 1, (b.lastCharOffset - bodyShiftFromSplit).coerceIn(0, secondBody.length), b.progress)
+                    b.lastChapterIndex == currIdx -> db.updateProgress(bookId, currIdx, b.lastCharOffset.coerceAtMost(firstText.length), b.progress)
+                }
+            }
             insertedId
             }
         } catch (t: Throwable) {
-            // 事务没成：原章正文还原成全文、新章文件删掉，
-            // 别留「前半章有库记录、后半章只剩个孤儿文件」这种半截状态
-            runCatching { files.write(curr.fileName, fullText) }
-            runCatching { files.delete(newFileName) }
+            files.deleteChapter(firstFileName)
+            files.deleteChapter(newFileName)
             throw t
         }
-        refreshStats(bookId)
-        // 新章插在 currIdx 之后：正在读的那一章要是在它后面，编号得跟着 +1
-        db.getBook(bookId)?.let { b ->
-            if (b.lastChapterIndex > currIdx) {
-                db.updateProgress(bookId, b.lastChapterIndex + 1, b.lastCharOffset, b.progress)
-            }
-        }
+        files.deleteChapter(curr.fileName)
         newChapterId
     }
 
@@ -867,48 +919,73 @@ class BookRepository(context: Context) {
     suspend fun resplitBook(
         bookId: Long,
         options: SplitOptions
-    ): Int = withContext(Dispatchers.IO) {
-        val book = db.getBook(bookId) ?: return@withContext 0
+    ): Int = bookWrite(bookId) {
+        val book = db.getBook(bookId) ?: return@bookWrite 0
         val oldChapters = db.chaptersOf(bookId)
-        if (oldChapters.isEmpty()) return@withContext 0
+        if (oldChapters.isEmpty()) return@bookWrite 0
         val oldMarks = db.marksOf(bookId)
+        val charBudget = minOf(MAX_RESPLIT_CHARS.toLong(), Runtime.getRuntime().maxMemory() / 48).coerceAtLeast(1)
 
-        // 1. 逐章拼合整书全文，并记下每章在**归一化后**全文里的起点。
-        //
-        // 必须逐段归一化再拼接，而不是先拼原始文本再整体 normalize：归一化会折叠连续空行、
-        // 去掉零宽字符，两种做法得到的全文等价，但只有逐段记起点，旧章坐标才与下面新章的
-        // [globalStart, globalEnd] 处在同一基准上（否则批注的回退映射会整体错位）。
+        // 旧锚点以实际正文为基准，标题的插入也计入坐标；上限在每次追加前检查。
         val fullSb = StringBuilder()
         val oldChapterGlobalStarts = IntArray(oldChapters.size)
+        val oldRich = ArrayList<Pair<Int, RichChapter>>()
         for ((i, ch) in oldChapters.withIndex()) {
+            if (files.file(ch.fileName).length() > charBudget * 4L) return@bookWrite -1
             val body = files.read(ch.fileName)
             val realTitle = ch.title.isNotBlank() && !ChapterSplitter.isFallbackSectionTitle(ch.title)
-            val raw = if (realTitle && !body.trim().startsWith(ch.title.trim())) {
-                "${ch.title.trim()}\n\n$body"
-            } else {
-                body
-            }
-            val seg = ChapterSplitter.normalize(raw)
-            if (seg.isEmpty()) {
-                oldChapterGlobalStarts[i] = fullSb.length
-                continue
-            }
+            val heading = if (realTitle && !body.trim().startsWith(ch.title.trim())) "${ch.title.trim()}\n\n" else ""
+            if (fullSb.length.toLong() + body.length + heading.length + 2 > charBudget) return@bookWrite -1
             if (fullSb.isNotEmpty()) fullSb.append("\n\n")
+            fullSb.append(heading)
             oldChapterGlobalStarts[i] = fullSb.length
-            fullSb.append(seg)
+            RichChapter.decode(files.readRich(ch.fileName))?.takeIf { it.len == body.length }?.let {
+                oldRich += fullSb.length to it
+            }
+            fullSb.append(body)
         }
         val fullText = fullSb.toString()
-        if (fullText.isBlank()) return@withContext oldChapters.size
+        if (fullText.isBlank()) return@bookWrite oldChapters.size
         // 整本重分章得把全文读进内存（切分还会再复制几份），超大书直接把 App 撑爆。
         // 这是手机上的硬上限，超过就拒绝（返回 -1，由界面给提示），不要硬跑。
         if (fullText.length > MAX_RESPLIT_CHARS) {
             Log.w(TAG, "resplit refused: ${fullText.length} chars > $MAX_RESPLIT_CHARS")
-            return@withContext -1
+            return@bookWrite -1
         }
 
         // 2. 用新策略重新切分
-        val newParts = ChapterSplitter.split(fullText, book.title, options)
-        if (newParts.isEmpty()) return@withContext oldChapters.size
+        val newParts = ChapterSplitter.split(ChapterSplitter.normalize(fullText), book.title, options)
+        if (newParts.isEmpty()) return@bookWrite oldChapters.size
+        val mappings = TextRemap.align(fullText, newParts.map { it.content })
+
+        fun mappedRich(text: String, map: IntArray): RichChapter? {
+            if (map.isEmpty() || oldRich.isEmpty()) return null
+            val spans = oldRich.flatMap { (base, rich) -> rich.spans.mapNotNull { s ->
+                val start = TextRemap.lowerBound(map, base + s.start)
+                val end = TextRemap.lowerBound(map, base + s.end)
+                if (end > start) s.copy(start = start, end = end) else null
+            } }
+            val links = oldRich.flatMap { (base, rich) -> rich.links.mapNotNull { s ->
+                val start = TextRemap.lowerBound(map, base + s.start)
+                val end = TextRemap.lowerBound(map, base + s.end)
+                if (end > start) s.copy(start = start, end = end) else null
+            } }
+            val blocks = ArrayList<RichBlock>()
+            var start = 0
+            while (start < text.length) {
+                val end = text.indexOf("\n\n", start).let { if (it < 0) text.length else it }
+                if (end > start) {
+                    val sourcePos = map[start]
+                    val sourceBlock = oldRich.firstNotNullOfOrNull { (base, rich) ->
+                        rich.blocks.firstOrNull { sourcePos in (base + it.start) until (base + it.end) }
+                    }
+                    blocks += sourceBlock?.copy(start = start, end = end)
+                        ?: RichBlock(RichKind.BODY, 0, "", start, end)
+                }
+                start = end + 2
+            }
+            return RichChapter(text.length, blocks, spans, links)
+        }
 
         // 3. 写入新章节文件，计算新章节的全局区间以迁移批注
         data class NewChapData(
@@ -916,27 +993,24 @@ class BookRepository(context: Context) {
             val fileName: String,
             val text: String,
             val volume: String,
-            val globalStart: Int,
-            val globalEnd: Int
+            val mapping: IntArray
         )
 
         val newChapList = ArrayList<NewChapData>(newParts.size)
-        var cursor = 0
+        val stagedFiles = ArrayList<String>()
+        try {
         for ((i, p) in newParts.withIndex()) {
-            val body = prepareBody(book.sourceType, p.content)
+            // 已落盘的是显示正文，绝不能再次解释为 Markdown。
+            val body = ChapterBody(p.content, mappedRich(p.content, mappings[i]))
             val fn = files.newFileName()
+            stagedFiles += fn
             writeChapter(fn, body)
             val chTitle = p.title.ifBlank { appContext.getString(R.string.label_chapter_n, i + 1) }
             val vol = ChapterSplitter.detectVolumeFromChapter(chTitle, body.text, p.volume)
-            val start = cursor
-            val end = start + body.text.length
-            cursor = end + 2
-            newChapList += NewChapData(chTitle, fn, body.text, vol, start, end)
+            newChapList += NewChapData(chTitle, fn, body.text, vol, mappings[i])
         }
 
         // 4. 在单个事务中替换章节并迁移所有批注
-        val oldFiles = oldChapters.map { it.fileName }.filter { it.isNotEmpty() }
-        try {
         db.inTransaction {
             val wdb = db.writableDatabase
             wdb.delete("chapters", "book_id=?", arrayOf(bookId.toString()))
@@ -958,34 +1032,11 @@ class BookRepository(context: Context) {
             }
             db.updateBookStats(bookId, newChapList.size, totalChars)
 
-            // 迁移批注：优先在新章正文里精确搜索 snippet，找不到再按全局偏移映射
+            // 按实际字符来源迁移，重复对白不会被误认成全书第一处。
             for (m in oldMarks) {
-                val snippetKey = m.snippet.trim().removeSuffix("…").take(24)
-                var matchedChap = -1
-                var matchedStart = 0
-                var matchedEnd = 0
-                if (snippetKey.length >= 4) {
-                    for ((idx, nc) in newChapList.withIndex()) {
-                        val pos = nc.text.indexOf(snippetKey)
-                        if (pos >= 0) {
-                            matchedChap = idx
-                            matchedStart = pos
-                            val len = (m.endOffset - m.startOffset).coerceAtLeast(snippetKey.length)
-                            matchedEnd = (pos + len).coerceAtMost(nc.text.length)
-                            break
-                        }
-                    }
-                }
-                if (matchedChap < 0) {
-                    val baseGlobal = oldChapterGlobalStarts.getOrElse(m.chapterIndex) { 0 } + m.startOffset
-                    val targetIdx = newChapList.indexOfFirst { baseGlobal in it.globalStart..it.globalEnd }
-                        .let { if (it >= 0) it else newChapList.lastIndex }
-                    val nc = newChapList[targetIdx]
-                    matchedChap = targetIdx
-                    matchedStart = (baseGlobal - nc.globalStart).coerceIn(0, nc.text.length)
-                    val span = (m.endOffset - m.startOffset).coerceAtLeast(0)
-                    matchedEnd = (matchedStart + span).coerceIn(matchedStart, nc.text.length)
-                }
+                val base = oldChapterGlobalStarts.getOrElse(m.chapterIndex) { 0 }
+                val (matchedChap, matchedStart) = TextRemap.locate(mappings, base + m.startOffset)
+                val matchedEnd = TextRemap.lowerBound(mappings[matchedChap], base + m.endOffset).coerceAtLeast(matchedStart)
                 db.updateMark(
                     m.copy(
                         chapterIndex = matchedChap,
@@ -995,16 +1046,17 @@ class BookRepository(context: Context) {
                 )
             }
 
-            val safeLastChap = book.lastChapterIndex.coerceIn(0, newChapList.lastIndex)
-            db.updateProgress(bookId, safeLastChap, 0, book.progress)
+            val oldPosition = oldChapterGlobalStarts.getOrElse(book.lastChapterIndex) { 0 } + book.lastCharOffset
+            val (safeLastChap, safeOffset) = TextRemap.locate(mappings, oldPosition)
+            db.updateProgress(bookId, safeLastChap, safeOffset, book.progress)
         }
         } catch (t: Throwable) {
             // 事务没成：新章节都还没入库，它们刚写下的正文文件全是孤儿，清掉
-            newChapList.forEach { runCatching { files.deleteChapter(it.fileName) } }
+            stagedFiles.forEach { files.deleteChapter(it) }
             throw t
         }
 
-        oldFiles.forEach { runCatching { files.deleteChapter(it) } }
+        oldChapters.forEach { files.deleteChapter(it.fileName) }
         newChapList.size
     }
 
@@ -1038,35 +1090,49 @@ class BookRepository(context: Context) {
     }
 
     suspend fun chapterText(chapter: Chapter): String =
-        withContext(Dispatchers.IO) { files.read(chapter.fileName) }
+        withContext(Dispatchers.IO) { writes.write(chapter.bookId) {
+            val current = db.chaptersOf(chapter.bookId).firstOrNull { it.id == chapter.id }
+                ?: throw IOException("章节已更新，请重新打开")
+            files.read(current.fileName)
+        } }
 
     suspend fun chapterRich(chapter: Chapter, textLength: Int): RichChapter? =
         withContext(Dispatchers.IO) {
-            val raw = files.readRich(chapter.fileName)
-            if (raw.isBlank()) return@withContext null
-            RichChapter.decode(raw)?.takeIf { it.len == textLength }
+            writes.write(chapter.bookId) {
+                val current = db.chaptersOf(chapter.bookId).firstOrNull { it.id == chapter.id }
+                    ?: return@write null
+                val raw = files.readRich(current.fileName)
+                if (raw.isBlank()) null else RichChapter.decode(raw)?.takeIf { it.len == textLength }
+            }
         }
 
-    suspend fun updateProgress(bookId: Long, chapterIndex: Int, offset: Int, progress: Float) =
-        withContext(Dispatchers.IO) { db.updateProgress(bookId, chapterIndex, offset, progress) }
-
-    suspend fun updateBookMeta(bookId: Long, title: String, author: String) =
-        withContext(Dispatchers.IO) { db.updateBookMeta(bookId, title, author) }
-
-    suspend fun deleteBook(bookId: Long) = withContext(Dispatchers.IO) {
-        db.deleteBook(bookId).forEach { runCatching { files.deleteChapter(it) } }
+    suspend fun updateProgress(bookId: Long, chapterIndex: Int, offset: Int, progress: Float,
+                               token: Long = newProgressToken(bookId)) = withContext(Dispatchers.IO) {
+        writes.write(bookId) {
+            if (progressClock.isLatest(bookId, token)) db.updateProgress(bookId, chapterIndex, offset, progress)
+        }
     }
 
-    suspend fun deleteChapter(bookId: Long, chapterId: Long) = withContext(Dispatchers.IO) {
+    suspend fun updateBookMeta(bookId: Long, title: String, author: String) =
+        bookWrite(bookId) { db.updateBookMeta(bookId, title, author) }
+
+    suspend fun deleteBook(bookId: Long) = bookWrite(bookId) {
+        val cover = db.getBook(bookId)?.coverPath.orEmpty()
+        db.deleteBook(bookId).forEach { runCatching { files.deleteChapter(it) } }
+        files.deleteCover(cover)
+        com.inkreader.ui.component.CoverCache.invalidate()
+    }
+
+    suspend fun deleteChapter(bookId: Long, chapterId: Long) = bookWrite(bookId) {
         val (curId, curIdx) = currentChapterId(bookId)
         val ch = db.chaptersOf(bookId).firstOrNull { it.id == chapterId }
         val file = db.inTransaction {
             val deleted = db.deleteChapter(chapterId)
             ch?.let {
+                db.deleteMarksInChapter(bookId, it.indexInBook)
                 db.marksOf(bookId).filter { m -> m.chapterIndex > it.indexInBook }.forEach { m ->
                     db.updateMark(m.copy(chapterIndex = m.chapterIndex - 1))
                 }
-                db.deleteMarksInChapter(bookId, it.indexInBook)
                 // 章节编号重排也放进同一个事务：批注的章号已经按新编号移好了，
                 // 这一步要是失败，库里的 idx 和批注就对不上
                 reindex(bookId)
@@ -1080,16 +1146,17 @@ class BookRepository(context: Context) {
         }
     }
 
-    suspend fun renameChapter(chapterId: Long, title: String) =
-        withContext(Dispatchers.IO) { db.updateChapterTitle(chapterId, title) }
+    suspend fun renameChapter(chapterId: Long, title: String) = withContext(Dispatchers.IO) {
+        chapterBook(chapterId)?.let { id -> bookWrite(id) { db.updateChapterTitle(chapterId, title) } }
+    }
 
-    suspend fun moveChapter(bookId: Long, chapterId: Long, delta: Int) = withContext(Dispatchers.IO) {
+    suspend fun moveChapter(bookId: Long, chapterId: Long, delta: Int) = bookWrite(bookId) {
         val (curId, curIdx) = currentChapterId(bookId)
         val list = db.chaptersOf(bookId).toMutableList()
         val from = list.indexOfFirst { it.id == chapterId }
-        if (from < 0) return@withContext
+        if (from < 0) return@bookWrite
         val to = from + delta
-        if (to !in list.indices) return@withContext
+        if (to !in list.indices) return@bookWrite
         val item = list.removeAt(from)
         list.add(to, item)
         val oldIdx = item.indexInBook
@@ -1109,7 +1176,7 @@ class BookRepository(context: Context) {
         refreshStats(bookId)
     }
 
-    suspend fun reorderChapters(bookId: Long, orderedIds: List<Long>) = withContext(Dispatchers.IO) {
+    suspend fun reorderChapters(bookId: Long, orderedIds: List<Long>) = bookWrite(bookId) {
         val (curId, curIdx) = currentChapterId(bookId)
         val old = db.chaptersOf(bookId).associate { it.id to it.indexInBook }
         val newPos = orderedIds.withIndex().associate { (i, id) -> (old[id] ?: -1) to i }
@@ -1126,11 +1193,34 @@ class BookRepository(context: Context) {
     }
 
     /** 保存章节正文（编辑器） */
-    suspend fun saveChapterText(chapter: Chapter, text: String) = withContext(Dispatchers.IO) {
-        files.write(chapter.fileName, text)
-        files.deleteRich(chapter.fileName)
-        db.updateChapterFile(chapter.id, chapter.fileName, text.length)
-        refreshStats(chapter.bookId)
+    suspend fun saveChapterText(chapter: Chapter, text: String, expectedText: String? = null) = bookWrite(chapter.bookId) {
+        val current = db.chaptersOf(chapter.bookId).firstOrNull { it.id == chapter.id }
+            ?: throw IOException("章节已被删除，无法保存")
+        val before = files.read(current.fileName)
+        if (expectedText != null && before != expectedText) throw IOException("章节已在别处更新，请重新打开后编辑")
+        if (before == text) return@bookWrite
+        val change = TextEditMap(before, text)
+        val rich = RichTransforms.edit(RichChapter.decode(files.readRich(current.fileName)), change)
+        val nextFile = files.newFileName()
+        try {
+            writeChapter(nextFile, ChapterBody(text, rich))
+            db.inTransaction {
+                db.updateChapterFile(current.id, nextFile, text.length)
+                db.marksOf(chapter.bookId, current.indexInBook).forEach { mark ->
+                    val (start, end) = change.range(mark.startOffset, mark.endOffset)
+                    db.updateMark(mark.copy(startOffset = start, endOffset = end,
+                        snippet = if (end > start) text.substring(start, end).take(200) else mark.snippet))
+                }
+                db.getBook(chapter.bookId)?.takeIf { it.lastChapterIndex == current.indexInBook }?.let { book ->
+                    db.updateProgress(book.id, book.lastChapterIndex, change.offset(book.lastCharOffset), book.progress)
+                }
+                refreshStats(chapter.bookId)
+            }
+        } catch (t: Throwable) {
+            files.deleteChapter(nextFile)
+            throw t
+        }
+        files.deleteChapter(current.fileName)
     }
 
     private fun reindex(bookId: Long) {
@@ -1193,14 +1283,14 @@ class BookRepository(context: Context) {
         }.getOrNull()
     }
 
-    suspend fun saveCover(bookId: Long, jpeg: ByteArray): String = withContext(Dispatchers.IO) {
+    suspend fun saveCover(bookId: Long, jpeg: ByteArray): String = bookWrite(bookId) {
         val name = files.coverNameFor(bookId)
         files.writeCover(name, jpeg)
         db.updateBookCover(bookId, name)
         name
     }
 
-    suspend fun clearCover(bookId: Long) = withContext(Dispatchers.IO) {
+    suspend fun clearCover(bookId: Long) = bookWrite(bookId) {
         files.deleteCover(files.coverNameFor(bookId))
         db.updateBookCover(bookId, "")
     }
@@ -1210,14 +1300,14 @@ class BookRepository(context: Context) {
     suspend fun marks(bookId: Long, chapterIndex: Int = -1): List<Mark> =
         withContext(Dispatchers.IO) { db.marksOf(bookId, chapterIndex) }
 
-    suspend fun addMark(mark: Mark): Long = withContext(Dispatchers.IO) { db.insertMark(mark) }
+    suspend fun addMark(mark: Mark): Long = bookWrite(mark.bookId) { db.insertMark(mark) }
 
-    suspend fun updateMark(mark: Mark) = withContext(Dispatchers.IO) { db.updateMark(mark) }
+    suspend fun updateMark(mark: Mark) = bookWrite(mark.bookId) { db.updateMark(mark) }
 
-    suspend fun deleteMark(id: Long) = withContext(Dispatchers.IO) { db.deleteMark(id) }
+    suspend fun deleteMark(id: Long) = withContext(Dispatchers.IO) { markBook(id)?.let { bookWrite(it) { db.deleteMark(id) } } }
 
     suspend fun toggleBookmark(bookId: Long, chapterIndex: Int, offset: Int): Boolean =
-        withContext(Dispatchers.IO) {
+        bookWrite(bookId) {
             val existing = db.findMark(bookId, chapterIndex, offset, offset, MarkType.BOOKMARK)
             if (existing != null) {
                 db.deleteMark(existing.id); false
@@ -1322,7 +1412,9 @@ class BookRepository(context: Context) {
         val out = ByteArrayOutputStream()
         val buf = ByteArray(64 * 1024)
         while (true) {
-            val n = input.read(buf)
+            val n = try { input.read(buf) } catch (e: IOException) {
+                throw ParseException(ParseErrorCode.READ_FAILED, detail = e.message)
+            }
             if (n < 0) break
             if (out.size() + n.toLong() > limit) throw ParseException(ParseErrorCode.TOO_LARGE)
             out.write(buf, 0, n)

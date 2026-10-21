@@ -94,42 +94,14 @@ class PdfParser : DocumentParser {
 
     private val PUNCT_END = "。！？；：，、,.!?;:"
 
-    private fun buildFromPages(pages: List<List<StyledStripper.Line>>): List<ChapterSplitter.Part> {
+    private fun buildFromPages(pages: List<List<PdfParagraphs.Line>>): List<ChapterSplitter.Part> {
         val artifacts = findRunningHeads(pages)
         val allLines = pages.flatten()
         if (allLines.isEmpty()) return emptyList()
 
         val bodySize = bodyFontSize(allLines)
 
-        // 段落聚合（逐页进行，页边界天然成为段落边界）
-        val paras = ArrayList<RawPara>()
-        for (page in pages) {
-            val lines = page.filter { !isArtifact(it.text, artifacts) }
-            if (lines.isEmpty()) continue
-            val gap = paragraphGap(lines)
-            val buf = StringBuilder()
-            var size = 0f
-            var prevY = Float.NaN
-            var prevParaEnd = false
-            for (line in lines) {
-                val newPara = buf.isEmpty() ||
-                    prevParaEnd ||
-                    (!prevY.isNaN() && abs(line.y - prevY) > gap)
-                if (newPara && buf.isNotEmpty()) {
-                    paras += RawPara(buf.toString(), size)
-                    buf.setLength(0)
-                    size = 0f
-                } else if (buf.isNotEmpty()) {
-                    joinLine(buf, line.text)
-                } else {
-                    buf.append(line.text)
-                }
-                size = max(size, line.size)
-                prevY = line.y
-                prevParaEnd = line.paraEnd
-            }
-            if (buf.isNotEmpty()) paras += RawPara(buf.toString(), size)
-        }
+        val paras = PdfParagraphs.collect(pages, { isArtifact(it, artifacts) }, ::paragraphGap)
         if (paras.isEmpty()) return emptyList()
 
         val headings = paras
@@ -152,10 +124,9 @@ class PdfParser : DocumentParser {
         return ChapterAssembler.assemble(leveled)
     }
 
-    private class RawPara(val text: String, val size: Float)
 
     /** 正文字号：按「字号 → 字符数」加权取众数，比取平均值抗标题干扰 */
-    private fun bodyFontSize(lines: List<StyledStripper.Line>): Float {
+    private fun bodyFontSize(lines: List<PdfParagraphs.Line>): Float {
         val weight = HashMap<Int, Int>()
         for (l in lines) weight[bucket(l.size)] = (weight[bucket(l.size)] ?: 0) + l.text.length
         val best = weight.maxByOrNull { it.value }?.key ?: return 10f
@@ -165,7 +136,7 @@ class PdfParser : DocumentParser {
     /** 字号按 0.5pt 分桶，避免浮点误差把同一字号拆成好几个 */
     private fun bucket(size: Float): Int = Math.round(size * 2f)
 
-    private fun isHeadingCandidate(p: RawPara, bodySize: Float): Boolean {
+    private fun isHeadingCandidate(p: PdfParagraphs.Para, bodySize: Float): Boolean {
         val t = p.text.trim()
         if (t.isEmpty() || t.length > 40) return false
         if (t.contains('\n')) return false
@@ -174,7 +145,7 @@ class PdfParser : DocumentParser {
     }
 
     /** 段落间距阈值：行距中位数 × 1.6（下限 6pt），比固定值更适应不同排版 */
-    private fun paragraphGap(lines: List<StyledStripper.Line>): Float {
+    private fun paragraphGap(lines: List<PdfParagraphs.Line>): Float {
         if (lines.size < 3) return 6f
         val gaps = ArrayList<Float>(lines.size)
         for (i in 1 until lines.size) {
@@ -208,7 +179,7 @@ class PdfParser : DocumentParser {
      * 找出「每页首尾重复出现」的行（页码、页眉书名）。
      * 判据：把数字统一替换成 # 之后，同一条文本出现在多数页面的开头/结尾。
      */
-    private fun findRunningHeads(pages: List<List<StyledStripper.Line>>): Set<String> {
+    private fun findRunningHeads(pages: List<List<PdfParagraphs.Line>>): Set<String> {
         if (pages.size < 4) return emptySet()
         val counts = HashMap<String, Int>()
         for (page in pages) {
@@ -251,10 +222,9 @@ class PdfParser : DocumentParser {
      */
     private class StyledStripper : PDFTextStripper() {
 
-        class Line(val text: String, val size: Float, val y: Float, val paraEnd: Boolean)
 
-        private val result = ArrayList<MutableList<Line>>()
-        private var current: MutableList<Line>? = null
+        private val result = ArrayList<MutableList<PdfParagraphs.Line>>()
+        private var current: MutableList<PdfParagraphs.Line>? = null
         private val buf = StringBuilder()
         private var lineSize = 0f
         private var lineY = Float.NaN
@@ -264,7 +234,7 @@ class PdfParser : DocumentParser {
         var glyphChars = 0
             private set
 
-        fun run(document: PDDocument): List<List<Line>> {
+        fun run(document: PDDocument): List<List<PdfParagraphs.Line>> {
             getText(document)
             return result
         }
@@ -277,7 +247,7 @@ class PdfParser : DocumentParser {
         override fun startPage(page: PDPage) {
             super.startPage(page)
             flushLine()
-            current = ArrayList<Line>().also { result += it }
+            current = ArrayList<PdfParagraphs.Line>().also { result += it }
             lineY = Float.NaN
         }
 
@@ -319,7 +289,7 @@ class PdfParser : DocumentParser {
             buf.setLength(0)
             if (t.isNotEmpty()) {
                 val y = if (lineY.isNaN()) 0f else lineY
-                current?.add(Line(t, lineSize, y, paraEndPending))
+                current?.add(PdfParagraphs.Line(t, lineSize, y, paraEndPending))
             }
             lineSize = 0f
             paraEndPending = false

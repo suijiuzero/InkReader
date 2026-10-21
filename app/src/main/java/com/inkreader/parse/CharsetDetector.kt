@@ -38,8 +38,8 @@ object CharsetDetector {
                 }
             }
             val half = n / 2
-            if (zerosEven > half * 0.7 && zerosOdd < half * 0.2) return Result(Charsets.UTF_16LE, 0)
-            if (zerosOdd > half * 0.7 && zerosEven < half * 0.2) return Result(Charsets.UTF_16BE, 0)
+            if (zerosEven > half * 0.7 && zerosOdd < half * 0.2) return Result(Charsets.UTF_16BE, 0)
+            if (zerosOdd > half * 0.7 && zerosEven < half * 0.2) return Result(Charsets.UTF_16LE, 0)
         }
         return if (isValidUtf8(bytes)) Result(UTF8, 0) else Result(GB18030, 0)
     }

@@ -116,6 +116,8 @@ object FormatDetector {
 
     /** 文本流里不该出现 NUL；出现基本可以断定是二进制（图片、音频、未知容器…） */
     private fun looksLikeText(bytes: ByteArray): Boolean {
+        val charset = CharsetDetector.detect(bytes).charset
+        if (charset == Charsets.UTF_16LE || charset == Charsets.UTF_16BE) return true
         val n = minOf(bytes.size, 4096)
         for (i in 0 until n) if (bytes[i] == 0.toByte()) return false
         return bytes.isNotEmpty()
@@ -138,7 +140,7 @@ object FormatDetector {
     }
 
     fun extensionOf(name: String): String =
-        name.substringAfterLast('/', "").substringAfterLast('.', "").lowercase()
+        name.substringAfterLast('/').substringAfterLast('\\').substringAfterLast('.', "").lowercase()
 
     fun isZip(bytes: ByteArray): Boolean =
         bytes.size >= 4 &&

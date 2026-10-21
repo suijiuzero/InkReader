@@ -85,7 +85,7 @@ class MarkdownParser : DocumentParser {
             val marker = fenceOf(head)
             if (inFence) {
                 buf.append(line).append('\n')
-                if (head.startsWith(fence)) inFence = false
+                if (closesFence(head, fence)) inFence = false
                 i++
                 continue
             }
@@ -134,7 +134,7 @@ class MarkdownParser : DocumentParser {
 
     /** 文档中最浅的标题层级（1..6），没有标题返回 0 */
     private fun shallowestLevel(lines: List<String>): Int {
-        var level = Int.MAX_VALUE
+        val levels = ArrayList<Int>()
         var inFence = false
         var fence = ""
         var i = 0
@@ -142,7 +142,7 @@ class MarkdownParser : DocumentParser {
             val head = lines[i].trimStart()
             val marker = fenceOf(head)
             if (inFence) {
-                if (head.startsWith(fence)) inFence = false
+                if (closesFence(head, fence)) inFence = false
                 i++
                 continue
             }
@@ -154,20 +154,20 @@ class MarkdownParser : DocumentParser {
             }
             val atx = ATX_HEADING.find(head)
             if (atx != null) {
-                level = minOf(level, atx.groupValues[1].length)
+                levels += atx.groupValues[1].length
                 i++
                 continue
             }
             val next = lines.getOrNull(i + 1)?.trim()
             if (head.trim().isNotEmpty() && next != null) {
                 when {
-                    SETEXT_EQ.matches(next) -> level = minOf(level, 1)
-                    SETEXT_DASH.matches(next) -> level = minOf(level, 2)
+                    SETEXT_EQ.matches(next) -> levels += 1
+                    SETEXT_DASH.matches(next) -> levels += 2
                 }
             }
             i++
         }
-        return if (level == Int.MAX_VALUE) 0 else level
+        return ChapterAssembler.chooseChapterLevel(levels) ?: 0
     }
 
     // ---------------------------------------------------------------- 前置元数据
@@ -206,15 +206,22 @@ class MarkdownParser : DocumentParser {
 
     // ---------------------------------------------------------------- 小工具
 
-    private fun fenceOf(line: String): String? = when {
-        line.startsWith("```") -> "```"
-        line.startsWith("~~~") -> "~~~"
-        else -> null
+    private fun fenceOf(line: String): String? {
+        val c = line.firstOrNull() ?: return null
+        if (c != '`' && c != '~') return null
+        val marker = line.takeWhile { it == c }
+        return marker.takeIf { it.length >= 3 }
+    }
+
+    private fun closesFence(line: String, opening: String): Boolean {
+        val marker = fenceOf(line) ?: return false
+        return marker.first() == opening.first() && marker.length >= opening.length &&
+            line.drop(marker.length).isBlank()
     }
 
     /** 章标题是纯文字，这里只清掉标题里可能夹着的行内标记 */
     private fun plainTitle(raw: String): String {
-        var s = raw.trim().removeSuffix("#").trim()
+        var s = raw.trim().replace(Regex("^#{1,6}\\s+"), "").removeSuffix("#").trim()
         for (p in TITLE_NOISE) s = p.replace(s) { it.groupValues[1] }
         return s.trim()
     }

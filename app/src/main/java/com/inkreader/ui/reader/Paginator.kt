@@ -4,6 +4,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.text.TextMeasurer
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextIndent
@@ -19,6 +24,9 @@ import com.inkreader.parse.LinkSpan
 import com.inkreader.parse.RichChapter
 import com.inkreader.parse.RichKind
 import kotlin.math.floor
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 
 /**
  * 一个段落块，start 为块首字符在整章正文中的绝对偏移。
@@ -36,6 +44,21 @@ data class Block(
     val spans: List<InlineStyle> = emptyList(),
     val links: List<LinkSpan> = emptyList()
 )
+
+/** 会改变字形度量的行内样式，测量与绘制共用。 */
+fun inlineText(text: String, start: Int, block: Block?): AnnotatedString = buildAnnotatedString {
+    append(text)
+    block?.spans?.forEach { span ->
+        val s = (span.start - start).coerceIn(0, text.length)
+        val e = (span.end - start).coerceIn(0, text.length)
+        if (e > s) addStyle(SpanStyle(
+            fontWeight = if (span.bold) FontWeight.Bold else null,
+            fontStyle = if (span.italic) FontStyle.Italic else null,
+            textDecoration = if (span.strike) TextDecoration.LineThrough else null,
+            fontFamily = if (span.code) FontFamily.Monospace else null
+        ), s, e)
+    }
+}
 
 /** 页面中的一段内容（段落可能被跨页切开） */
 data class Placed(val blockIndex: Int, val start: Int, val end: Int, val continuation: Boolean)
@@ -234,7 +257,8 @@ class Paginator(private val measurer: TextMeasurer) {
         /** 每章第一页顶部要留出的高度（px）：给章首页的大标题用。
          *  渲染端会照着同一个高度画标题，所以两边必须一致 */
         firstPageInsetPx: Float = 0f,
-        styler: BlockStyler? = null
+        styler: BlockStyler? = null,
+        cancellation: CoroutineContext = EmptyCoroutineContext
     ): List<Page> {
         if (blocks.isEmpty() || widthPx <= 0 || heightPx <= 0) return emptyList()
 
@@ -293,6 +317,7 @@ class Paginator(private val measurer: TextMeasurer) {
             var cursor = 0
             var continuation = false
             while (cursor < block.text.length) {
+                cancellation.ensureActive()
                 // 段间距只在这一段的第一截、且页面上已经有内容时才留
                 val gap = if (items.isEmpty() || continuation) {
                     0f
@@ -300,29 +325,27 @@ class Paginator(private val measurer: TextMeasurer) {
                     st.gapBetween(blocks.getOrNull(items.last().blockIndex), block)
                 }
                 val avail = safeHeightPx - used - gap
-                if (avail < lineHeightPx) {
+                if (avail < lineHeightPx && items.isNotEmpty()) {
                     if (!flush()) return pages
-                    continuation = false
                     continue
                 }
+                // 极小窗口至少推进一行；空页不能反复 flush 而不消耗字符。
                 val maxLines = floor(avail / lineHeightPx).toInt().coerceAtLeast(1)
                 val sub = block.text.substring(cursor)
                 // 段落第一截带缩进测量，续排的那截按块规则来——必须和渲染端一致
                 val indent = st.indentForSlice(block, continuation)
                 val measureStyle = if (indent != null) blockStyle.copy(textIndent = indent) else blockStyle
                 val result: TextLayoutResult = measurer.measure(
-                    text = sub,
+                    text = inlineText(sub, block.start + cursor, block),
                     style = measureStyle,
                     maxLines = maxLines,
                     constraints = constraints
                 )
-                val fitsAll = result.lineCount < maxLines
-                val consumed = if (fitsAll) {
-                    sub.length
-                } else {
-                    result.getLineEnd(maxLines - 1, false).coerceAtLeast(1)
-                }
-                val consumedHeight = if (fitsAll) result.size.height.toFloat() else maxLines * lineHeightPx
+                val fittingLines = (0 until result.lineCount)
+                    .takeWhile { result.getLineBottom(it) <= avail }.size.coerceAtLeast(1)
+                val consumed = result.getLineEnd(fittingLines - 1, false).coerceIn(1, sub.length)
+                val fitsAll = consumed == sub.length
+                val consumedHeight = result.getLineBottom(fittingLines - 1)
 
                 items += Placed(
                     blockIndex = block.index,
@@ -361,16 +384,16 @@ class Paginator(private val measurer: TextMeasurer) {
             val mergeWrapped = nonBlank > 0 && blank.toFloat() / nonBlank > 0.30f
 
             val out = ArrayList<Block>()
-            val buf = StringBuilder()
             var bufStart = -1
+            var bufEnd = -1
             var offset = 0
 
             fun flushBuf() {
-                if (bufStart >= 0 && buf.isNotEmpty()) {
-                    out += Block(out.size, bufStart, buf.toString())
+                if (bufStart >= 0 && bufEnd > bufStart) {
+                    out += Block(out.size, bufStart, text.substring(bufStart, bufEnd))
                 }
-                buf.setLength(0)
                 bufStart = -1
+                bufEnd = -1
             }
 
             for (line in lines) {
@@ -380,12 +403,8 @@ class Paginator(private val measurer: TextMeasurer) {
                     if (mergeWrapped) flushBuf() else if (bufStart >= 0) flushBuf()
                 } else {
                     if (bufStart < 0) bufStart = lineStart + (line.length - line.trimStart('　', ' ', '\t').length)
-                    if (buf.isNotEmpty()) {
-                        val prev = buf.last()
-                        val next = trimmed.first()
-                        buf.append(if (isCjk(prev) || isCjk(next)) "" else " ")
-                    }
-                    buf.append(trimmed)
+                    // 保留原文连续区间，换行与行首空白也必须参与偏移计算。
+                    bufEnd = lineStart + line.trimEnd().length
                     if (!mergeWrapped) flushBuf()
                 }
                 offset += line.length + 1
@@ -405,17 +424,12 @@ class Paginator(private val measurer: TextMeasurer) {
             if (rich == null || text.isEmpty()) return toBlocks(text)
 
             var cursor = 0
-            for ((i, b) in rich.blocks.withIndex()) {
-                if (b.start != cursor || b.end > text.length) return toBlocks(text)
+            for (b in rich.blocks) {
+                if (b.start < cursor || b.end < b.start || b.end > text.length ||
+                    !text.substring(cursor, b.start).isBlank()) return toBlocks(text)
                 cursor = b.end
-                if (i < rich.blocks.lastIndex) {
-                    if (cursor + 2 > text.length ||
-                        text[cursor] != '\n' || text[cursor + 1] != '\n'
-                    ) return toBlocks(text)
-                    cursor += 2
-                }
             }
-            if (cursor != text.length) return toBlocks(text)
+            if (!text.substring(cursor).isBlank()) return toBlocks(text)
 
             val out = ArrayList<Block>(rich.blocks.size)
             for ((i, b) in rich.blocks.withIndex()) {

@@ -7,6 +7,9 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.PowerManager
+import android.os.SystemClock
+import android.media.MediaPlayer
+import android.media.AudioAttributes
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.support.v4.media.MediaMetadataCompat
@@ -25,6 +28,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CoroutineExceptionHandler
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Deferred
+import kotlinx.coroutines.async
+import android.widget.Toast
+import java.io.File
 import java.util.Locale
 
 /**
@@ -34,7 +44,11 @@ import java.util.Locale
  */
 class TtsService : Service(), TextToSpeech.OnInitListener {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate +
+        CoroutineExceptionHandler { _, error ->
+            Toast.makeText(this, error.localizedMessage ?: getString(R.string.action_unknown_error), Toast.LENGTH_LONG).show()
+            stopEverything()
+        })
 
     private var tts: TextToSpeech? = null
     private var ttsReady = false
@@ -52,6 +66,22 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     private var sentencePos = 0
     private var sleepMode = SleepMode.OFF
     private var started = false
+    private var wantPlaying = false
+    private var contentReady = false
+    private var playbackGeneration = 0L
+    private var requestGeneration = 0L
+    private var queuedThrough = -1
+    private var bookJob: Job? = null
+    private var chapterJob: Job? = null
+    private var sleepDeadline = 0L
+    private val computerClient by lazy { ComputerVoiceClient(this) }
+    private var computer: ComputerVoice? = null
+    private var computerJob: Job? = null
+    private var nextAudio: Pair<Int, Deferred<ByteArray>>? = null
+    private var player: MediaPlayer? = null
+    private var playerFile: File? = null
+    private var computerProbeJob: Job? = null
+    private var nextComputerProbeAt = 0L
 
     private val repo get() = (application as InkApp).container.repo
     private val prefs get() = (application as InkApp).container.prefs
@@ -90,14 +120,24 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         engine.setPitch(p.ttsPitch.coerceIn(0.5f, 2f))
         ttsReady = true
         TtsBus.update { it.copy(ready = true, engineMissing = false) }
-        if (started) speakCurrent()
+        if (started && contentReady && wantPlaying) speakCurrent()
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> {
+                bookJob?.cancel()
+                chapterJob?.cancel()
+                requestGeneration++
+                invalidateQueue()
+                contentReady = false
+                wantPlaying = true
                 bookId = intent.getLongExtra(EXTRA_BOOK, 0L)
-                chapterPos = intent.getIntExtra(EXTRA_CHAPTER, 0)
+                chapters = emptyList()
+                text = ""
+                sentences = emptyList()
+                sentencePos = 0
+                val requestedChapter = intent.getIntExtra(EXTRA_CHAPTER, 0)
                 val offset = intent.getIntExtra(EXTRA_OFFSET, 0)
                 val modeName = intent.getStringExtra(EXTRA_SLEEP)
                 sleepMode = runCatching { SleepMode.valueOf(modeName ?: "OFF") }.getOrDefault(SleepMode.OFF)
@@ -107,7 +147,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
                 }
                 startAsForeground()
                 started = true
-                beginBook(chapterPos, offset)
+                applySleepTimer(reset = true)
+                beginBook(requestedChapter, offset)
             }
 
             ACTION_PAUSE, ACTION_RESUME, ACTION_NEXT, ACTION_PREV -> {
@@ -132,12 +173,16 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
                 val saved = prefs.load()
                 prefs.save(saved.copy(ttsRate = r, ttsPitch = p))
                 TtsBus.update { it.copy(rate = r, pitch = p) }
+                if (computer != null && started && wantPlaying) {
+                    invalidateQueue()
+                    speakCurrent()
+                }
             }
 
             ACTION_SET_SLEEP -> {
                 val modeName = intent.getStringExtra(EXTRA_SLEEP)
                 sleepMode = runCatching { SleepMode.valueOf(modeName ?: "OFF") }.getOrDefault(SleepMode.OFF)
-                applySleepTimer()
+                applySleepTimer(reset = true)
             }
         }
         return START_NOT_STICKY
@@ -145,6 +190,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         releaseResources()
+        scope.cancel()
+        TtsBus.reset()
         super.onDestroy()
     }
 
@@ -153,9 +200,12 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     // ==================== 播放控制 ====================
 
     private fun beginBook(chapterIndex: Int, offset: Int) {
-        scope.launch {
-            val bk = withContext(Dispatchers.IO) { repo.book(bookId) }
-            val chs = withContext(Dispatchers.IO) { repo.chapters(bookId) }
+        val requestedBook = bookId
+        val generation = requestGeneration
+        bookJob = scope.launch {
+            val bk = repo.book(requestedBook)
+            val chs = repo.chapters(requestedBook)
+            if (!isActive || generation != requestGeneration || !started) return@launch
             if (bk == null || chs.isEmpty()) {
                 stopEverything(); return@launch
             }
@@ -171,18 +221,30 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             stopEverything()
             return
         }
-        scope.launch {
-            val ch = chapters[index]
-            val body = withContext(Dispatchers.IO) { repo.chapterText(ch) }
+        chapterJob?.cancel()
+        computerProbeJob?.cancel(); computerProbeJob = null
+        invalidateQueue()
+        contentReady = false
+        val generation = ++requestGeneration
+        val ch = chapters[index]
+        chapterJob = scope.launch {
+            val body = repo.chapterText(ch)
+            val connected = withContext(Dispatchers.IO) { computerClient.connect() }
+            if (!isActive || generation != requestGeneration || !started) return@launch
+            nextComputerProbeAt = SystemClock.elapsedRealtime() + 30_000
+            computer = connected
+            TtsBus.update { it.copy(computerVoice = connected != null) }
             chapterPos = index
             text = body
             sentences = SentenceSplitter.split(body)
-            sentencePos = if (offset > 0) {
+            sentencePos = if (offset < 0) sentences.lastIndex.coerceAtLeast(0) else if (offset > 0) {
                 sentences.indexOfFirst { it.last >= offset }.let { if (it < 0) 0 else it }
             } else 0
+            contentReady = true
+            queuedThrough = sentencePos - 1
             TtsBus.update {
                 it.copy(
-                    active = true, playing = true, bookId = bookId, bookTitle = bookTitle,
+                    active = true, playing = wantPlaying, bookId = bookId, bookTitle = bookTitle,
                     chapterIndex = index, chapterTitle = ch.title, totalChapters = chapters.size,
                     sentenceStart = sentences.getOrNull(sentencePos)?.first ?: -1,
                     sentenceEnd = sentences.getOrNull(sentencePos)?.last ?: -1,
@@ -197,52 +259,141 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             }
             applySleepTimer()
             saveProgress()
-            speakCurrent()
+            if (wantPlaying) speakCurrent()
         }
     }
 
     private fun speakCurrent() {
-        if (!ttsReady) return
-        val engine = tts ?: return
+        if (!contentReady || !wantPlaying || !started) { return }
         if (sentencePos !in sentences.indices) {
             nextChapter(); return
         }
-        val range = sentences[sentencePos]
-        val piece = text.substring(range.first.coerceIn(0, text.length), range.last.coerceAtMost(text.length - 1) + 1)
-        if (piece.isBlank()) {
-            sentencePos++
-            speakCurrent()
+        if (computer != null) {
+            speakComputer()
             return
         }
-        // 首次进入用 FLUSH 清掉旧队列，后续用 ADD 排队，避免断句间隙
-        val queueMode = if (sentencePos == 0) TextToSpeech.QUEUE_FLUSH else TextToSpeech.QUEUE_ADD
-        engine.speak(piece, queueMode, null, utteranceId(sentencePos))
+        if (!ttsReady) return
+        enqueueAhead()
+        if (!wantPlaying) return
         publishState()
-        // 预排后面几句，减少衔接停顿
-        var ahead = sentencePos + 1
-        var count = 0
-        while (ahead < sentences.size && count < PREFETCH) {
-            val r = sentences[ahead]
-            val s = text.substring(r.first, (r.last.coerceAtMost(text.length - 1)) + 1)
-            if (s.isNotBlank()) {
-                engine.speak(s, TextToSpeech.QUEUE_ADD, null, utteranceId(ahead))
-                count++
-            }
-            ahead++
-        }
         startTicker()
     }
 
-    private fun pauseSpeaking() {
+    private fun invalidateQueue() {
+        playbackGeneration++
+        queuedThrough = sentencePos - 1
         tts?.stop()
+        clearComputerPlayback()
+    }
+
+    private fun clearComputerPlayback() {
+        computerJob?.cancel(); computerJob = null
+        nextAudio?.second?.cancel(); nextAudio = null
+        runCatching { player?.release() }; player = null
+        playerFile?.delete(); playerFile = null
+    }
+
+    /** One playing sentence and one bounded prefetch. Every callback belongs to one generation. */
+    private fun speakComputer() {
+        val voice = computer ?: return
+        if (computerJob?.isActive == true || player != null) return
+        val generation = playbackGeneration
+        val index = sentencePos
+        val range = sentences[index]
+        val piece = text.substring(range.first, range.last + 1)
+        val settings = prefs.load()
+        val cached = nextAudio?.takeIf { it.first == index }?.second
+        if (cached != null) nextAudio = null
+        TtsBus.update { it.copy(buffering = true) }
+        publishState()
+        startTicker()
+        computerJob = scope.launch {
+            try {
+                val bytes = cached?.await() ?: withContext(Dispatchers.IO) {
+                    computerClient.synthesize(voice, piece, settings.ttsRate, settings.ttsPitch)
+                }
+                if (!isActive || generation != playbackGeneration || !started || !wantPlaying) return@launch
+                val file = File.createTempFile("computer-voice-", ".wav", cacheDir)
+                playerFile = file
+                file.writeBytes(bytes)
+                val audio = MediaPlayer()
+                player = audio
+                audio.setAudioAttributes(AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
+                audio.setDataSource(file.path)
+                audio.setOnPreparedListener {
+                    if (generation == playbackGeneration && started && wantPlaying && player === audio) {
+                        audio.start()
+                        TtsBus.update { it.copy(buffering = false) }
+                        publishState()
+                        startTicker()
+                        prefetchComputer(index + 1, voice, settings.ttsRate, settings.ttsPitch)
+                    }
+                }
+                audio.setOnCompletionListener {
+                    if (generation == playbackGeneration && started && wantPlaying && player === audio) {
+                        audio.release(); player = null
+                        playerFile?.delete(); playerFile = null
+                        sentencePos = index + 1
+                        speakCurrent()
+                    }
+                }
+                audio.setOnErrorListener { _, _, _ ->
+                    if (generation == playbackGeneration && player === audio) computerFailed()
+                    true
+                }
+                audio.prepareAsync()
+            } catch (cancelled: CancellationException) { throw cancelled
+            } catch (_: Exception) {
+                if (generation == playbackGeneration && started && wantPlaying) computerFailed()
+            }
+        }
+    }
+
+    private fun prefetchComputer(index: Int, voice: ComputerVoice, rate: Float, pitch: Float) {
+        if (index !in sentences.indices || nextAudio != null) return
+        val range = sentences[index]
+        val piece = text.substring(range.first, range.last + 1)
+        // async is supervised by the service scope; a failure is consumed at the sentence boundary.
+        nextAudio = index to scope.async(Dispatchers.IO) { computerClient.synthesize(voice, piece, rate, pitch) }
+    }
+
+    private fun computerFailed() {
+        computer = null
+        nextComputerProbeAt = SystemClock.elapsedRealtime() + 30_000
+        invalidateQueue()
+        TtsBus.update { it.copy(computerVoice = false, buffering = false) }
+        if (ttsReady) speakCurrent() else pauseSpeaking()
+    }
+
+    private fun enqueueAhead() {
+        val engine = tts ?: return
+        val end = minOf(sentences.lastIndex, sentencePos + PREFETCH)
+        while (queuedThrough < end) {
+            val index = queuedThrough + 1
+            val range = sentences[index]
+            val piece = text.substring(range.first, range.last + 1)
+            if (engine.speak(piece, TextToSpeech.QUEUE_ADD, null, utteranceId(index)) == TextToSpeech.ERROR) {
+                pauseSpeaking()
+                return
+            }
+            queuedThrough = index
+        }
+    }
+
+    private fun pauseSpeaking() {
+        wantPlaying = false
+        invalidateQueue()
         stopTicker()
-        TtsBus.update { it.copy(playing = false) }
+        TtsBus.update { it.copy(playing = false, buffering = false) }
         updateNotification()
         updatePlaybackState(false)
     }
 
     private fun resumeSpeaking() {
         if (!TtsBus.state.value.active) return
+        wantPlaying = true
+        queuedThrough = sentencePos - 1
         TtsBus.update { it.copy(playing = true) }
         speakCurrent()
         updateNotification()
@@ -251,7 +402,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     private fun jumpSentence(delta: Int) {
         if (!TtsBus.state.value.active) return
-        tts?.stop()
+        invalidateQueue()
         val target = sentencePos + delta
         if (target < 0) {
             // 回上一章末尾
@@ -265,6 +416,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         } else {
             sentencePos = target
         }
+        queuedThrough = sentencePos - 1
         speakCurrent()
     }
 
@@ -290,6 +442,16 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     }
 
     private fun releaseResources() {
+        started = false
+        wantPlaying = false
+        contentReady = false
+        requestGeneration++
+        playbackGeneration++
+        clearComputerPlayback()
+        computer = null
+        computerProbeJob?.cancel(); computerProbeJob = null
+        bookJob?.cancel(); bookJob = null
+        chapterJob?.cancel(); chapterJob = null
         stopTicker()
         sleepJob?.cancel(); sleepJob = null
         runCatching { tts?.stop() }
@@ -310,20 +472,23 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     private val progressListener = object : UtteranceProgressListener() {
         override fun onStart(utteranceId: String?) {
-            val idx = parseId(utteranceId) ?: return
             scope.launch {
+                val idx = parseId(utteranceId) ?: return@launch
+                if (!started || !wantPlaying) return@launch
                 sentencePos = idx
                 publishState()
             }
         }
 
         override fun onDone(utteranceId: String?) {
-            val idx = parseId(utteranceId) ?: return
             scope.launch {
+                val idx = parseId(utteranceId) ?: return@launch
+                if (!started || !wantPlaying) return@launch
                 if (idx < sentencePos) return@launch
                 val nextIdx = idx + 1
                 if (nextIdx < sentences.size) {
                     sentencePos = nextIdx
+                    enqueueAhead()
                     publishState()
                 } else {
                     nextChapter()
@@ -335,12 +500,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         override fun onError(utteranceId: String?) {
             scope.launch {
                 val idx = parseId(utteranceId)
-                if (idx == null) return@launch
-                val nextIdx = idx + 1
-                if (nextIdx < sentences.size) {
-                    sentencePos = nextIdx
-                    publishState()
-                } else nextChapter()
+                if (idx == null || !started || !wantPlaying) return@launch
+                pauseSpeaking()
             }
         }
     }
@@ -350,7 +511,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         TtsBus.update {
             it.copy(
                 active = true,
-                playing = true,
+                playing = wantPlaying,
                 bookId = bookId,
                 bookTitle = bookTitle,
                 chapterIndex = chapterPos,
@@ -362,28 +523,31 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             )
         }
         updateNotification()
-        updatePlaybackState(true)
+        updatePlaybackState(wantPlaying)
     }
 
     private fun progressOf(): Float {
-        if (text.isEmpty()) return 0f
+        if (text.isEmpty()) { return 0f }
         val r = sentences.getOrNull(sentencePos) ?: return 0f
         return (r.first.toFloat() / text.length).coerceIn(0f, 1f)
     }
 
     // ==================== 定时关闭 ====================
 
-    private fun applySleepTimer() {
+    private fun applySleepTimer(reset: Boolean = false) {
+        if (!reset && sleepJob?.isActive == true) return
         sleepJob?.cancel()
         if (sleepMode == SleepMode.OFF || sleepMode == SleepMode.CHAPTER_END) {
+            sleepDeadline = 0L
             TtsBus.update { it.copy(sleepRemainingMs = 0L) }
             return
         }
         val ms = sleepMode.minutes * 60_000L
-        val endAt = System.currentTimeMillis() + ms
+        if (reset || sleepDeadline == 0L) sleepDeadline = SystemClock.elapsedRealtime() + ms
+        val endAt = sleepDeadline
         sleepJob = scope.launch {
             while (isActive) {
-                val remain = endAt - System.currentTimeMillis()
+                val remain = endAt - SystemClock.elapsedRealtime()
                 if (remain <= 0) {
                     stopEverything()
                     break
@@ -401,6 +565,20 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             while (isActive) {
                 delay(3000)
                 saveProgress()
+                if (computer == null && computerClient.enabled && wantPlaying && contentReady &&
+                    computerProbeJob?.isActive != true && SystemClock.elapsedRealtime() >= nextComputerProbeAt) {
+                    val generation = requestGeneration
+                    nextComputerProbeAt = SystemClock.elapsedRealtime() + 30_000
+                    computerProbeJob = scope.launch {
+                        val connected = withContext(Dispatchers.IO) { computerClient.connect() }
+                        if (connected != null && isActive && generation == requestGeneration && started && wantPlaying && computer == null) {
+                            computer = connected
+                            invalidateQueue()
+                            TtsBus.update { it.copy(computerVoice = true) }
+                            speakCurrent()
+                        }
+                    }
+                }
             }
         }
     }
@@ -433,8 +611,10 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         val doneChars = chapters.take(idx).sumOf { it.charCount.toLong() }
         val total = chapters.sumOf { it.charCount.toLong() }.coerceAtLeast(1)
         val progress = ((doneChars + off) / total.toFloat()).coerceIn(0f, 1f)
-        scope.launch {
-            withContext(Dispatchers.IO) { repo.updateProgress(bookId, idx, off, progress) }
+        val savedBookId = bookId
+        val token = repo.newProgressToken(savedBookId)
+        (application as InkApp).container.scope.launch {
+            repo.updateProgress(savedBookId, idx, off, progress, token)
         }
         TtsBus.update { it.copy(chapterIndex = idx) }
     }
@@ -550,9 +730,10 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         )
     }
 
-    private fun utteranceId(index: Int) = "ink_$index"
+    private fun utteranceId(index: Int) = "ink_${playbackGeneration}_$index"
     private fun parseId(id: String?): Int? =
-        id?.takeIf { it.startsWith("ink_") }?.removePrefix("ink_")?.toIntOrNull()
+        id?.takeIf { it.startsWith("ink_${playbackGeneration}_") }
+            ?.substringAfterLast('_')?.toIntOrNull()?.takeIf { it in sentences.indices }
 
     companion object {
         const val ACTION_START = "com.inkreader.tts.START"

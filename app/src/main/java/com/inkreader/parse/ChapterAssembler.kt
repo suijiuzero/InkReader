@@ -19,12 +19,21 @@ object ChapterAssembler {
     /** 标题层级 0..5，越小越靠上；[BODY] 表示正文 */
     data class Para(val level: Int, val text: String)
 
+    /** 单次书名标题后若有重复的下一层标题，选择重复层级。 */
+    fun chooseChapterLevel(levels: List<Int>): Int? {
+        val counts = levels.filter { it >= 0 }.groupingBy { it }.eachCount()
+        val shallow = counts.keys.minOrNull() ?: return null
+        return if (counts[shallow] == 1) {
+            counts.keys.sorted().firstOrNull { it > shallow && counts.getValue(it) >= 2 } ?: shallow
+        } else shallow
+    }
+
     fun assemble(paragraphs: List<Para>, fallbackTitle: String = "正文"): List<ChapterSplitter.Part> {
         if (paragraphs.isEmpty()) return emptyList()
 
         // 找到文档中最浅的标题层级，只有它作为分章依据；更深的层级留在正文里
         val levels = paragraphs.mapNotNull { if (it.level >= 0) it.level else null }.distinct().sorted()
-        val chapterLevel = levels.firstOrNull()
+        val chapterLevel = chooseChapterLevel(paragraphs.map { it.level })
 
         val plain = paragraphs.joinToString("\n\n") { it.text }
 

@@ -25,6 +25,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.LaunchedEffect
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import com.inkreader.tts.TtsBus
@@ -140,7 +144,7 @@ class MainActivity : ComponentActivity() {
         runCatching {
             val dir = File(cacheDir, CACHE_DIR)
             val cutoff = System.currentTimeMillis() - 24L * 60 * 60 * 1000
-            dir.listFiles()?.forEach { if (it.lastModified() < cutoff) it.delete() }
+            dir.listFiles()?.forEach { if (it.lastModified() < cutoff) it.deleteRecursively() }
         }
         setContent { InkRoot() }
     }
@@ -188,9 +192,13 @@ class MainActivity : ComponentActivity() {
             container.prefs.pickerRetriedAt = 0L
             if (uris.isNotEmpty()) {
                 // 先持久化授权，再把「保证读得到」这件事落实（必要时抄进私有缓存）
-                val safe = uris.map { ensureReadableUri(it) }
-                container.prefs.pendingImportUris = safe.map { it.toString() }
-                container.pendingUris = safe
+                persistUriGrants(uris)
+                container.prefs.pendingImportUris = uris.map { it.toString() }
+                container.scope.launch {
+                    val safe = withContext(Dispatchers.IO) { uris.map { com.inkreader.ui.component.ensureReadableUri(applicationContext, it) } }
+                    container.prefs.pendingImportUris = safe.map { it.toString() }
+                    container.pendingUris = safe
+                }
             } else {
                 container.prefs.pendingImportUris = emptyList()
                 val canceled = resultCode == Activity.RESULT_CANCELED && data == null
@@ -203,7 +211,10 @@ class MainActivity : ComponentActivity() {
 
         if (requestCode == REQ_PICK_APPEND) {
             if (uris.isNotEmpty()) {
-                container.pendingAppendUris = uris.map { ensureReadableUri(it) }
+                persistUriGrants(uris)
+                container.scope.launch {
+                    container.pendingAppendUris = withContext(Dispatchers.IO) { uris.map { com.inkreader.ui.component.ensureReadableUri(applicationContext, it) } }
+                }
             }
             return
         }
@@ -211,7 +222,10 @@ class MainActivity : ComponentActivity() {
         if (requestCode == REQ_PICK_COVER) {
             val first = uris.firstOrNull()
             if (first != null) {
-                container.pendingCoverUri = ensureReadableUri(first)
+                persistUriGrants(listOf(first))
+                container.scope.launch {
+                    container.pendingCoverUri = withContext(Dispatchers.IO) { com.inkreader.ui.component.ensureReadableUri(applicationContext, first) }
+                }
             }
             return
         }
@@ -236,60 +250,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * 保证这个 Uri「以后一定还读得到」，读不到就抄一份到私有缓存。
-     *
-     * 为什么需要：选择器返回的那一刻系统给的是**临时授权**；国产 ROM 上首次拉起选择器
-     * 极易把本应用冻结/杀掉，进程重建后临时授权就没了 —— 于是「选好了文件、点开始导入却报
-     * 读取失败」，再试一次（选择器已热、进程没被杀）就好了。这是「第一次导入失败、第二次成功」
-     * 的另一半原因（第一半是结果被时序竞态冲掉，已在 ShelfScreen 的宽限期里处理后）。
-     *
-     * 做法：先试持久化授权 + 真读一次；两者任一失败就把内容抄进 cacheDir 换成 `file://`
-     * 交回去（导入侧本来就同时支持 content:// 与 file://）。单文件超过 [CACHE_LIMIT_BYTES]
-     * 不抄（避免把缓存撑爆），仍用原 Uri 试。
-     */
-    private fun ensureReadableUri(uri: Uri): Uri {
-        val persisted = runCatching {
-            contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            true
-        }.getOrDefault(false)
-
-        val readable = runCatching {
-            contentResolver.openInputStream(uri)?.use { true } ?: false
-        }.getOrDefault(false)
-        if (readable && persisted) return uri
-
-        return runCatching {
-            if (uri.scheme == "file") return uri
-            var name: String? = null
-            var size = -1L
-            contentResolver.query(uri, null, null, null, null)?.use { c ->
-                if (c.moveToFirst()) {
-                    c.getColumnIndex(OpenableColumns.DISPLAY_NAME).takeIf { it >= 0 }?.let { name = c.getString(it) }
-                    c.getColumnIndex(OpenableColumns.SIZE).takeIf { it >= 0 && !c.isNull(it) }?.let { size = c.getLong(it) }
-                }
-            }
-            if (size > CACHE_LIMIT_BYTES) {
-                com.inkreader.ui.component.PickerTrace.log(this, "ensure too large ($size), keep uri")
-                Log.i(TAG, "file too large to cache ($size bytes), keep original uri")
-                return uri
-            }
-            val dir = File(cacheDir, CACHE_DIR).apply { mkdirs() }
-            // 保留原文件名：合并导入的章节标题与「按文件名章号排序」都依赖它
-            val safeName = (name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "import.bin")
-                .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-            val target = File(dir, "${System.currentTimeMillis()}_$safeName")
-            contentResolver.openInputStream(uri)?.use { input ->
-                target.outputStream().use { out -> input.copyTo(out) }
-            } ?: return uri
-            com.inkreader.ui.component.PickerTrace.log(
-                this, "ensure cached ${target.name} (${target.length()}B, persisted=$persisted, readable=$readable)"
-            )
-            Log.i(TAG, "cached picked uri -> ${target.name} (${target.length()} bytes, persisted=$persisted)")
-            Uri.fromFile(target)
-        }.getOrDefault(uri)
-    }
-
     @Suppress("DEPRECATION")
     private fun extractUrisFromIntent(data: Intent?): List<Uri> {
         if (data == null) return emptyList()
@@ -306,27 +266,23 @@ class MainActivity : ComponentActivity() {
     /** 上一颗被阅读器消费掉的音量键，用来把对应的抬手事件也一起吃掉 */
     private var consumedVolumeKey = -1
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         val handler = (application as? InkApp)?.container?.readerKeyHandler
-        val code = event.keyCode
+        val code = keyCode
         val isVolume = code == KeyEvent.KEYCODE_VOLUME_UP || code == KeyEvent.KEYCODE_VOLUME_DOWN
-        if (handler == null || !isVolume) return super.dispatchKeyEvent(event)
-
-        when (event.action) {
-            KeyEvent.ACTION_DOWN -> {
-                if (event.repeatCount == 0) {
-                    consumedVolumeKey = if (handler(code)) code else -1
-                }
-                if (consumedVolumeKey == code) return true
-            }
-
-            KeyEvent.ACTION_UP -> {
-                val mine = consumedVolumeKey == code
-                consumedVolumeKey = -1
-                if (mine) return true
-            }
+        if (handler != null && isVolume) {
+            if (event.repeatCount == 0) consumedVolumeKey = if (handler(code)) code else -1
+            if (consumedVolumeKey == code) return true
         }
-        return super.dispatchKeyEvent(event)
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (consumedVolumeKey == keyCode) {
+            consumedVolumeKey = -1
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     /** 处理「用其他应用打开 / 分享到墨阅」的入口 */
@@ -334,6 +290,11 @@ class MainActivity : ComponentActivity() {
     private fun collectIncoming(intent: Intent?) {
         if (intent == null) return
         val container = (application as InkApp).container
+        val openBook = intent.getLongExtra(com.inkreader.tts.TtsService.EXTRA_OPEN_BOOK, 0L)
+        if (openBook > 0L) {
+            container.pendingOpenBook = openBook
+            intent.removeExtra(com.inkreader.tts.TtsService.EXTRA_OPEN_BOOK)
+        }
         when (intent.action) {
             Intent.ACTION_VIEW -> {
                 val uri: Uri? = intent.data
@@ -367,6 +328,15 @@ fun InkRoot() {
 
     fun popToShelf() {
         while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+    }
+
+    LaunchedEffect(container.pendingOpenBook) {
+        val id = container.pendingOpenBook ?: return@LaunchedEffect
+        container.pendingOpenBook = null
+        val state = TtsBus.state.value
+        popToShelf()
+        push(Dest.Reader(id, if (state.active && state.bookId == id) state.chapterIndex else -1,
+            if (state.active && state.bookId == id) state.sentenceStart.coerceAtLeast(0) else 0))
     }
 
     BackHandler(enabled = backStack.size > 1) { pop() }

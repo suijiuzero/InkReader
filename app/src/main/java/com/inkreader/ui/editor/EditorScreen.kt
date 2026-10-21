@@ -1,6 +1,7 @@
 package com.inkreader.ui.editor
 
 import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -49,6 +50,11 @@ import com.inkreader.ui.component.SectionLabel
 import com.inkreader.ui.theme.InkType
 import com.inkreader.ui.theme.LocalInkPalette
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 
 /**
  * 章节编辑器：改标题、写正文，并支持「从光标处拆分为下一章」（批注无损迁移）。
@@ -70,14 +76,19 @@ fun EditorScreen(
     var title by remember { mutableStateOf(initialTitle) }
     var bodyField by remember { mutableStateOf(TextFieldValue("")) }
     var loaded by remember { mutableStateOf(false) }
+    var savedText by remember { mutableStateOf("") }
     var dirty by remember { mutableStateOf(false) }
     var saving by remember { mutableStateOf(false) }
     var showSplitDialog by remember { mutableStateOf(false) }
     var splitNewTitle by remember { mutableStateOf("") }
+    val saveMutex = remember { Mutex() }
+    var exiting by remember { mutableStateOf(false) }
+    var splitting by remember { mutableStateOf(false) }
 
     val body = bodyField.text
 
     LaunchedEffect(chapterId) {
+        try {
         val chs = container.repo.chapters(bookId)
         val ch = chs.firstOrNull { it.id == chapterId }
         chapter = ch
@@ -85,37 +96,69 @@ fun EditorScreen(
             title = ch.title
             val text = container.repo.chapterText(ch)
             bodyField = TextFieldValue(text, TextRange(0))
+            savedText = text
+        }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            chapter = null
+            Toast.makeText(ctx, e.localizedMessage ?: ctx.getString(R.string.action_unknown_error), Toast.LENGTH_LONG).show()
         }
         loaded = true
     }
 
-    // 停顿后自动保存
+    suspend fun persist(): Boolean = saveMutex.withLock {
+        val ch = chapter ?: return@withLock false
+        val savedBody = bodyField.text
+        val savedTitle = title.trim().ifBlank { ch.title }
+        saving = true
+        try {
+            // 开始提交后不因重组取消；返回路径等待这个提交完成。
+            withContext(NonCancellable) {
+                container.repo.saveChapterText(ch, savedBody, expectedText = savedText)
+                savedText = savedBody
+                if (savedTitle != ch.title) container.repo.renameChapter(ch.id, savedTitle)
+            }
+            chapter = ch.copy(title = savedTitle)
+            if (bodyField.text == savedBody && title.trim().ifBlank { ch.title } == savedTitle) dirty = false
+            container.library.refresh()
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Toast.makeText(ctx, e.localizedMessage ?: ctx.getString(R.string.action_unknown_error), Toast.LENGTH_LONG).show()
+            false
+        } finally {
+            saving = false
+        }
+    }
+
     LaunchedEffect(body, title, loaded) {
         if (!loaded || !dirty) return@LaunchedEffect
         kotlinx.coroutines.delay(1200)
-        val ch = chapter ?: return@LaunchedEffect
-        saving = true
-        container.repo.saveChapterText(ch, body)
-        if (title.trim().isNotEmpty() && title != ch.title) {
-            container.repo.renameChapter(ch.id, title.trim())
-            chapter = ch.copy(title = title.trim())
-        }
-        saving = false
-        dirty = false
+        scope.launch { persist() }
     }
 
     fun saveNow() {
-        val ch = chapter ?: return
+        if (splitting || exiting) return
         scope.launch {
-            container.repo.saveChapterText(ch, body)
-            if (title.trim().isNotEmpty() && title != ch.title) {
-                container.repo.renameChapter(ch.id, title.trim())
-            }
-            container.library.refresh()
-            dirty = false
-            Toast.makeText(ctx, ctx.getString(R.string.editor_saved), Toast.LENGTH_SHORT).show()
+            if (persist()) Toast.makeText(ctx, ctx.getString(R.string.editor_saved), Toast.LENGTH_SHORT).show()
         }
     }
+
+    fun exitEditor() {
+        if (exiting || splitting || !loaded) return
+        if (chapter == null) { onBack(); return }
+        exiting = true
+        scope.launch {
+            try {
+                if (persist()) onBack()
+            } finally {
+                exiting = false
+            }
+        }
+    }
+    BackHandler { exitEditor() }
 
     val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
@@ -131,10 +174,7 @@ fun EditorScreen(
                     else -> stringResource(R.string.editor_saved)
                 }
             ),
-            onBack = {
-                saveNow()
-                onBack()
-            },
+            onBack = { exitEditor() },
             actions = {
                 InkTextButton(stringResource(R.string.editor_split_here), color = p.textSecondary) {
                     val cursor = bodyField.selection.start
@@ -158,7 +198,7 @@ fun EditorScreen(
                 Box(Modifier.padding(horizontal = 20.dp, vertical = 12.dp)) {
                     InkTextField(
                         value = title,
-                        onValueChange = { title = it; dirty = true },
+                        onValueChange = { if (!exiting && !splitting) { title = it; dirty = true } },
                         placeholder = stringResource(R.string.editor_title_hint)
                     )
                 }
@@ -173,6 +213,7 @@ fun EditorScreen(
                 ) {
                     OutlinedTextField(
                         value = bodyField,
+                        enabled = !exiting && !splitting,
                         onValueChange = {
                             val textChanged = it.text != bodyField.text
                             bodyField = it
@@ -224,19 +265,33 @@ fun EditorScreen(
                         val splitAt = bodyField.selection.start
                         val newT = splitNewTitle.trim()
                         showSplitDialog = false
+                        if (splitting || exiting) return@InkTextButton
+                        splitting = true
                         scope.launch {
-                            // 先把当前编辑中的正文落盘，再按光标位置拆分
-                            container.repo.saveChapterText(ch, body)
-                            if (title.trim().isNotEmpty() && title != ch.title) {
-                                container.repo.renameChapter(ch.id, title.trim())
-                            }
-                            val newId = container.repo.splitChapterAt(bookId, ch.id, splitAt, newT)
-                            if (newId != null) {
-                                val updatedText = container.repo.chapterText(ch)
-                                bodyField = TextFieldValue(updatedText, TextRange(0))
-                                dirty = false
-                                container.library.refresh()
-                                Toast.makeText(ctx, ctx.getString(R.string.editor_split_done_toast), Toast.LENGTH_SHORT).show()
+                            try {
+                                if (!persist()) return@launch
+                                saveMutex.withLock {
+                                    saving = true
+                                    try {
+                                        val newId = container.repo.splitChapterAt(bookId, ch.id, splitAt, newT)
+                                        if (newId != null) {
+                                            val updated = container.repo.chapters(bookId).first { it.id == ch.id }
+                                            chapter = updated
+                                            val updatedText = container.repo.chapterText(updated)
+                                            bodyField = TextFieldValue(updatedText, TextRange(0))
+                                            savedText = updatedText
+                                            dirty = false
+                                            container.library.refresh()
+                                            Toast.makeText(ctx, ctx.getString(R.string.editor_split_done_toast), Toast.LENGTH_SHORT).show()
+                                        }
+                                    } finally {
+                                        saving = false
+                                    }
+                                }
+                            } catch (e: Exception) {
+                                Toast.makeText(ctx, e.localizedMessage ?: ctx.getString(R.string.action_unknown_error), Toast.LENGTH_LONG).show()
+                            } finally {
+                                splitting = false
                             }
                         }
                     }

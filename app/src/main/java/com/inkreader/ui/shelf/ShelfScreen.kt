@@ -196,9 +196,13 @@ fun ShelfScreen(
             Log.i(TAG, "import picker returned empty (treated as cancel)")
             return@rememberLauncherForActivityResult
         }
-        val safe = uris.map { com.inkreader.ui.component.ensureReadableUri(ctx, it) }
-        container.prefs.pendingImportUris = safe.map { it.toString() }
-        container.pendingUris = safe
+        uris.forEach { uri -> runCatching { ctx.contentResolver.takePersistableUriPermission(uri, Intent.FLAG_GRANT_READ_URI_PERMISSION) } }
+        container.prefs.pendingImportUris = uris.map { it.toString() }
+        container.scope.launch {
+            val safe = withContext(Dispatchers.IO) { uris.map { com.inkreader.ui.component.ensureReadableUri(ctx.applicationContext, it) } }
+            container.prefs.pendingImportUris = safe.map { it.toString() }
+            container.pendingUris = safe
+        }
     }
 
     /**
@@ -1020,6 +1024,7 @@ private fun ImportDialog(
     LaunchedEffect(uris, mode, currentOptions) {
         if (uris.isEmpty()) return@LaunchedEffect
         previewLoading = true
+        kotlinx.coroutines.delay(300)
         preview = container.repo.previewImport(uris, mode, currentOptions)
         previewLoading = false
     }

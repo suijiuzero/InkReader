@@ -55,9 +55,13 @@ object MarkShifts {
             }
 
             m.chapterIndex == currIdx && m.endOffset > firstTextLength ->
-                m.copy(endOffset = firstTextLength)
+                m.copy(startOffset = m.startOffset.coerceIn(0, firstTextLength), endOffset = firstTextLength)
 
             else -> m
         }
     }
+
+    fun forDelete(marks: List<Mark>, deletedIndex: Int): List<Mark> = marks
+        .filter { it.chapterIndex != deletedIndex }
+        .map { if (it.chapterIndex > deletedIndex) it.copy(chapterIndex = it.chapterIndex - 1) else it }
 }

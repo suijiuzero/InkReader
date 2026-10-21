@@ -25,12 +25,18 @@ android {
         applicationId = "com.inkreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 45
-        versionName = "1.11.8"
+        versionCode = 48
+        versionName = "1.11.11"
+        testInstrumentationRunner = "com.inkreader.AuditInstrumentation"
         resourceConfigurations += listOf("zh", "en", "ja")
     }
 
     signingConfigs {
+        // 独立构建缓存/ANDROID_USER_HOME 不应悄悄更换已有设备使用的调试签名。
+        val existingDebugKeystore = File(System.getProperty("user.home"), ".android/debug.keystore")
+        if (existingDebugKeystore.isFile) {
+            getByName("debug") { storeFile = existingDebugKeystore }
+        }
         if (keystorePropertiesFile.exists()) {
             create("release") {
                 storeFile = file(keystoreProperties.getProperty("storeFile"))

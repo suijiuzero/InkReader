@@ -3,8 +3,6 @@ package com.inkreader.parse
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.util.zip.ZipInputStream
 
 /**
  * EPUB 解析。
@@ -58,7 +56,7 @@ class EpubParser : DocumentParser {
 
         fun addFrom(item: ManifestItem) {
             val href = resolve(baseDir, item.href)
-            val raw = lookup(entries, href) ?: return
+            val raw = lookup(entries, href) ?: throw ParseException(ParseErrorCode.CORRUPTED, format, "缺少正文 $href")
             val html = HtmlTextExtractor.decodeHtml(raw)
             val ex = HtmlTextExtractor.extract(html)
             if (ex.paragraphs.isEmpty()) return
@@ -73,7 +71,7 @@ class EpubParser : DocumentParser {
 
         for (idref in opf.spine) {
             if (idref in navIds) continue
-            val item = byId[idref] ?: continue
+            val item = byId[idref] ?: throw ParseException(ParseErrorCode.CORRUPTED, format, "缺少 spine 条目 $idref")
             addFrom(item)
         }
 
@@ -102,7 +100,7 @@ class EpubParser : DocumentParser {
     // ---------------------------------------------------------------- ZIP
 
     private fun lookup(entries: Map<String, ByteArray>, path: String): ByteArray? =
-        entries[normalize(path).lowercase()]
+        entries[normalize(path)]
 
     private fun normalize(path: String): String {
         var p = path.trim()
@@ -114,49 +112,9 @@ class EpubParser : DocumentParser {
      * 读出所有「可能是正文」的条目。
      *
      * 图片/字体/音频体积大且用不到，按扩展名跳过（顺带控制内存）；
-     * 单个条目超过 8MB 的也跳过 —— 那不会是 XHTML 正文。
+     * 任何正文条目超限或 ZIP 读取错误都会中止，不导入缺页版本。
      */
-    private fun readEntries(bytes: ByteArray): Map<String, ByteArray> {
-        val out = LinkedHashMap<String, ByteArray>()
-        var total = 0L
-        runCatching {
-            ZipInputStream(bytes.inputStream().buffered()).use { zip ->
-                while (true) {
-                    val e = zip.nextEntry ?: break
-                    if (!e.isDirectory) {
-                        val name = normalize(e.name)
-                        val ext = name.substringAfterLast('.', "").lowercase()
-                        if (ext in TEXT_EXT && total < MAX_TOTAL) {
-                            // 流式 ZIP 的 e.size 常为 -1，不能当闸门；按上限分块读，超限整条跳过
-                            val data = readEntryCapped(zip, MAX_ENTRY)
-                            if (data != null) {
-                                total += data.size
-                                out[name.lowercase()] = data
-                            }
-                        }
-                    }
-                    zip.closeEntry()
-                }
-            }
-        }
-        return out
-    }
-
-    /**
-     * 分块读一个 ZIP 条目，最多读 [limit] 字节；超出返回 null，调用方据此跳过该条目。
-     * 边读边数，不依赖 entry.size（流式 ZIP 里它常是 -1）。
-     */
-    private fun readEntryCapped(zip: ZipInputStream, limit: Long): ByteArray? {
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(32 * 1024)
-        while (true) {
-            val n = zip.read(buf)
-            if (n < 0) break
-            if (out.size() + n.toLong() > limit) return null
-            out.write(buf, 0, n)
-        }
-        return out.toByteArray()
-    }
+    private fun readEntries(bytes: ByteArray): Map<String, ByteArray> = EpubArchive.read(bytes)
 
     // ---------------------------------------------------------------- XML
 
@@ -235,20 +193,7 @@ class EpubParser : DocumentParser {
     }.getOrNull()
 
     /** 把 manifest 里的相对路径解析成压缩包内的绝对路径（处理 ./ 与 ../） */
-    private fun resolve(baseDir: String, href: String): String {
-        val clean = href.substringBefore('#').substringBefore('?')
-        val decoded = runCatching { java.net.URLDecoder.decode(clean, "UTF-8") }.getOrDefault(clean)
-        val raw = if (decoded.startsWith("/")) decoded.trimStart('/') else "$baseDir/$decoded"
-        val out = ArrayList<String>()
-        for (seg in raw.split('/')) {
-            when (seg) {
-                "", "." -> Unit
-                ".." -> if (out.isNotEmpty()) out.removeAt(out.size - 1)
-                else -> out += seg
-            }
-        }
-        return out.joinToString("/")
-    }
+    private fun resolve(baseDir: String, href: String): String = EpubArchive.resolve(baseDir, href)
 
     private fun attr(parser: XmlPullParser, name: String): String? {
         return parser.getAttributeValue(null, name)
@@ -266,9 +211,4 @@ class EpubParser : DocumentParser {
         return if (i >= 0) name.substring(i + 1) else name
     }
 
-    private companion object {
-        val TEXT_EXT = setOf("xhtml", "html", "htm", "xml", "opf", "ncx", "txt")
-        const val MAX_ENTRY = 8L * 1024 * 1024
-        const val MAX_TOTAL = 96L * 1024 * 1024
-    }
 }

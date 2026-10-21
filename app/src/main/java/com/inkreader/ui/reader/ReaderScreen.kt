@@ -53,6 +53,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
@@ -75,10 +76,14 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInParent
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFontFamilyResolver
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -276,6 +281,9 @@ fun ReaderScreen(
         val p = LocalInkPalette.current
         val density = LocalDensity.current
         val measurer = rememberTextMeasurer()
+        val resolver = LocalFontFamilyResolver.current
+        val direction = LocalLayoutDirection.current
+        var measuredBodySize by remember { mutableStateOf(androidx.compose.ui.unit.IntSize.Zero) }
         val prefs = session.prefs
         val bodyColor = p.textPrimary
         val bodyStyle = remember(
@@ -291,6 +299,13 @@ fun ReaderScreen(
         }
 
         val marginDp = prefs.margin.dp
+        SideEffect {
+            val size = measuredBodySize
+            if (size.width > 0 && size.height > 0)
+                session.setPaginationContext(measurer, bodyStyle, size.width, size.height, density) {
+                    TextMeasurer(resolver, density, direction, 0)
+                }
+        }
         val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
         val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         // 常驻页眉的高度：正文区永远给它留出位置（无论页眉是否正在显示），
@@ -404,7 +419,7 @@ fun ReaderScreen(
                         Modifier
                             .fillMaxSize()
                             .onSizeChanged { sz ->
-                                session.setPaginationContext(measurer, bodyStyle, sz.width, sz.height, density)
+                                measuredBodySize = sz
                             }
                     ) {
                         if (prefs.pageMode != PageMode.PAGE) {
@@ -1430,6 +1445,8 @@ private fun ScrollingBody(
     val p = LocalInkPalette.current
     val density = LocalDensity.current
     val listState = rememberLazyListState()
+    val layouts = remember { mutableStateMapOf<Pair<Int, Int>, TextLayoutResult>() }
+    val textTops = remember { mutableStateMapOf<Pair<Int, Int>, Float>() }
     val flow = session.flowBlocks
 
     if (flow.isEmpty()) {
@@ -1439,17 +1456,23 @@ private fun ScrollingBody(
         return
     }
 
-    // 记录当前阅读位置（只认本章的块，邻章区域不写进度
+    // 段内可见行映射回原文字符位置，避免长段落始终只保存段首。
     LaunchedEffect(listState, session.chapterIndex) {
-        snapshotFlow { listState.firstVisibleItemIndex }
-            .distinctUntilChanged()
-            .collect { idx ->
-                val item = session.flowBlocks.getOrNull(idx) ?: return@collect
-                if (item.chapterIndex == session.chapterIndex) {
-                    session.updateScrollOffset(item.block.start)
-                    session.saveProgress()
-                }
+        snapshotFlow {
+            val idx = listState.firstVisibleItemIndex
+            val item = session.flowBlocks.getOrNull(idx)
+            val key = item?.let { it.chapterIndex to it.block.start }
+            Triple(idx, listState.firstVisibleItemScrollOffset, layouts[key])
+        }.distinctUntilChanged().collect { (idx, scroll, layout) ->
+            val item = session.flowBlocks.getOrNull(idx) ?: return@collect
+            if (item.chapterIndex == session.chapterIndex && session.jumpRequest == null) {
+                val top = textTops[item.chapterIndex to item.block.start] ?: 0f
+                val y = (scroll - top).coerceAtLeast(0f)
+                val inBlock = layout?.let { it.getLineStart(it.getLineForVerticalPosition(y)) } ?: 0
+                session.updateScrollOffset(item.block.start + inBlock)
+                session.saveProgress()
             }
+        }
     }
 
     // 滚到底自动接下一章；往回滚过头则回到上一章末
@@ -1478,13 +1501,29 @@ private fun ScrollingBody(
         }
     }
 
-    // 跳到指定偏移（跨章时下标要加上上一章的块数
-    LaunchedEffect(session.jumpRequest, session.chapterIndex, flow.size) {
-        val req = session.jumpRequest ?: return@LaunchedEffect
-        val local = session.blocks.indexOfFirst { req >= it.start && req < it.start + it.text.length }
-            .let { if (it < 0) session.blocks.indexOfLast { b -> b.start <= req } else it }
-        if (local >= 0) listState.scrollToItem(session.flowCurrentStart + local)
-        session.consumeJumpRequest()
+    // 等布局结果可用后，把目标字符所在行对齐到视口，而非只跳到段首。
+    val request = session.jumpRequest
+    val requestBlock = request?.let { req -> session.blocks.lastOrNull { it.start <= req } }
+    val requestKey = requestBlock?.let { session.chapterIndex to it.start }
+    val requestLayout = layouts[requestKey]
+    val requestTop = textTops[requestKey]
+    LaunchedEffect(request, session.chapterIndex, flow.size, requestLayout, requestTop) {
+        val req = request ?: return@LaunchedEffect
+        val block = requestBlock ?: run { session.consumeJumpRequest(); return@LaunchedEffect }
+        val local = session.blocks.indexOf(block)
+        val target = session.flowCurrentStart + local
+        if (requestLayout == null || requestTop == null) {
+            listState.scrollToItem(target)
+        } else {
+            val offset = (req - block.start).coerceIn(0, block.text.length)
+            val line = requestLayout.getLineForOffset(offset)
+            listState.scrollToItem(target, (requestTop + requestLayout.getLineTop(line)).toInt().coerceAtLeast(0))
+            session.consumeJumpRequest()
+        }
+    }
+    LaunchedEffect(flow) {
+        val keys = flow.map { it.chapterIndex to it.block.start }.toSet()
+        layouts.keys.toList().filter { it !in keys }.forEach { layouts.remove(it); textTops.remove(it) }
     }
 
     LazyColumn(
@@ -1535,7 +1574,9 @@ private fun ScrollingBody(
                     onSelect = if (item.chapterIndex == session.chapterIndex) onSelect else { _, _ -> },
                     onExtend = if (item.chapterIndex == session.chapterIndex) onExtend else { _ -> },
                     onHandleDrag = if (item.chapterIndex == session.chapterIndex) onHandleDrag else { _, _ -> },
-                    onOpenLink = onOpenLink
+                    onOpenLink = onOpenLink,
+                    onLayout = { layouts[item.chapterIndex to item.block.start] = it },
+                    onTextTop = { textTops[item.chapterIndex to item.block.start] = it }
                 )
             }
         }
@@ -1584,7 +1625,9 @@ private fun ParagraphText(
     onSelect: (Int, Int) -> Unit,
     onExtend: (Int) -> Unit,
     onHandleDrag: (Int, Int) -> Unit,
-    onOpenLink: (String) -> Unit
+    onOpenLink: (String) -> Unit,
+    onLayout: (TextLayoutResult) -> Unit = {},
+    onTextTop: (Float) -> Unit = {}
 ) {
     val start = placed.start.coerceIn(0, text.length)
     val end = placed.end.coerceIn(start, text.length)
@@ -1671,7 +1714,7 @@ private fun ParagraphText(
 
     BasicText(
         text = annotated,
-        modifier = Modifier
+        modifier = Modifier.onGloballyPositioned { onTextTop(it.positionInParent().y) }
             .fillMaxWidth()
             .drawBehind {
                 val lr = layout
@@ -1738,7 +1781,7 @@ private fun ParagraphText(
                 }
             },
         style = if (indent != null) blockStyle.copy(textIndent = indent) else blockStyle,
-        onTextLayout = { layout = it },
+        onTextLayout = { layout = it; onLayout(it) },
         softWrap = true
     )
 }
@@ -1892,7 +1935,7 @@ private fun buildBodyAnnotated(
     linkColor: Color = Color.Unspecified,
     codeBg: Color = Color.Unspecified
 ): AnnotatedString = buildAnnotatedString {
-    append(sub)
+    append(inlineText(sub, baseOffset, block))
     val len = sub.length
 
     // Markdown 行内样式（粗体 / 斜体 / 删除线 / 行内代码）——绝对偏移裁到本段内。

@@ -33,3 +33,6 @@ keys/
 .DS_Store
 Thumbs.db
 *.log
+
+# Windows 本机语音安装包，不作为源码提交
+/NaturalVoices.zip

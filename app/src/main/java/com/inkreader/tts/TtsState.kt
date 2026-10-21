@@ -20,7 +20,9 @@ data class TtsState(
     val sleepRemainingMs: Long = 0L,
     val rate: Float = 1f,
     val pitch: Float = 1f,
-    val engineMissing: Boolean = false
+    val engineMissing: Boolean = false,
+    val computerVoice: Boolean = false,
+    val buffering: Boolean = false
 )
 
 object TtsBus {

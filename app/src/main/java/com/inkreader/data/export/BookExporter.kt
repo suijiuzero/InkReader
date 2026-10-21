@@ -97,13 +97,18 @@ object BookExporter {
         if (!exportDir.isDirectory && !exportDir.mkdirs()) {
             throw IOException(context.getString(R.string.export_dir_create_failed, exportDir.absolutePath))
         }
-        exportDir.listFiles()?.forEach { old -> if (old.isFile) old.delete() }
-
-        val shareFile = File(exportDir, fileName)
-        if (shareFile.exists() && !shareFile.delete()) {
-            throw IOException(context.getString(R.string.export_overwrite_failed, shareFile.absolutePath))
+        val cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000
+        exportDir.listFiles()?.forEach { old -> if (old.isDirectory && old.lastModified() < cutoff) old.deleteRecursively() }
+        val sessionDir = File(exportDir, java.util.UUID.randomUUID().toString())
+        check(sessionDir.mkdirs())
+        val shareFile = File(sessionDir, fileName)
+        try {
+            writeTxt(context, shareFile, book, chapters, includeHeader, readChapter, onProgress)
+        } catch (t: Throwable) {
+            shareFile.delete()
+            sessionDir.delete()
+            throw t
         }
-        writeTxt(context, shareFile, book, chapters, includeHeader, readChapter, onProgress)
         val byteCount = shareFile.length()
 
         val shareUri = FileProvider.getUriForFile(
@@ -230,12 +235,14 @@ object BookExporter {
             // API ≤ 28 需要外部存储可写（还要有 WRITE_EXTERNAL_STORAGE 运行时权限）
             if (Environment.getExternalStorageState() != Environment.MEDIA_MOUNTED) return null
             if (!dir.exists() && !dir.mkdirs()) return null
-            val dest = File(dir, fileName)
+            var dest = File(dir, fileName)
+            var suffix = 1
+            while (dest.exists()) dest = File(dir, "${fileName.removeSuffix(EXT_TXT)} (${suffix++})$EXT_TXT")
             try {
                 src.inputStream().use { input ->
                     FileOutputStream(dest).use { output -> copy(input, output) }
                 }
-                displayPath
+                dest.absolutePath
             } catch (e: Exception) {
                 dest.delete()
                 null

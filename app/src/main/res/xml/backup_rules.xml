@@ -2,5 +2,7 @@
 <full-backup-content>
     <include domain="database" path="." />
     <include domain="sharedpref" path="." />
+    <exclude domain="sharedpref" path="computer_voice.xml" />
     <include domain="file" path="chapters/" />
+    <include domain="file" path="covers/" />
 </full-backup-content>

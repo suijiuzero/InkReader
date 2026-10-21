@@ -23,6 +23,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CoroutineExceptionHandler
+import android.widget.Toast
 import kotlinx.coroutines.withContext
 
 /**
@@ -62,6 +64,11 @@ class ReaderSession(
     val scope: CoroutineScope
 ) {
     private val repo = container.repo
+    private val errors = CoroutineExceptionHandler { _, error ->
+        loading = false
+        pageCountSignature = ""
+        Toast.makeText(container.appContext, error.localizedMessage ?: container.appContext.getString(R.string.action_unknown_error), Toast.LENGTH_LONG).show()
+    }
 
     var book by mutableStateOf<Book?>(null)
         private set
@@ -134,7 +141,24 @@ class ReaderSession(
     private var pendingWidth = 0
     private var pendingHeight = 0
     private var pendingDensity: Density? = null
-    private var pendingOffset = 0
+    private var pendingOffset: Int? = null
+    private var paginationJob: Job? = null
+    private var paginationSerial = 0L
+    private var workerMeasurerFactory: (() -> TextMeasurer)? = null
+    private val neighborRequests = HashSet<Pair<Long, Int>>()
+    private var chapterLoadJob: Job? = null
+    private var chapterGeneration = 0L
+    private var layoutGeneration = 0L
+    private val neighborJobs = ArrayList<Job>()
+
+    private fun invalidateNeighbors() {
+        layoutGeneration++
+        neighborJobs.forEach { it.cancel() }
+        neighborJobs.clear()
+        neighborRequests.clear()
+        prevChapter = null
+        nextChapter = null
+    }
 
     /** 全书页码：总页数 + 「每章之前累计多少页」的前缀和（下标 = 章节序号 + 1） */
     var bookTotalPages by mutableIntStateOf(0)
@@ -171,7 +195,8 @@ class ReaderSession(
             append(prefs.margin).append('|').append(prefs.font).append('|')
             append(prefs.firstLineIndent).append('|')
             append(pendingWidth).append('x').append(pendingHeight).append('|')
-            append(chapters.size)
+            append(style.hashCode()).append('|').append(d.density).append('|').append(d.fontScale)
+            chapters.forEach { append('|').append(it.id).append(':').append(it.fileName).append(':').append(it.charCount).append(':').append(it.title) }
         }
         if (sig == pageCountSignature) return
         pageCountSignature = sig
@@ -180,23 +205,29 @@ class ReaderSession(
         val gap = paraGapPx(d)
         val indent = if (prefs.firstLineIndent) prefs.fontSize * 2 else 0f
         pageCountJob?.cancel()
+        pagesBefore = null
+        bookTotalPages = 0
+        val countingChapters = chapters.toList()
         val styler = inkBlockStyler(style, prefs, d, gap)
-        pageCountJob = scope.launch {
+        val counter = workerMeasurerFactory?.invoke() ?: m
+        pageCountJob = scope.launch(errors) {
             // 排整本书是纯计算，放到后台线程，别卡住翻页
             val counts = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-                val acc = IntArray(chapters.size + 1)
-                for (i in chapters.indices) {
+                val acc = IntArray(countingChapters.size + 1)
+                for (i in countingChapters.indices) {
                     if (!isActive) return@withContext null
-                    val text = runCatching { repo.chapterText(chapters[i]) }.getOrDefault("")
-                    val pages = if (text.isBlank()) 1 else Paginator(m).paginate(
-                        blocks = Paginator.richBlocks(text, repo.chapterRich(chapters[i], text.length)),
+                    val text = repo.chapterText(countingChapters[i])
+                    val pages = if (text.isBlank()) 1 else Paginator(counter).paginate(
+                        blocks = Paginator.richBlocks(text, repo.chapterRich(countingChapters[i], text.length)),
                         style = style,
                         widthPx = w,
                         heightPx = h,
                         paraGapPx = gap,
                         density = d,
                         firstLineIndentSp = indent,
-                        styler = styler
+                        firstPageInsetPx = with(d) { chapterHeadingHeightDp(countingChapters[i].title).dp.toPx() },
+                        styler = styler,
+                        cancellation = kotlin.coroutines.coroutineContext
                     ).size.coerceAtLeast(1)
                     acc[i + 1] = acc[i] + pages
                 }
@@ -227,7 +258,7 @@ class ReaderSession(
     // ==================== 加载 ====================
 
     fun open(initialChapter: Int, initialOffset: Int) {
-        scope.launch {
+        scope.launch(errors) {
             loading = true
             val b = repo.book(bookId)
             val chs = repo.chapters(bookId)
@@ -240,7 +271,7 @@ class ReaderSession(
             }
             // 外部没指定位置时用书籍记忆的进度
             val target = if (initialChapter >= 0) initialChapter else b.lastChapterIndex
-            val off = if (initialChapter >= 0 && initialOffset > 0) initialOffset else b.lastCharOffset
+            val off = if (initialChapter >= 0) initialOffset.coerceAtLeast(0) else b.lastCharOffset
             loadChapter(target.coerceIn(0, chs.lastIndex), off)
             // 打开即算读过，书架排序会前移
             repo.updateProgress(bookId, target.coerceIn(0, chs.lastIndex), off, b.progress)
@@ -260,8 +291,12 @@ class ReaderSession(
     ) {
         val chs = chapters
         if (chs.isEmpty() || index !in chs.indices) return
-        scope.launch {
+        chapterLoadJob?.cancel()
+        paginationJob?.cancel()
+        val generation = ++chapterGeneration
+        chapterLoadJob = scope.launch(errors) {
             val ch = chs[index]
+            val loadLayout = layoutGeneration
 
             // 邻章缓存命中就直接复用正文与分块，跨章切换才不会卡顿
             val cached = when (index) {
@@ -280,27 +315,30 @@ class ReaderSession(
                 text,
                 if (text.isEmpty()) null else repo.chapterRich(ch, text.length)
             )
+            val loadedMarks = repo.marks(bookId)
+            if (!isActive || generation != chapterGeneration || chapters !== chs) return@launch
 
+            if (oldIndex != index) { pages = emptyList(); pageIndex = 0 }
             chapterIndex = index
             chapterText = text
             blocks = blks
             scrollOffset = offset.coerceAtLeast(0)
             jumpRequest = offset.coerceAtLeast(0)
-            marks = repo.marks(bookId)
+            marks = loadedMarks
             pendingOffset = offset.coerceAtLeast(0)
 
-            if (cached != null && cached.pagesComplete && cached.pages.isNotEmpty()) {
+            if (cached != null && loadLayout == layoutGeneration && cached.pagesComplete && cached.pages.isNotEmpty()) {
                 pages = cached.pages
                 pageIndex = Paginator.pageForOffset(cached.pages, offset.coerceIn(0, text.length))
                     .coerceIn(0, cached.pages.lastIndex)
-                pendingOffset = 0
+                pendingOffset = null
             } else if (andPaginate) {
                 repaginate(keepOffset = offset.coerceAtLeast(0))
             }
 
             // 把刚离开的章节直接变成邻章缓存：来回翻章都不用重新解析
             // discardOldCache=true 时不缓存旧章——拆章后旧章正文已变，缓存会导致往回滑时串正文
-            if (!discardOldCache && oldPages.isNotEmpty() && oldIndex != index) {
+            if (!discardOldCache && loadLayout == layoutGeneration && oldPages.isNotEmpty() && oldIndex != index) {
                 val old = CachedChapter(oldIndex, oldTitle, oldText, oldBlocks, oldPages, true)
                 if (index == oldIndex + 1) prevChapter = old
                 else if (index == oldIndex - 1) nextChapter = old
@@ -320,33 +358,41 @@ class ReaderSession(
      * keepOffset 缺省时沿用「待处理偏移」，若没有则保持当前阅读位置——
      * 这样字号/行距变化引起的二次分页不会把读者甩回第一章开头。
      */
-    fun repaginate(keepOffset: Int = if (pendingOffset > 0) pendingOffset else currentOffset()) {
-        val m = measurer ?: run { rebuildPager(); rebuildFlow(); return }
-        val style = pendingStyle ?: run { rebuildPager(); rebuildFlow(); return }
-        val d = pendingDensity ?: run { rebuildPager(); rebuildFlow(); return }
-        if (pendingWidth <= 0 || pendingHeight <= 0) {
-            rebuildPager(); rebuildFlow(); return
+    fun repaginate(keepOffset: Int = pendingOffset ?: currentOffset()) {
+        val original = measurer ?: run { rebuildPager(); rebuildFlow(); return }
+        val style = pendingStyle ?: return
+        val d = pendingDensity ?: return
+        if (pendingWidth <= 0 || pendingHeight <= 0) return
+        paginationJob?.cancel()
+        val serial = ++paginationSerial
+        val chapter = chapterGeneration
+        val layout = layoutGeneration
+        val inputBlocks = blocks
+        val w = pendingWidth
+        val h = pendingHeight
+        val requestedPrefs = prefs
+        val gap = paraGapPx(d)
+        val inset = with(d) { chapterHeadingHeightDp(currentChapter?.title.orEmpty()).dp.toPx() }
+        val worker = workerMeasurerFactory?.invoke() ?: original
+        pendingOffset = keepOffset
+        paginationJob = scope.launch(errors) {
+            val result = withContext(Dispatchers.Default) {
+                Paginator(worker).paginate(inputBlocks, style, w, h, gap, d,
+                    firstLineIndentSp = if (requestedPrefs.firstLineIndent) requestedPrefs.fontSize * 2 else 0f,
+                    firstPageInsetPx = inset, styler = inkBlockStyler(style, requestedPrefs, d, gap),
+                    cancellation = kotlin.coroutines.coroutineContext)
+            }
+            if (!isActive || serial != paginationSerial || chapter != chapterGeneration ||
+                layout != layoutGeneration || inputBlocks !== blocks) return@launch
+            pages = result
+            pageIndex = Paginator.pageForOffset(result, pendingOffset ?: keepOffset)
+                .coerceIn(0, (result.size - 1).coerceAtLeast(0))
+            pendingOffset = null
+            rebuildPager()
+            rebuildFlow()
+            loadNeighbors()
+            saveProgress()
         }
-
-        val result = Paginator(m).paginate(
-            blocks = blocks,
-            style = style,
-            widthPx = pendingWidth,
-            heightPx = pendingHeight,
-            paraGapPx = paraGapPx(d),
-            density = d,
-            firstLineIndentSp = if (prefs.firstLineIndent) prefs.fontSize * 2 else 0f,
-            firstPageInsetPx = with(d) {
-                chapterHeadingHeightDp(chapters.getOrNull(chapterIndex)?.title ?: "").dp.toPx()
-            },
-            styler = inkBlockStyler(style, prefs, d, paraGapPx(d))
-        )
-        pages = result
-        pageIndex = Paginator.pageForOffset(result, keepOffset).coerceIn(0, (result.size - 1).coerceAtLeast(0))
-        pendingOffset = 0
-        rebuildPager()
-        rebuildFlow()
-        loadNeighbors()
     }
 
     fun setPaginationContext(
@@ -354,10 +400,12 @@ class ReaderSession(
         style: TextStyle,
         widthPx: Int,
         heightPx: Int,
-        density: Density
+        density: Density,
+        workerFactory: (() -> TextMeasurer)? = null
     ) {
         val changed = this.pendingWidth != widthPx || this.pendingHeight != heightPx ||
-            this.pendingStyle != style || this.measurer !== measurer
+            this.pendingStyle != style || this.measurer !== measurer || this.pendingDensity != density
+        this.workerMeasurerFactory = workerFactory
         this.measurer = measurer
         this.pendingStyle = style
         this.pendingWidth = widthPx
@@ -365,8 +413,7 @@ class ReaderSession(
         this.pendingDensity = density
         if (changed) {
             // 排版上下文变了，邻章缓存里的页码全部作废
-            prevChapter = null
-            nextChapter = null
+            invalidateNeighbors()
             repaginate(keepOffset = currentOffset())
         }
         startPageCount()
@@ -376,6 +423,7 @@ class ReaderSession(
 
     /** 预排前后章：上一章取末页（要整章排）、下一章取首页（只排一页） */
     private fun loadNeighbors() {
+        neighborJobs.removeAll { !it.isActive }
         val m = measurer
         val style = pendingStyle
         val d = pendingDensity
@@ -383,20 +431,25 @@ class ReaderSession(
         val gap = paraGapPx(d)
         val w = pendingWidth
         val h = pendingHeight
+        val generation = layoutGeneration
 
+        val neighborFactory = workerMeasurerFactory
         val prevIdx = chapterIndex - 1
         val nextIdx = chapterIndex + 1
 
         if (prevIdx in chapters.indices) {
             val cur = prevChapter
-            if (cur == null || cur.index != prevIdx || !cur.pagesComplete) {
-                scope.launch {
-                    val c = buildChapter(prevIdx, m, style, d, gap, w, h, full = true)
-                    if (chapterIndex - 1 == prevIdx) {
+            if ((cur == null || cur.index != prevIdx || !cur.pagesComplete) && neighborRequests.add(generation to prevIdx)) {
+                val worker = neighborFactory?.invoke() ?: m
+                neighborJobs += scope.launch(errors) {
+                    try {
+                    val c = buildChapter(prevIdx, worker, style, d, gap, w, h, full = true)
+                    if (isActive && generation == layoutGeneration && chapterIndex - 1 == prevIdx) {
                         prevChapter = c
                         rebuildPager()
                         rebuildFlow()
                     }
+                    } finally { neighborRequests.remove(generation to prevIdx) }
                 }
             }
         } else {
@@ -404,15 +457,18 @@ class ReaderSession(
         }
 
         if (nextIdx in chapters.indices) {
-            val cur = nextChapter
-            if (cur == null || cur.index != nextIdx) {
-                scope.launch {
-                    val c = buildChapter(nextIdx, m, style, d, gap, w, h, full = false)
-                    if (chapterIndex + 1 == nextIdx) {
+            val cur = this.nextChapter
+            if ((cur == null || cur.index != nextIdx) && neighborRequests.add(generation to nextIdx)) {
+                val worker = neighborFactory?.invoke() ?: m
+                neighborJobs += scope.launch(errors) {
+                    try {
+                    val c = buildChapter(nextIdx, worker, style, d, gap, w, h, full = false)
+                    if (isActive && generation == layoutGeneration && chapterIndex + 1 == nextIdx) {
                         nextChapter = c
                         rebuildPager()
                         rebuildFlow()
                     }
+                    } finally { neighborRequests.remove(generation to nextIdx) }
                 }
             }
         } else {
@@ -436,7 +492,9 @@ class ReaderSession(
             text,
             if (text.isEmpty()) null else repo.chapterRich(ch, text.length)
         )
-        val pgs = Paginator(m).paginate(
+        val requestedPrefs = prefs
+        val inset = with(d) { chapterHeadingHeightDp(ch.title).dp.toPx() }
+        val pgs = withContext(Dispatchers.Default) { Paginator(m).paginate(
             blocks = blks,
             style = style,
             widthPx = width,
@@ -444,12 +502,11 @@ class ReaderSession(
             paraGapPx = gapPx,
             density = d,
             maxPages = if (full) Int.MAX_VALUE else 1,
-            firstLineIndentSp = if (prefs.firstLineIndent) prefs.fontSize * 2 else 0f,
-            firstPageInsetPx = with(d) {
-                chapterHeadingHeightDp(chapters.getOrNull(index)?.title ?: "").dp.toPx()
-            },
-            styler = inkBlockStyler(style, prefs, d, gapPx)
-        )
+            firstLineIndentSp = if (requestedPrefs.firstLineIndent) requestedPrefs.fontSize * 2 else 0f,
+            firstPageInsetPx = inset,
+            styler = inkBlockStyler(style, requestedPrefs, d, gapPx),
+            cancellation = kotlin.coroutines.coroutineContext
+        ) }
         return CachedChapter(index, ch.title, text, blks, pgs, full)
     }
 
@@ -549,14 +606,14 @@ class ReaderSession(
         val page = pages.getOrNull(pageIndex) ?: return false
         val existing = tagOnPage(page)
         if (existing != null) {
-            scope.launch {
+            scope.launch(errors) {
                 repo.deleteMark(existing.id)
                 marks = repo.marks(bookId)
             }
             return false
         }
         val snippet = pageExcerpt(page.startOffset)
-        scope.launch {
+        scope.launch(errors) {
             repo.addMark(
                 Mark(
                     bookId = bookId,
@@ -589,7 +646,7 @@ class ReaderSession(
                 it.startOffset == s && it.endOffset == e
         }
         if (existing != null) {
-            scope.launch {
+            scope.launch(errors) {
                 repo.deleteMark(existing.id)
                 marks = repo.marks(bookId)
             }
@@ -600,7 +657,7 @@ class ReaderSession(
             .replace('　', ' ')
             .trim()
             .take(60)
-        scope.launch {
+        scope.launch(errors) {
             repo.addMark(
                 Mark(
                     bookId = bookId,
@@ -662,7 +719,6 @@ class ReaderSession(
 
     fun gotoChapter(index: Int, offset: Int = 0) {
         if (index !in chapters.indices) return
-        if (index == chapterIndex && offset == 0) return
         loadChapter(index, offset)
     }
 
@@ -720,11 +776,12 @@ class ReaderSession(
     fun prevChapter() = gotoChapter(chapterIndex - 1)
 
     fun jumpToOffset(offset: Int) {
-        if (offset <= 0) return
+        if (offset < 0) return
         if (prefs.pageMode == PageMode.SCROLL) {
             scrollOffset = offset
             jumpRequest = offset
         } else {
+            if (paginationJob?.isActive == true) pendingOffset = offset
             pageIndex = Paginator.pageForOffset(pages, offset)
                 .coerceIn(0, (pages.size - 1).coerceAtLeast(0))
         }
@@ -742,7 +799,7 @@ class ReaderSession(
 
     fun currentOffset(): Int =
         if (prefs.pageMode == PageMode.SCROLL) scrollOffset
-        else pages.getOrNull(pageIndex)?.startOffset ?: 0
+        else pendingOffset ?: (pages.getOrNull(pageIndex)?.startOffset ?: 0)
 
     fun chapterProgress(): Float {
         val len = chapterText.length
@@ -788,9 +845,11 @@ class ReaderSession(
         val idx = chapterIndex
         val off = currentOffset()
         val p = bookProgress()
-        scope.launch {
-            withContext(Dispatchers.IO) { repo.updateProgress(bookId, idx, off, p) }
-            book = book?.copy(lastChapterIndex = idx, lastCharOffset = off, progress = p)
+        val token = repo.newProgressToken(bookId)
+        scope.launch(errors) {
+            withContext(Dispatchers.IO) { repo.updateProgress(bookId, idx, off, p, token) }
+            if (idx == chapterIndex && off == currentOffset())
+                book = book?.copy(lastChapterIndex = idx, lastCharOffset = off, progress = p)
         }
     }
 
@@ -803,6 +862,7 @@ class ReaderSession(
         // 换翻页方式前先记下旧模式下的位置，否则两套坐标会互相打架
         val anchor = currentOffset()
         prefs = next
+        invalidateNeighbors()
         // 偏好全局一套：改完当场落盘，其他书与书架外观一起跟着变
         if (persist) container.prefs.save(next)
         if (themeChanged) container.library.syncUiTheme()
@@ -811,6 +871,7 @@ class ReaderSession(
             jumpRequest = anchor
         }
         repaginate(keepOffset = anchor)
+        startPageCount()
     }
 
     fun setWindowBrightness(v: Float) {
@@ -828,7 +889,7 @@ class ReaderSession(
 
     /** 在指定偏移处加/取消书签 */
     fun toggleBookmarkAt(offset: Int) {
-        scope.launch {
+        scope.launch(errors) {
             repo.toggleBookmark(bookId, chapterIndex, offset)
             marks = repo.marks(bookId)
         }
@@ -850,7 +911,7 @@ class ReaderSession(
         val e = end.coerceIn(s, chapterText.length)
         if (e <= s) return
         val snippet = chapterText.substring(s, e).take(200)
-        scope.launch {
+        scope.launch(errors) {
             val same = highlightNear(s, e)
             when {
                 same == null -> repo.addMark(
@@ -879,7 +940,7 @@ class ReaderSession(
             start.coerceIn(0, chapterText.length),
             end.coerceIn(0, chapterText.length)
         )
-        scope.launch {
+        scope.launch(errors) {
             repo.addMark(
                 Mark(
                     bookId = bookId,
@@ -897,7 +958,7 @@ class ReaderSession(
     }
 
     fun updateMark(mark: Mark, note: String? = null, color: Int? = null, type: MarkType? = null) {
-        scope.launch {
+        scope.launch(errors) {
             repo.updateMark(
                 mark.copy(
                     note = note ?: mark.note,
@@ -910,14 +971,14 @@ class ReaderSession(
     }
 
     fun deleteMark(id: Long) {
-        scope.launch {
+        scope.launch(errors) {
             repo.deleteMark(id)
             marks = repo.marks(bookId)
         }
     }
 
     fun refreshMarks() {
-        scope.launch { marks = repo.marks(bookId) }
+        scope.launch(errors) { marks = repo.marks(bookId) }
     }
 
     /**
@@ -930,7 +991,7 @@ class ReaderSession(
             onResult(false)
             return
         }
-        scope.launch {
+        scope.launch(errors) {
             val newId = repo.splitChapterAt(bookId, ch.id, offset)
             if (newId == null) {
                 onResult(false)
@@ -939,8 +1000,7 @@ class ReaderSession(
             book = repo.book(bookId)
             chapters = repo.chapters(bookId)
             marks = repo.marks(bookId)
-            prevChapter = null
-            nextChapter = null
+            invalidateNeighbors()
             pageCountSignature = ""
             // 章节数变了，页码前缀和整体错位：先清空再用新章节重算，避免页脚显示陈旧页码
             pagesBefore = null
@@ -966,7 +1026,7 @@ class ReaderSession(
         }
         searching = true
         searchProgress = 0f
-        searchJob = scope.launch {
+        searchJob = scope.launch(errors) {
             val hits = repo.searchInBook(bookId, keyword.trim()) { searchProgress = it }
             searchHits = hits
             searching = false

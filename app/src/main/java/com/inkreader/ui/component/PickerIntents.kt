@@ -6,6 +6,8 @@ import android.content.Intent
 import android.net.Uri
 import android.provider.OpenableColumns
 import java.io.File
+import java.util.UUID
+import java.io.IOException
 
 /**
  * 选文件用的 `ACTION_OPEN_DOCUMENT` 意图。
@@ -81,11 +83,29 @@ fun ensureReadableUri(ctx: Context, uri: Uri, limitBytes: Long = 80L * 1024 * 10
         if (size > limitBytes) return uri
         val dir = File(ctx.cacheDir, "pending_import").apply { mkdirs() }
         val safeName = (name ?: uri.lastPathSegment?.substringAfterLast('/') ?: "import.bin")
-            .replace(Regex("[\\\\/:*?\"<>|]"), "_")
-        val target = File(dir, "${System.currentTimeMillis()}_$safeName")
-        cr.openInputStream(uri)?.use { input ->
-            target.outputStream().use { out -> input.copyTo(out) }
-        } ?: return uri
+            .replace(Regex("[\\\\/:*?\"<>|]"), "_").trim('.').ifBlank { "import.bin" }
+        val entryDir = File(dir, UUID.randomUUID().toString()).apply { check(mkdirs()) }
+        val target = File(entryDir, safeName)
+        try {
+            val input = cr.openInputStream(uri) ?: throw IOException("无法读取所选文件")
+            input.use {
+                target.outputStream().use { out ->
+                    val buffer = ByteArray(64 * 1024)
+                    var copied = 0L
+                    while (true) {
+                        val n = it.read(buffer)
+                        if (n < 0) break
+                        copied += n
+                        if (copied > limitBytes) throw IOException("文件超过缓存大小上限")
+                        out.write(buffer, 0, n)
+                    }
+                }
+            }
+        } catch (t: Throwable) {
+            target.delete()
+            entryDir.delete()
+            throw t
+        }
         PickerTrace.log(ctx, "ensure cached ${target.name} (${target.length()}B, persisted=$persisted, readable=$readable)")
         Uri.fromFile(target)
     }.getOrDefault(uri)

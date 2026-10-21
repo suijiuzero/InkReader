@@ -119,12 +119,18 @@ fun BookDetailScreen(
 ) {
     val p = LocalInkPalette.current
     val ctx = LocalContext.current
-    val scope = rememberCoroutineScope()
 
     var book by remember { mutableStateOf<Book?>(null) }
     var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
+    val scope = rememberCoroutineScope {
+        kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
+            busy = false
+            loading = false
+            Toast.makeText(ctx, error.localizedMessage ?: ctx.getString(R.string.action_unknown_error), Toast.LENGTH_LONG).show()
+        }
+    }
 
     // 长按拖动排序：正在拖的章节、拖动开始时的顺序、手指在列表内的绝对 Y、按下时手指落在卡片内的高度（像素）
     var dragChapterId by remember { mutableStateOf<Long?>(null) }

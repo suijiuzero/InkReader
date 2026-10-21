@@ -1,13 +1,13 @@
 # 墨阅 · Ink Reader
 
 > 一款简洁、纯本地、支持六种格式的安卓电子书阅读器。
-> A clean, fully-offline Android e-book reader supporting six formats.
+> An Android e-book reader with offline reading and optional LAN computer voices.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20(API%2024)-brightgreen.svg)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)
 [![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20(M3)-4285F4.svg)](https://developer.android.com/jetpack/compose)
-[![Version](https://img.shields.io/badge/version-1.11.8-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.11.11-orange.svg)](CHANGELOG.md)
 
 [简体中文](#简体中文) ｜ [English](#english)
 
@@ -17,9 +17,11 @@
 
 ### 这是什么
 
-墨阅是一个**纯本地**的安卓电子书阅读器：不需要账号、不联网、没有广告，导入你自己的书就能读。它只做一件事——把书排好、读舒服。
+墨阅是一个支持离线阅读的安卓电子书阅读器：不需要账号、没有广告，导入你自己的书就能读。可选连接同一局域网内的电脑，使用本地晓晓朗读。
 
-- **不联网、不上传**：所有解析与阅读都在设备上完成，书籍与笔记只存在应用私有目录里。
+- **离线阅读**：所有解析与阅读都在设备上完成。开启电脑晓晓后，仅把当前及下一句发送给已配对的局域网电脑生成语音；关闭该功能时不进行语音联网。
+- 系统备份说明：Android 系统备份或换机迁移可能包含书籍、笔记和封面，是否备份由设备的系统设置控制。电脑语音配对凭据不参与备份。
+- **电脑晓晓**：阅读页 → 听书面板中配对、测试连接和试听；电脑端说明见 [tools/natural-voice/README.md](tools/natural-voice/README.md)。
 - **中文优先**：章节识别对中文（`第X章 / 回 / 節 / 話 / 卷 / 集 / 部 / 篇 / 幕 / 折`）与中/日/英数字编号做了专门处理，`Chapter 10` 排在 `Chapter 2` 之后（按数字而非字符串）。
 - **界面多语言**：应用界面随系统语言自动切换 **简体中文 / English / 日本語**，应用内「使用说明」也随之切换。
 
@@ -130,9 +132,10 @@ app/src/main/java/com/inkreader/
 
 ### What it is
 
-Ink Reader (墨阅) is a **fully offline** Android e-book reader — no account, no network, no ads. Import your own books and read. It does exactly one thing: lay books out well and make reading comfortable.
+Ink Reader (墨阅) supports offline reading without accounts or ads. An optional paired Windows computer on your LAN can provide local Xiaoxiao speech.
 
-- **Offline & private**: all parsing and reading happen on-device; books and notes live only in the app's private storage.
+- **Offline reading**: all parsing and reading happen on-device. Optional computer speech sends the current and next sentence only to your paired LAN computer.
+- Android system backup and device transfer may include books, annotations, and covers, according to your device's backup settings. Voice pairing credentials are excluded.
 - **Number-aware chapter ordering**: chapter numbers are parsed into integers before sorting, so `Chapter 10` comes after `Chapter 2` (numeric, not lexicographic).
 - **Localized UI**: the interface follows your system language — **简体中文 / English / 日本語**, and so does the in-app user guide.
 

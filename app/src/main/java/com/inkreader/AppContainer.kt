@@ -51,6 +51,7 @@ class AppContainer(context: Context) {
 
     /** 详情页「导入封面」选回来的图片 URI */
     var pendingCoverUri by mutableStateOf<Uri?>(null)
+    var pendingOpenBook by mutableStateOf<Long?>(null)
 
     /** 由 MainActivity 注册的固定请求码文件选择器启动器 */
     var docPickerLauncher: ((target: Int, mimeType: String, multiple: Boolean, mimeTypes: Array<String>?) -> Boolean)? = null

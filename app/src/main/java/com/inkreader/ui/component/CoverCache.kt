@@ -22,9 +22,13 @@ object CoverCache {
     var version by mutableStateOf(0)
         private set
 
-    private val map = HashMap<String, Pair<Long, ImageBitmap>>()
+    private val map = object : android.util.LruCache<String, Pair<Long, ImageBitmap>>(24 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Pair<Long, ImageBitmap>): Int =
+            value.second.width * value.second.height * 4
+    }
 
     fun invalidate() {
+        map.evictAll()
         version++
     }
 
@@ -36,9 +40,16 @@ object CoverCache {
         val mtime = f.lastModified()
         map[key]?.let { (t, bmp) -> if (t == mtime) return bmp }
         val decoded = runCatching {
-            BitmapFactory.decodeFile(key)?.asImageBitmap()
+            BitmapFactory.Options().let { bounds ->
+                bounds.inJustDecodeBounds = true
+                BitmapFactory.decodeFile(key, bounds)
+                val options = BitmapFactory.Options()
+                while (bounds.outWidth / options.inSampleSize > 800 || bounds.outHeight / options.inSampleSize > 1200)
+                    options.inSampleSize *= 2
+                BitmapFactory.decodeFile(key, options)?.asImageBitmap()
+            }
         }.getOrNull() ?: return null
-        map[key] = mtime to decoded
+        map.put(key, mtime to decoded)
         return decoded
     }
 }

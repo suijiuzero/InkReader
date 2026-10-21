@@ -1,6 +1,10 @@
 # Ink Reader — User Guide
 
-Ink Reader is a **fully offline** reader: no network, no account, no ads — just import your own books and read.
+Ink Reader supports offline reading without accounts or ads. Optional Computer Xiaoxiao sends the current and next sentence to your paired computer on the same trusted LAN for speech synthesis.
+
+## Computer Xiaoxiao
+
+Open a book → listening panel → Computer Xiaoxiao. Start the Windows voice bridge and enter its 16-character pairing code once. Use the connection test and voice preview buttons; previews play through the phone's media audio. If the computer is offline, listening falls back to phone TTS and retries about every 30 seconds. Keep the computer awake on the same Wi-Fi. Pairing credentials are excluded from system backup.
 
 ## Quick start
 

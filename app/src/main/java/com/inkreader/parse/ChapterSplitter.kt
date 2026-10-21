@@ -208,11 +208,12 @@ object ChapterSplitter {
         if (upperTitle.matches(trimmed) || strong.any { it.matches(trimmed) }) return false
         val hasUrl = Regex("(?i)(?:https?://|www\\.|\\b[a-z0-9_-]+\\.(?:com|net|org|cc|la|tw|xyz|top|vip)\\b)")
             .containsMatchIn(trimmed)
-        if (hasUrl && trimmed.length <= 72) return true
         val adKeywords = listOf(
             "最新章节", "手机阅读", "本站域名", "一秒记住", "无弹窗", "小说网",
             "手打吧", "txt下载", "电子书下载", "求月票", "求订阅", "求收藏", "加更规则"
         )
+        if (hasUrl && (trimmed.startsWith("手机阅读请访问") || trimmed.startsWith("最新章节请访问") ||
+                trimmed.startsWith("请记住本站域名"))) return true
         val wrappedByDecor = (trimmed.startsWith("===") && trimmed.endsWith("===")) ||
             (trimmed.startsWith("---") && trimmed.endsWith("---")) ||
             (trimmed.startsWith("***") && trimmed.endsWith("***"))
@@ -267,30 +268,9 @@ object ChapterSplitter {
 
     /** 段落化：以空行分段；无空行时以句末标点 + 缩进启发式分段 */
     fun toParagraphs(text: String): List<String> {
-        val blocks = text.split(Regex("\n\\s*\n")).map { it.trim() }.filter { it.isNotEmpty() }
-        if (blocks.size >= 4) return blocks.map { it.replace("\n", "") }
-        // 没有空行分隔：按行处理，短行且下一行以中文开头视为新段落
-        val lines = text.split("\n").map { it.trim() }.filter { it.isNotEmpty() }
-        if (lines.size <= 1) return blocks.ifEmpty { listOf(text) }
-        val out = ArrayList<String>()
-        val cur = StringBuilder()
-        for ((i, line) in lines.withIndex()) {
-            if (cur.isEmpty()) {
-                cur.append(line)
-            } else {
-                val prevEnds = SENT_END.indexOf(cur.last()) >= 0
-                val startsNew = line.length < cur.length && prevEnds && i > 0
-                if (startsNew && cur.length > 60) {
-                    out += cur.toString()
-                    cur.setLength(0)
-                    cur.append(line)
-                } else {
-                    cur.append(line)
-                }
-            }
-        }
-        if (cur.isNotEmpty()) out += cur.toString()
-        return if (out.isEmpty()) listOf(text) else out
+        // 分章不修改段落内部的换行、缩进或英文单词。
+        return text.split(Regex("\\n[ \t]*\\n"))
+            .filter { it.isNotEmpty() }.ifEmpty { listOf(text) }
     }
 
     /** 把段落拼成正文，段间空一行 */
@@ -802,7 +782,9 @@ object ChapterSplitter {
                 val t = line.trim()
                 return t.length > 24 || SENTENCE_PUNCT.any { it in t }
             }
-            return next in REFERENCE_CONNECTORS
+            val rest = line.substring(m.range.last + 1)
+            return REFERENCE_PHRASES.any { rest.startsWith(it) } ||
+                (next in REFERENCE_CONNECTORS && SENTENCE_PUNCT.any { it in rest })
         }
         enMarkerRegex.find(line)?.let { m ->
             val rest = line.substring(m.range.last + 1).trimStart()
@@ -829,6 +811,8 @@ object ChapterSplitter {
         "not", "it"
     )
 
+    private val REFERENCE_PHRASES = listOf("里提到", "中提到", "的内容", "的约定是", "写着", "所说", "提到的")
+
     private const val REFERENCE_CONNECTORS =
         "的里中内末结时是有写着说讲提描介对和及或被让使令就都还也又只要能"
 
@@ -842,28 +826,28 @@ object ChapterSplitter {
         baseTitle: String,
         chunkChars: Int = FALLBACK_CHARS
     ): List<Part> {
-        val paragraphs = toParagraphs(text)
-        if (paragraphs.size <= 1 && text.length <= chunkChars) {
-            return listOf(Part(baseTitle, text))
-        }
+        if (text.length <= chunkChars) return listOf(Part(baseTitle, text))
         val parts = ArrayList<Part>()
-        val buf = ArrayList<String>()
-        var size = 0
-        var n = 1
-        fun flush() {
-            if (buf.isEmpty()) return
-            parts += Part("第 $n 节", joinParagraphs(buf))
-            buf.clear()
-            size = 0
-            n++
+        var offset = 0
+        while (offset < text.length) {
+            val hardEnd = (offset + chunkChars).coerceAtMost(text.length)
+            var end = hardEnd
+            if (hardEnd < text.length) {
+                val floor = offset + chunkChars / 2
+                val paragraph = text.lastIndexOf("\n\n", hardEnd - 1)
+                val line = text.lastIndexOf('\n', hardEnd - 1)
+                end = when {
+                    paragraph >= floor -> (paragraph + 2).coerceAtMost(hardEnd)
+                    line >= floor -> line + 1
+                    else -> hardEnd
+                }
+                if (end > offset && Character.isHighSurrogate(text[end - 1]) &&
+                    Character.isLowSurrogate(text[end])) end--
+            }
+            check(end > offset)
+            parts += Part("第 ${parts.size + 1} 节", text.substring(offset, end))
+            offset = end
         }
-        for (p in paragraphs) {
-            buf += p
-            size += p.length + 2
-            if (size >= chunkChars) flush()
-        }
-        flush()
-        if (parts.isEmpty()) parts += Part(baseTitle, text)
         return parts
     }
 
@@ -1097,13 +1081,16 @@ object ChapterSplitter {
         )
         val units = mapOf(
             '十' to 10, '百' to 100, '千' to 1000,
-            '拾' to 10, '佰' to 100, '仟' to 1000
+            '拾' to 10, '佰' to 100, '仟' to 1000, '万' to 10000
         )
         // 无单位位值写法：`一〇八` = 108、`一二三` = 123、`二〇二五` = 2025
         if (s.length >= 2 && s.none { units.containsKey(it) }) {
-            var v = 0
-            for (c in s) v = v * 10 + (digits[c] ?: return null)
-            return v
+            var v = 0L
+            for (c in s) {
+                v = v * 10 + (digits[c] ?: return null)
+                if (v > Int.MAX_VALUE) return null
+            }
+            return v.toInt()
         }
         var total = 0
         var section = 0
@@ -1113,7 +1100,12 @@ object ChapterSplitter {
                 digits.containsKey(c) -> number = digits.getValue(c)
                 units.containsKey(c) -> {
                     val u = units.getValue(c)
-                    section += (if (number == 0) 1 else number) * u
+                    if (u == 10000) {
+                        total += (section + number).coerceAtLeast(1) * u
+                        section = 0
+                    } else {
+                        section += (if (number == 0) 1 else number) * u
+                    }
                     number = 0
                 }
 

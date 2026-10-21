@@ -1,6 +1,7 @@
 package com.inkreader.data.file
 
 import android.content.Context
+import android.util.AtomicFile
 import java.io.File
 import java.util.UUID
 
@@ -27,7 +28,7 @@ class FileStore(context: Context) {
     fun coverNameFor(bookId: Long): String = "cover_$bookId.jpg"
 
     fun writeCover(name: String, bytes: ByteArray) {
-        runCatching { coverFile(name).writeBytes(bytes) }
+        atomicWrite(coverFile(name), bytes)
     }
 
     fun deleteCover(name: String) {
@@ -36,14 +37,26 @@ class FileStore(context: Context) {
     }
 
     fun write(name: String, text: String) {
-        file(name).writeText(text, Charsets.UTF_8)
+        atomicWrite(file(name), text.toByteArray(Charsets.UTF_8))
     }
 
     fun read(name: String): String =
-        runCatching { file(name).readText(Charsets.UTF_8) }.getOrDefault("")
+        AtomicFile(file(name)).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
+
+    private fun atomicWrite(target: File, bytes: ByteArray) {
+        val atomic = AtomicFile(target)
+        val output = atomic.startWrite()
+        try {
+            output.write(bytes)
+            atomic.finishWrite(output)
+        } catch (t: Throwable) {
+            atomic.failWrite(output)
+            throw t
+        }
+    }
 
     fun delete(name: String) {
-        runCatching { file(name).delete() }
+        runCatching { AtomicFile(file(name)).delete() }
     }
 
     // ---- 样式覆盖（Markdown 的格式化正文用） ----
@@ -56,7 +69,7 @@ class FileStore(context: Context) {
         if (txtName.endsWith(".txt")) txtName.dropLast(4) + ".rich" else "$txtName.rich"
 
     fun writeRich(txtName: String, data: String) {
-        runCatching { file(richNameOf(txtName)).writeText(data, Charsets.UTF_8) }
+        atomicWrite(file(richNameOf(txtName)), data.toByteArray(Charsets.UTF_8))
     }
 
     fun readRich(txtName: String): String =
