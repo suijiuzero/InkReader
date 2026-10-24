@@ -68,14 +68,14 @@
     <string name="shelf_file_names_more">" etc."</string>
     <string name="shelf_import_mode">Import mode</string>
     <string name="shelf_mode_separate_title">Each file as its own book</string>
-    <string name="shelf_mode_separate_desc">Each file becomes its own book; chapters are detected automatically (also sorted by the chapter number in the file name).</string>
+    <string name="shelf_mode_separate_desc">Each file becomes its own book. Set chapter splitting and file order below.</string>
     <string name="shelf_mode_merge_title">Merge into one book</string>
-    <string name="shelf_mode_merge_desc">Each file becomes one chapter; files named with \"Chapter N\" are sorted by chapter number.</string>
+    <string name="shelf_mode_merge_desc">Combine the selected files into one book. Set chapter splitting and file order below.</string>
     <string name="shelf_book_title_label">Title</string>
     <string name="shelf_title_auto_placeholder">Leave blank to auto-generate</string>
     <string name="shelf_chapter_split">Chapter splitting</string>
     <string name="shelf_split_smart_title">Smart parsing (recommended)</string>
-    <string name="shelf_split_smart_desc">Files with several \"Chapter X\" headings are split into multiple chapters; a file with only one chapter stays whole. All are sorted by chapter number.</string>
+    <string name="shelf_split_smart_desc">Split files with multiple chapter headings; keep a file without clear chapter breaks as one chapter.</string>
     <string name="shelf_split_per_file_title">One chapter per file</string>
     <string name="shelf_split_per_file_desc">No splitting; the whole file becomes one chapter, named after the file.</string>
 

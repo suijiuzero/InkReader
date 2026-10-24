@@ -1,0 +1,37 @@
+<resources>
+    <string name="ordered_picker_title">順番にファイルを選択</string>
+    <string name="ordered_picker_subtitle">選択すると取り込み順が表示されます</string>
+    <string name="ordered_picker_system">システム選択</string>
+    <string name="ordered_picker_choose_folder">本のフォルダを選択</string>
+    <string name="ordered_picker_welcome">フォルダを選び、順番にチェック</string>
+    <string name="ordered_picker_folder_hint">許可したフォルダだけを読み取ります。ファイルを選ぶと右側に 1、2、3 と表示します。Android 11 以降では「ダウンロード」の直下ではなく、その中の本のサブフォルダを選択してください。</string>
+    <string name="ordered_picker_folder">フォルダ</string>
+    <string name="ordered_picker_parent">親フォルダへ戻る</string>
+    <string name="ordered_picker_search">このフォルダを検索</string>
+    <string name="ordered_picker_clear_search">検索をクリア</string>
+    <string name="ordered_picker_sort_asc">名前の昇順、タップで降順</string>
+    <string name="ordered_picker_sort_desc">名前の降順、タップで昇順</string>
+    <string name="ordered_picker_grant_failed">読み取り権限を保存できませんでした。フォルダを再選択するかシステム選択を利用してください。</string>
+    <string name="ordered_picker_permission_lost">フォルダの読み取り権限が失効しました</string>
+    <string name="ordered_picker_load_failed">フォルダを読み込めませんでした</string>
+    <string name="ordered_picker_error_hint">再試行、フォルダの先頭へ戻る、または別のフォルダを選択できます。選択済みの順序は保持されます。</string>
+    <string name="ordered_picker_retry">再試行</string>
+    <string name="ordered_picker_refresh">更新</string>
+    <string name="ordered_picker_empty">対応ファイルはまだありません</string>
+    <string name="ordered_picker_supported">TXT、Word、Markdown、PDF、HTML、EPUB に対応しています。サブフォルダも確認できます。</string>
+    <string name="ordered_picker_no_matches">一致するファイルがありません</string>
+    <string name="ordered_picker_search_hint">現在のフォルダだけを絞り込み、取り込み順序は変更しません。</string>
+    <string name="ordered_picker_unknown_size">サイズ不明</string>
+    <string name="ordered_picker_order">取り込み予定順</string>
+    <string name="ordered_picker_selected">選択済み：%1$d</string>
+    <string name="ordered_picker_no_selection">ファイルを選ぶとここに順序が表示されます。</string>
+    <string name="ordered_picker_clear_all">クリア</string>
+    <string name="ordered_picker_expand">順序一覧を開く</string>
+    <string name="ordered_picker_collapse">順序一覧を閉じる</string>
+    <string name="ordered_picker_continue">取り込みへ進む</string>
+    <string name="ordered_picker_move_up">上へ移動：ファイル %1$d</string>
+    <string name="ordered_picker_move_down">下へ移動：ファイル %1$d</string>
+    <string name="ordered_picker_remove">選択解除：ファイル %1$d</string>
+    <string name="ordered_picker_selected_item">選択済み、取り込み順：%1$d</string>
+    <string name="ordered_picker_unselected_item">未選択</string>
+</resources>

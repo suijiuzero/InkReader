@@ -36,3 +36,7 @@ Thumbs.db
 
 # Windows 本机语音安装包，不作为源码提交
 /NaturalVoices.zip
+
+# Python test-tool caches
+__pycache__/
+*.py[cod]

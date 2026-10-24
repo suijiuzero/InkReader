@@ -1,0 +1,37 @@
+<resources>
+    <string name="ordered_picker_title">Choose files in order</string>
+    <string name="ordered_picker_subtitle">Tap files to see their import positions</string>
+    <string name="ordered_picker_system">System picker</string>
+    <string name="ordered_picker_choose_folder">Choose a book folder</string>
+    <string name="ordered_picker_welcome">Choose a folder, then tap files in order</string>
+    <string name="ordered_picker_folder_hint">Only your chosen folder is read. Tap files to see positions 1, 2, 3. On Android 11 and later, choose a book subfolder inside Downloads rather than the Downloads root.</string>
+    <string name="ordered_picker_folder">Folder</string>
+    <string name="ordered_picker_parent">Go to parent folder</string>
+    <string name="ordered_picker_search">Search this folder</string>
+    <string name="ordered_picker_clear_search">Clear search</string>
+    <string name="ordered_picker_sort_asc">Names ascending; tap for descending</string>
+    <string name="ordered_picker_sort_desc">Names descending; tap for ascending</string>
+    <string name="ordered_picker_grant_failed">Read access could not be saved. Choose the folder again or use the system picker.</string>
+    <string name="ordered_picker_permission_lost">Folder read access has expired</string>
+    <string name="ordered_picker_load_failed">This folder could not be loaded</string>
+    <string name="ordered_picker_error_hint">Retry, return to the folder root, or choose another folder. Your selected order is kept.</string>
+    <string name="ordered_picker_retry">Retry</string>
+    <string name="ordered_picker_refresh">Refresh</string>
+    <string name="ordered_picker_empty">No supported files here yet</string>
+    <string name="ordered_picker_supported">TXT, Word, Markdown, PDF, HTML and EPUB are supported. You can also browse subfolders.</string>
+    <string name="ordered_picker_no_matches">No matching files</string>
+    <string name="ordered_picker_search_hint">Search filters only this folder and keeps your chosen import order.</string>
+    <string name="ordered_picker_unknown_size">Unknown size</string>
+    <string name="ordered_picker_order">Expected import order</string>
+    <string name="ordered_picker_selected">Selected: %1$d</string>
+    <string name="ordered_picker_no_selection">Select files to see their order here.</string>
+    <string name="ordered_picker_clear_all">Clear</string>
+    <string name="ordered_picker_expand">Expand selected order</string>
+    <string name="ordered_picker_collapse">Collapse selected order</string>
+    <string name="ordered_picker_continue">Continue import</string>
+    <string name="ordered_picker_move_up">Move up: file %1$d</string>
+    <string name="ordered_picker_move_down">Move down: file %1$d</string>
+    <string name="ordered_picker_remove">Remove file %1$d</string>
+    <string name="ordered_picker_selected_item">Selected, import position: %1$d</string>
+    <string name="ordered_picker_unselected_item">Not selected</string>
+</resources>

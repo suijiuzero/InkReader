@@ -94,7 +94,7 @@ object BookExporter {
 
         // (b) 分享副本：先清掉上次导出的残留，避免 cache 无限增长
         val exportDir = File(context.cacheDir, EXPORT_DIR)
-        if (!exportDir.isDirectory && !exportDir.mkdirs()) {
+        if (!exportDir.isDirectory && !exportDir.mkdirs() && !exportDir.isDirectory) {
             throw IOException(context.getString(R.string.export_dir_create_failed, exportDir.absolutePath))
         }
         val cutoff = System.currentTimeMillis() - 7L * 24 * 60 * 60 * 1000

@@ -14,6 +14,7 @@ import com.inkreader.data.model.Book
 import com.inkreader.data.model.BookGroup
 import com.inkreader.data.model.Chapter
 import com.inkreader.data.model.ImportMode
+import com.inkreader.data.model.ImportOrder
 import com.inkreader.data.model.Mark
 import com.inkreader.data.model.MarkType
 import com.inkreader.data.model.SearchHit
@@ -33,6 +34,11 @@ import com.inkreader.parse.RichBlock
 import com.inkreader.parse.RichKind
 import com.inkreader.parse.RichTransforms
 import com.inkreader.parse.RichMarkdown
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlin.coroutines.CoroutineContext
+import kotlin.coroutines.EmptyCoroutineContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -100,10 +106,11 @@ class BookRepository(context: Context) {
     suspend fun previewImport(
         uris: List<Uri>,
         mode: ImportMode,
-        options: SplitOptions
+        options: SplitOptions,
+        fileOrder: ImportOrder = ImportOrder.AUTO
     ): ImportPreview = withContext(Dispatchers.IO) {
         if (uris.isEmpty()) return@withContext ImportPreview(0, 0, emptyList())
-        val ordered = if (uris.size > 1) orderByFileName(uris) else uris
+        val ordered = if (fileOrder == ImportOrder.AUTO && uris.size > 1) orderByFileName(uris) else uris
         val sampleTitles = ArrayList<String>()
         val volumes = LinkedHashSet<String>()
         var totalChapters = 0
@@ -113,8 +120,10 @@ class BookRepository(context: Context) {
         for ((i, uri) in inspectUris.withIndex()) {
             val name = displayName(uri) ?: appContext.getString(R.string.repo_fallback_file_n, i + 1)
             val fileTitle = ChapterSplitter.titleFromFileName(name)
-            val bytes = runCatching { readBytes(uri) }.getOrNull() ?: continue
-            val parsed = runCatching { parseFile(bytes, name, options) }.getOrNull() ?: continue
+            currentCoroutineContext().ensureActive()
+            val bytes = try { readBytes(uri, currentCoroutineContext()) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } ?: continue
+            val parsed = try { parseFile(bytes, name, options) } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { null } ?: continue
+            currentCoroutineContext().ensureActive()
             // 预览必须和真正导入走同一套。单文件「各自成书」时 importSingle 用的是解析器原始分章
             //（只有 PER_FILE 才整篇成一章），多文件 / 合并导入才走 splitUnitsWithVolume。
             // 以前这两个分支写重了（effectiveMode 恒等于 options.mode），预览报的章数和导入结果对不上。
@@ -154,17 +163,21 @@ class BookRepository(context: Context) {
         customTitle: String?,
         splitMode: SplitMode = SplitMode.SMART,
         splitOptions: SplitOptions = SplitOptions(mode = splitMode),
+        fileOrder: ImportOrder = ImportOrder.AUTO,
         onProgress: (stage: String, fraction: Float) -> Unit
     ): ImportResult = withContext(Dispatchers.IO) {
+        val cancellation = currentCoroutineContext()
+        cancellation.ensureActive()
         val ids = ArrayList<Long>()
         val results = ArrayList<ImportFileResult>()
-        val ordered = if (uris.size > 1) orderByFileName(uris) else uris
+        val ordered = if (fileOrder == ImportOrder.AUTO && uris.size > 1) orderByFileName(uris) else uris
         val total = ordered.size.coerceAtLeast(1)
 
         if (mode == ImportMode.MERGE && ordered.size > 1) {
             val title = customTitle?.takeIf { it.isNotBlank() }
                 ?: guessMergedTitle(ordered.mapNotNull { displayName(it) })
             onProgress(appContext.getString(R.string.repo_stage_prepare_merge), 0.02f)
+            cancellation.ensureActive()
 
             val hue = hueFromString(title)
             val bookId = db.insertBook(
@@ -175,11 +188,13 @@ class BookRepository(context: Context) {
 
             var index = 0
             var totalChars = 0
+            try {
             for ((i, uri) in ordered.withIndex()) {
                 val name = displayName(uri) ?: appContext.getString(R.string.repo_fallback_file_n, i + 1)
                 onProgress(appContext.getString(R.string.repo_stage_parse, name), (i.toFloat() / total) * 0.95f + 0.02f)
+                cancellation.ensureActive()
                 val bytes = try {
-                    readBytes(uri)
+                    readBytes(uri, cancellation)
                 } catch (e: ParseException) {
                     results += ImportFileResult(name, false, ParseErrors.reason(appContext, e))
                     continue
@@ -203,6 +218,7 @@ class BookRepository(context: Context) {
                 try {
                 db.inTransaction {
                 for (u in units) {
+                    cancellation.ensureActive()
                     val body = prepareBody(parsed.sourceType, u.content)
                     val fileName = files.newFileName()
                     staged += fileName
@@ -230,6 +246,7 @@ class BookRepository(context: Context) {
                     staged.forEach { files.deleteChapter(it) }
                     index = previousIndex
                     totalChars = previousChars
+                    if (e is CancellationException) throw e
                     results += ImportFileResult(name, false, e.localizedMessage ?: appContext.getString(R.string.action_unknown_error))
                     continue
                 }
@@ -243,24 +260,32 @@ class BookRepository(context: Context) {
                 }
             } else {
                 db.updateBookStats(bookId, index, totalChars)
-                val namedFiles = ordered.count {
-                    ChapterSplitter.chapterOrderFromName(displayName(it) ?: "") != null
-                }
-                if (splitOptions.mode == SplitMode.SMART && index > 1 && namedFiles < 2) {
-                    onProgress(appContext.getString(R.string.repo_stage_sort), 0.97f)
-                    autoSortChapters(bookId)
+                if (fileOrder == ImportOrder.AUTO && splitOptions.mode == SplitMode.SMART && index > 1) {
+                    val namedFiles = ordered.asSequence().filter {
+                        ChapterSplitter.chapterOrderFromName(displayName(it) ?: "") != null
+                    }.take(2).count()
+                    if (namedFiles < 2) {
+                        onProgress(appContext.getString(R.string.repo_stage_sort), 0.97f)
+                        autoSortChapters(bookId)
+                    }
                 }
             }
             onProgress(appContext.getString(R.string.repo_stage_done), 1f)
             return@withContext ImportResult(ids, results)
+            } catch (cancelled: CancellationException) {
+                // Earlier files committed atomically remain valid; never leave an empty merge shell.
+                if (index == 0) db.deleteBook(bookId).forEach { files.deleteChapter(it) }
+                throw cancelled
+            }
         }
 
         // 各自成书（含单文件导入）
         for ((i, uri) in ordered.withIndex()) {
             val name = displayName(uri) ?: appContext.getString(R.string.repo_fallback_doc_n, i + 1)
             onProgress(appContext.getString(R.string.repo_stage_parse, name), (i.toFloat() / total) * 0.9f + 0.03f)
+            currentCoroutineContext().ensureActive()
             val bytes = try {
-                readBytes(uri)
+                readBytes(uri, currentCoroutineContext())
             } catch (e: ParseException) {
                 results += ImportFileResult(name, false, ParseErrors.reason(appContext, e))
                 continue
@@ -271,11 +296,12 @@ class BookRepository(context: Context) {
             }
             val before = ids.size
             val chapters = try {
-                importSingle(bytes, name, customTitle, ids, splitOptions)
+                importSingle(bytes, name, customTitle, ids, splitOptions, cancellation)
             } catch (e: ParseException) {
                 results += ImportFileResult(name, false, ParseErrors.reason(appContext, e))
                 continue
             } catch (t: Throwable) {
+                if (t is CancellationException) throw t
                 results += ImportFileResult(
                     name, false,
                     appContext.getString(
@@ -291,7 +317,7 @@ class BookRepository(context: Context) {
                 bookId = ids.lastOrNull() ?: 0L,
                 chapterCount = chapters
             )
-            if (ids.size > before && splitOptions.mode == SplitMode.SMART) {
+            if (fileOrder == ImportOrder.AUTO && ids.size > before && splitOptions.mode == SplitMode.SMART) {
                 onProgress(appContext.getString(R.string.repo_stage_sort), (i.toFloat() / total) * 0.9f + 0.08f)
                 autoSortChapters(ids.last())
             }
@@ -477,14 +503,17 @@ class BookRepository(context: Context) {
 
     private fun orderByFileName(uris: List<Uri>): List<Uri> =
         uris.withIndex()
+            .map { entry ->
+                val name = displayName(entry.value).orEmpty()
+                Triple(entry, name, ChapterSplitter.fileOrderKey(name))
+            }
             .sortedWith(
                 compareBy(
-                    { (_, u) -> ChapterSplitter.chapterOrderFromName(displayName(u) ?: "") ?: Int.MAX_VALUE },
-                    { (_, u) -> displayName(u) ?: "" },
-                    { (i, _) -> i }
+                    { it.third.order }, { it.third.family }, { it.third.segment },
+                    { it.second }, { it.first.index }
                 )
             )
-            .map { it.value }
+            .map { it.first.value }
 
     /** 导入单个文件为一本书，返回章节数 */
     private fun importSingle(
@@ -492,7 +521,8 @@ class BookRepository(context: Context) {
         name: String,
         customTitle: String?,
         ids: MutableList<Long>,
-        splitOptions: SplitOptions = SplitOptions()
+        splitOptions: SplitOptions = SplitOptions(),
+        cancellation: CoroutineContext = EmptyCoroutineContext
     ): Int {
         val parsedFile = parseFile(bytes, name, splitOptions)
         val fileTitle = ChapterSplitter.titleFromFileName(name)
@@ -525,6 +555,7 @@ class BookRepository(context: Context) {
         var totalChars = 0
         var inserted = 0
         for ((i, p) in parts.withIndex()) {
+            cancellation.ensureActive()
             val body = prepareBody(sourceType, p.content)
             val fileName = files.newFileName()
             staged += fileName
@@ -546,6 +577,7 @@ class BookRepository(context: Context) {
             inserted++
             totalChars += body.text.length
         }
+        cancellation.ensureActive()
         db.updateBookStats(bookId, inserted, totalChars)
         check(inserted > 0) { "no chapters imported" }
         bookId to inserted
@@ -621,8 +653,10 @@ class BookRepository(context: Context) {
         uris: List<Uri>,
         splitMode: SplitMode = SplitMode.SMART,
         splitOptions: SplitOptions = SplitOptions(mode = splitMode),
+        fileOrder: ImportOrder = ImportOrder.AUTO,
         onProgress: (String, Float) -> Unit = { _, _ -> }
     ): List<String> = bookWrite(bookId) {
+        val cancellation = currentCoroutineContext()
         val errors = ArrayList<String>()
         val chapters = db.chaptersOf(bookId)
         var index = chapters.size
@@ -631,8 +665,9 @@ class BookRepository(context: Context) {
         for ((i, uri) in uris.withIndex()) {
             val name = displayName(uri) ?: appContext.getString(R.string.repo_fallback_file_n, i + 1)
             onProgress(appContext.getString(R.string.repo_stage_parse, name), i.toFloat() / total)
+            currentCoroutineContext().ensureActive()
             val bytes = try {
-                readBytes(uri)
+                readBytes(uri, currentCoroutineContext())
             } catch (e: ParseException) {
                 errors += appContext.getString(R.string.err_file_reason, name, ParseErrors.reason(appContext, e)); continue
             }
@@ -652,6 +687,7 @@ class BookRepository(context: Context) {
             try {
             db.inTransaction {
             for (u in units) {
+                cancellation.ensureActive()
                 val body = prepareBody(parsed.sourceType, u.content)
                 val fileName = files.newFileName()
                 staged += fileName
@@ -674,10 +710,11 @@ class BookRepository(context: Context) {
             } catch (e: Exception) {
                 staged.forEach { files.deleteChapter(it) }
                 index = previousIndex
+                if (e is CancellationException) throw e
                 errors += appContext.getString(R.string.err_file_reason, name, e.localizedMessage ?: appContext.getString(R.string.action_unknown_error))
             }
         }
-        insertByChapterOrder(bookId, inserted)
+        if (fileOrder == ImportOrder.AUTO) insertByChapterOrder(bookId, inserted)
         onProgress(appContext.getString(R.string.repo_stage_done), 1f)
         refreshStats(bookId)
         errors
@@ -1086,12 +1123,15 @@ class BookRepository(context: Context) {
 
     suspend fun chaptersByIds(bookId: Long, ids: List<Long>): List<Chapter> = withContext(Dispatchers.IO) {
         val all = db.chaptersOf(bookId)
-        if (ids.isEmpty()) all else ids.mapNotNull { id -> all.firstOrNull { it.id == id } }
+        if (ids.isEmpty()) all else {
+            val byId = all.associateBy { it.id }
+            ids.mapNotNull(byId::get)
+        }
     }
 
     suspend fun chapterText(chapter: Chapter): String =
         withContext(Dispatchers.IO) { writes.write(chapter.bookId) {
-            val current = db.chaptersOf(chapter.bookId).firstOrNull { it.id == chapter.id }
+            val current = db.chapterOf(chapter.bookId, chapter.id)
                 ?: throw IOException("章节已更新，请重新打开")
             files.read(current.fileName)
         } }
@@ -1099,7 +1139,7 @@ class BookRepository(context: Context) {
     suspend fun chapterRich(chapter: Chapter, textLength: Int): RichChapter? =
         withContext(Dispatchers.IO) {
             writes.write(chapter.bookId) {
-                val current = db.chaptersOf(chapter.bookId).firstOrNull { it.id == chapter.id }
+                val current = db.chapterOf(chapter.bookId, chapter.id)
                     ?: return@write null
                 val raw = files.readRich(current.fileName)
                 if (raw.isBlank()) null else RichChapter.decode(raw)?.takeIf { it.len == textLength }
@@ -1194,7 +1234,7 @@ class BookRepository(context: Context) {
 
     /** 保存章节正文（编辑器） */
     suspend fun saveChapterText(chapter: Chapter, text: String, expectedText: String? = null) = bookWrite(chapter.bookId) {
-        val current = db.chaptersOf(chapter.bookId).firstOrNull { it.id == chapter.id }
+        val current = db.chapterOf(chapter.bookId, chapter.id)
             ?: throw IOException("章节已被删除，无法保存")
         val before = files.read(current.fileName)
         if (expectedText != null && before != expectedText) throw IOException("章节已在别处更新，请重新打开后编辑")
@@ -1329,14 +1369,17 @@ class BookRepository(context: Context) {
         maxHits: Int = 300,
         onProgress: (Float) -> Unit = {}
     ): List<SearchHit> = withContext(Dispatchers.IO) {
-        if (keyword.isBlank()) return@withContext emptyList()
+        if (keyword.isBlank() || maxHits <= 0) return@withContext emptyList()
         val chapters = db.chaptersOf(bookId)
         val out = ArrayList<SearchHit>()
         for ((i, ch) in chapters.withIndex()) {
+            currentCoroutineContext().ensureActive()
             onProgress(chapters.size.toFloat().let { (i.toFloat() / it) })
+            currentCoroutineContext().ensureActive()
             val text = files.read(ch.fileName)
             var from = 0
             while (out.size < maxHits) {
+                currentCoroutineContext().ensureActive()
                 val idx = text.indexOf(keyword, from, ignoreCase = true)
                 if (idx < 0) break
                 val s = (idx - 18).coerceAtLeast(0)
@@ -1370,7 +1413,8 @@ class BookRepository(context: Context) {
         return name ?: uri.lastPathSegment?.substringAfterLast('/')
     }
 
-    private fun readBytes(uri: Uri): ByteArray? {
+    private fun readBytes(uri: Uri, cancellation: CoroutineContext = EmptyCoroutineContext): ByteArray? {
+        cancellation.ensureActive()
         declaredSize(uri)?.let { if (it > MAX_IMPORT_BYTES) throw ParseException(ParseErrorCode.TOO_LARGE) }
         val stream = try {
             appContext.contentResolver.openInputStream(uri)
@@ -1378,7 +1422,7 @@ class BookRepository(context: Context) {
             null
         }
         if (stream != null) {
-            stream.use { return readBounded(it, MAX_IMPORT_BYTES) }
+            stream.use { return readBounded(it, MAX_IMPORT_BYTES, cancellation) }
         }
         if (uri.scheme == "file") {
             val path = uri.path ?: return null
@@ -1389,7 +1433,7 @@ class BookRepository(context: Context) {
             } catch (t: Throwable) {
                 return null
             }
-            fs.use { return readBounded(it, MAX_IMPORT_BYTES) }
+            fs.use { return readBounded(it, MAX_IMPORT_BYTES, cancellation) }
         }
         return null
     }
@@ -1408,10 +1452,11 @@ class BookRepository(context: Context) {
         }.getOrNull()
     }
 
-    private fun readBounded(input: InputStream, limit: Long): ByteArray {
+    private fun readBounded(input: InputStream, limit: Long, cancellation: CoroutineContext): ByteArray {
         val out = ByteArrayOutputStream()
         val buf = ByteArray(64 * 1024)
         while (true) {
+            cancellation.ensureActive()
             val n = try { input.read(buf) } catch (e: IOException) {
                 throw ParseException(ParseErrorCode.READ_FAILED, detail = e.message)
             }

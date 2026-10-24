@@ -5,12 +5,25 @@ $utf8 = New-Object System.Text.UTF8Encoding($false)
 $voice = New-Object -ComObject SAPI.SpVoice
 $tokens = $voice.GetVoices()
 $local = $null
+$japanese = $null
+$nanami = $null
 for ($i = 0; $i -lt $tokens.Count; $i++) {
     $candidate = $tokens.Item($i)
-    if ($candidate.Id.EndsWith('\Local-Xiaoxiao')) { $local = $candidate; break }
+    if ($candidate.Id.EndsWith('\Local-Xiaoxiao')) { $local = $candidate }
+    if ($candidate.Id.EndsWith('\Local-Nanami')) { $japanese = $candidate; $nanami = $candidate }
 }
 if ($null -eq $local) { throw 'Local Xiaoxiao voice not installed' }
-$voice.Voice = $local
+if ($null -eq $japanese) {
+    for ($i = 0; $i -lt $tokens.Count; $i++) {
+        $candidate = $tokens.Item($i)
+        if ($candidate.Id -match '\\(?:Local-|TTS_MS_)' -and
+            (($candidate.GetAttribute('Language') -split ';') -contains '411')) { $japanese = $candidate; break }
+    }
+}
+$languages = @('zh-CN','en-US')
+if ($null -ne $japanese) { $languages += 'ja-JP' }
+$models = @('auto','xiaoxiao')
+if ($null -ne $nanami) { $models += 'nanami' }
 $audioDir = Join-Path $PSScriptRoot '.runtime\audio'
 [IO.Directory]::CreateDirectory($audioDir) | Out-Null
 while ($null -ne ($line = [Console]::ReadLine())) {
@@ -18,6 +31,18 @@ while ($null -ne ($line = [Console]::ReadLine())) {
     $stream = $null
     try {
         $request = $line | ConvertFrom-Json
+        $selected = $local
+        $name = 'Xiaoxiao'
+        if ($request.model -eq 'nanami') {
+            if ($null -eq $nanami) { throw 'Local Nanami voice not installed' }
+            $selected = $nanami
+            $name = $nanami.GetDescription()
+        } elseif ($request.model -ne 'xiaoxiao' -and ($request.language -eq 'ja-JP' -or $request.text -match '[\u3041-\u3096\u309d\u309e\u30a1-\u30fa\u30fd\u30fe\uff66-\uff9d]')) {
+            if ($null -eq $japanese) { throw 'Local Japanese voice not installed' }
+            $selected = $japanese
+            $name = $japanese.GetDescription()
+        }
+        $voice.Voice = $selected
         $stream = New-Object -ComObject SAPI.SpFileStream
         $stream.Open($path, 3, $false)
         $voice.AudioOutputStream = $stream
@@ -30,7 +55,7 @@ while ($null -ne ($line = [Console]::ReadLine())) {
         $stream.Close()
         $stream = $null
         $encoded = [Convert]::ToBase64String([IO.File]::ReadAllBytes($path))
-        [Console]::WriteLine((@{ok=$true; audio=$encoded} | ConvertTo-Json -Compress))
+        [Console]::WriteLine((@{ok=$true; audio=$encoded; voice=$name; languages=$languages; models=$models} | ConvertTo-Json -Compress))
     } catch {
         [Console]::WriteLine('{"ok":false}')
     } finally {

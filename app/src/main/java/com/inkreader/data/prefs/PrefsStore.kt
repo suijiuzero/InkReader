@@ -9,6 +9,7 @@ import com.inkreader.data.model.ReaderPrefs
 import com.inkreader.data.model.ReaderTheme
 import com.inkreader.data.model.ShelfSort
 import com.inkreader.data.model.ShelfView
+import com.inkreader.data.model.ImportOrder
 
 /**
  * 阅读偏好与书架偏好的持久化。
@@ -109,8 +110,28 @@ class PrefsStore(context: Context) {
             ?.filter { it.isNotBlank() }
             ?: emptyList()
         set(v) {
-            sp.edit().putString(K_PENDING_URIS, v.joinToString("\n")).commit()
+            savePendingImport(v, ImportOrder.AUTO)
         }
+
+    val pendingImportOrder: ImportOrder
+        get() = enumOrDefault(sp.getString(K_PENDING_ORDER, null), ImportOrder.AUTO)
+
+    /** 文件列表与顺序策略一起落盘，恢复确认页时不能再退回自动排序。 */
+    fun savePendingImport(uris: List<String>, order: ImportOrder) {
+        sp.edit().putString(K_PENDING_URIS, uris.joinToString("\n"))
+            .putString(K_PENDING_ORDER, if (uris.isEmpty()) ImportOrder.AUTO.name else order.name).commit()
+    }
+
+    /** 目录授权属于系统界面，回来时重建对应的墨阅选择页。 */
+    var orderedPickerTarget: Int
+        get() = sp.getInt("ordered_picker_target", 0)
+        set(value) { sp.edit().putInt("ordered_picker_target", value).commit() }
+    var orderedPickerBookId: Long
+        get() = sp.getLong("ordered_picker_book", 0L)
+        set(value) { sp.edit().putLong("ordered_picker_book", value).commit() }
+    var pendingAppendBookId: Long
+        get() = sp.getLong("pending_append_book", 0L)
+        set(value) { sp.edit().putLong("pending_append_book", value).commit() }
 
     private inline fun <reified T : Enum<T>> enumOrDefault(value: String?, def: T): T =
         if (value == null) def else runCatching { enumValueOf<T>(value) }.getOrDefault(def)
@@ -138,5 +159,6 @@ class PrefsStore(context: Context) {
         private const val K_PICKER_AT = "picker_launched_at"
         private const val K_PICKER_RETRY_AT = "picker_retried_at"
         private const val K_PENDING_URIS = "pending_import_uris"
+        private const val K_PENDING_ORDER = "pending_import_order"
     }
 }

@@ -1,0 +1,20 @@
+<resources>
+    <string name="picker_batch_title">批量选择</string>
+    <string name="picker_batch_forward">从此文件顺序选择</string>
+    <string name="picker_batch_reverse">从此文件倒序选择</string>
+    <string name="picker_batch_all">全部顺序选择</string>
+    <string name="picker_batch_all_reverse">全部倒序选择</string>
+    <string name="picker_batch_range">选择两个文件之间的范围</string>
+    <string name="picker_batch_range_hint">再指定一个结束文件</string>
+    <string name="picker_batch_hint">按当前列表的显示顺序，只选当前目录中符合搜索条件的文件，不包含子文件夹。新文件追加到末尾，已选文件顺序不变。</string>
+    <string name="picker_batch_end_title">选择结束文件</string>
+    <string name="picker_batch_end_hint">从上面的起始文件向结束文件依次选取，包含两端；结束文件在前方时自动倒序。</string>
+    <string name="picker_batch_back">返回选项</string>
+    <plurals name="picker_batch_count">
+        <item quantity="other">范围内 %1$d 个文件</item>
+    </plurals>
+    <plurals name="picker_batch_added">
+        <item quantity="other">已新增 %1$d 个文件</item>
+    </plurals>
+    <string name="picker_batch_long_hint">长按文件可顺序、倒序或按范围批量选择</string>
+</resources>

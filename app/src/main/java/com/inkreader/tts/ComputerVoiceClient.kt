@@ -22,7 +22,9 @@ object VoiceAddress {
     }
 }
 
-data class ComputerVoice(val host: String, val id: String, val key: String)
+data class ComputerVoice(val host: String, val id: String, val key: String,
+                         val languages: Set<String> = setOf("zh-CN", "en-US"),
+                         val models: Set<String> = setOf("auto"))
 
 class ComputerVoiceClient(context: Context) {
     private val prefs = context.applicationContext.getSharedPreferences("computer_voice", Context.MODE_PRIVATE)
@@ -30,8 +32,14 @@ class ComputerVoiceClient(context: Context) {
         get() = prefs.getBoolean("enabled", false)
         set(value) { prefs.edit().putBoolean("enabled", value).apply() }
     val paired: Boolean get() = prefs.getString("key", "").orEmpty().isNotEmpty()
+    var model: ComputerVoiceModel
+        get() = ComputerVoiceModel.fromStored(prefs.getString("model", null))
+        set(value) { prefs.edit().putString("model", value.wireName).apply() }
 
-    fun forget() { prefs.edit().clear().apply() }
+    fun forget() {
+        val savedModel = model
+        prefs.edit().clear().putString("model", savedModel.wireName).apply()
+    }
 
     /** Blocking LAN operations: call on Dispatchers.IO. No text is sent during discovery or pairing. */
     fun pair(code: String, manualHost: String = ""): ComputerVoice {
@@ -74,12 +82,23 @@ class ComputerVoiceClient(context: Context) {
             check(body.getString("service") == MARKER)
             val id = body.getString("id")
             check(id.matches(Regex("[a-f0-9]{32}")) && (expectedId.isEmpty() || expectedId == id))
-            return ComputerVoice(host, id, key)
+            val languages = body.optJSONArray("languages")?.let { array ->
+                (0 until array.length()).map { array.optString(it) }.toSet()
+            } ?: setOf("zh-CN", "en-US")
+            val models = body.optJSONArray("models")?.let { array ->
+                (0 until array.length()).map { array.optString(it) }.toSet()
+            } ?: setOf("auto")
+            return ComputerVoice(host, id, key, languages, models)
         } finally { connection.disconnect() }
     }
 
-    fun synthesize(voice: ComputerVoice, text: String, rate: Float, pitch: Float): ByteArray {
+    fun synthesize(voice: ComputerVoice, text: String, rate: Float, pitch: Float,
+                   language: String = SpeechLanguage.sentence(text),
+                   model: ComputerVoiceModel = this.model): ByteArray {
         require(text.isNotBlank() && text.length <= 1200)
+        require(language in setOf("zh-CN", "en-US", "ja-JP"))
+        check(model.wireName in voice.models) { "电脑尚未提供${model.title}模型，请检查音色或更新电脑语音服务" }
+        check(model != ComputerVoiceModel.AUTO || language != "ja-JP" || "ja-JP" in voice.languages) { "电脑还没有日语音色，请更新电脑服务并安装七海日语音色" }
         val connection = connection(voice.host, "/v1/speak", voice.key)
         try {
             connection.requestMethod = "POST"
@@ -87,7 +106,8 @@ class ComputerVoiceClient(context: Context) {
             connection.readTimeout = 12000
             connection.setRequestProperty("Content-Type", "application/json; charset=utf-8")
             val body = JSONObject().put("text", text).put("rate", rate.coerceIn(.5f, 2.5f))
-                .put("pitch", pitch.coerceIn(.5f, 2f)).toString().toByteArray(Charsets.UTF_8)
+                .put("pitch", pitch.coerceIn(.5f, 2f)).put("language", language)
+                .put("model", model.wireName).toString().toByteArray(Charsets.UTF_8)
             connection.setFixedLengthStreamingMode(body.size)
             connection.outputStream.use { it.write(body) }
             check(connection.responseCode == 200) { "电脑语音暂不可用" }

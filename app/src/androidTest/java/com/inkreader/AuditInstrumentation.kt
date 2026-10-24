@@ -63,6 +63,7 @@ class AuditInstrumentation : Instrumentation() {
             override fun getApplicationContext(): Context = this
             override fun getFilesDir(): File = File(root, "files").apply { mkdirs() }
             override fun getCacheDir(): File = File(root, "cache").apply { mkdirs() }
+            override fun getSharedPreferences(name: String, mode: Int) = super.getSharedPreferences("audit_$name", mode)
             override fun getDatabasePath(name: String): File = File(root, name)
             override fun openOrCreateDatabase(name: String, mode: Int, factory: SQLiteDatabase.CursorFactory?): SQLiteDatabase =
                 SQLiteDatabase.openOrCreateDatabase(getDatabasePath(name), factory)
@@ -70,6 +71,21 @@ class AuditInstrumentation : Instrumentation() {
                 SQLiteDatabase.openDatabase(getDatabasePath(name).path, factory, SQLiteDatabase.CREATE_IF_NECESSARY, errorHandler)
         }
         try {
+            if (auditArguments?.getString("stress") != null) {
+                val report = runBlocking { StressChecks.run(this@AuditInstrumentation, isolated, auditArguments!!.getString("stress")!!) }
+                results.putString("stream", report.toString(2))
+                finish(if (report.getInt("failed") == 0) -1 else 0, results)
+                return
+            }
+            if (auditArguments?.getString("importOrder") == "true") {
+                runBlocking {
+                    val repo = BookRepository(isolated)
+                    try { passed += ImportOrderChecks.run(isolated, repo) } finally { repo.db.close() }
+                }
+                results.putString("stream", "PASS ${passed.size} import order checks\n" + passed.joinToString("\n"))
+                finish(-1, results)
+                return
+            }
             runBlocking {
                 val repo = BookRepository(isolated)
                 val book = repo.createManualBook("test-delete", "")
@@ -269,6 +285,7 @@ class AuditInstrumentation : Instrumentation() {
                     check(repo.chapters(id).any { repo.chapterText(it).contains("regression body.") })
                 }
                 passed += "DOCX, HTML, EPUB and PDF actual imports (TXT/Markdown also covered)"
+                passed += DeviceAlgorithmChecks.run(isolated, repo)
                 repo.db.close()
             }
             runOnMainSync {
@@ -297,6 +314,8 @@ class AuditInstrumentation : Instrumentation() {
                 repo.updateProgress(readerBook, 1, 50, 0.7f)
                 runOnMainSync {
                     readerContainer = AppContainer(isolated)
+                    // 会话分页检查独立于上一轮界面测试留下的滚动模式。
+                    readerContainer!!.prefs.save(ReaderPrefs(pageMode = PageMode.PAGE))
                     reader = ReaderSession(readerContainer!!, readerBook, readerContainer!!.scope)
                     reader!!.open(0, 0)
                 }
@@ -403,6 +422,7 @@ class AuditInstrumentation : Instrumentation() {
                     check(runBlocking { editorContainer.repo.chapterText(editorChapter) } == newText)
                 }
                 passed += "editor system and toolbar return await saving actual input"
+                passed += ReaderUiChecks.run(this, activity, editorContainer)
             } finally {
                 runOnMainSync {
                     activity.setContent { InkRoot() }

@@ -1,6 +1,8 @@
 package com.inkreader.ui.component
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -440,11 +442,12 @@ fun InkButton(
     modifier: Modifier = Modifier,
     iconRes: Int? = null,
     filled: Boolean = true,
-    enabled: Boolean = true
+    enabled: Boolean = true,
+    contentColor: Color? = null
 ) {
     val p = LocalInkPalette.current
     val bg = if (filled) p.accent else Color.Transparent
-    val fg = if (filled) Color.White else p.textPrimary
+    val fg = if (filled) contentColor ?: Color.White else p.textPrimary
     Row(
         modifier = modifier
             .clip(CardShape)
@@ -496,10 +499,14 @@ fun InkTextButton(
 // ==================== 朗读悬浮条 ====================
 
 @Composable
-fun MiniTtsBar(state: TtsState, modifier: Modifier = Modifier) {
+fun MiniTtsBar(state: TtsState, modifier: Modifier = Modifier, includeNavigationBarPadding: Boolean = true) {
     val ctx = LocalContext.current
     val p = LocalInkPalette.current
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val bottomGap by animateDpAsState(
+        if (includeNavigationBarPadding) bottomInset else 0.dp,
+        animationSpec = tween(160), label = "playbackNavigationGap"
+    )
 
     AnimatedVisibility(
         visible = state.active,
@@ -511,7 +518,7 @@ fun MiniTtsBar(state: TtsState, modifier: Modifier = Modifier) {
             Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
-                .padding(bottom = bottomInset + 12.dp)
+                .padding(bottom = bottomGap + 12.dp)
         ) {
             Column(
                 Modifier

@@ -2,6 +2,7 @@ package com.inkreader.parse
 
 import com.inkreader.data.model.SplitMode
 import com.inkreader.data.model.SplitOptions
+import java.text.Normalizer
 
 /**
  * 智能章节切分引擎。
@@ -23,7 +24,8 @@ object ChapterSplitter {
     // ---------------------------------------------------------------- 编号与规则片段
 
     /** 阿拉伯 / 全角数字 + 中日通用汉字数字（含大写壹贰…） */
-    private const val KANJI_DIGITS = "0-9０-９零〇一二三四五六七八九十百千万两壹贰叁肆伍陆柒捌玖拾佰仟"
+    private const val KANJI_DIGITS = "0-9０-９零〇一二三四五六七八九十百千万萬两兩壹贰貳叁參肆伍陆陸柒捌玖拾佰仟"
+    private const val SPACED_CN_NUMBER = "[$KANJI_DIGITS](?:\\s*[$KANJI_DIGITS]){0,9}"
 
     /** 罗马数字用到的字符 */
     private const val ROMAN_CHARS = "IVXLCDMivxlcdm"
@@ -52,44 +54,75 @@ object ChapterSplitter {
     private const val CH_MARKS_CHAP = "章回話话"
 
     /** 特殊章节用词（序章 / 终章 / 番外 / 幕間 / Prologue / Interlude…）：位置固定，但没有章号 */
-    private const val SPECIAL_WORDS =
-        "prologue|epilogue|interlude|afterword|foreword|preface" +
-            "|序章|序言|序曲|序説|楔子|引子|前言|开篇|卷首语|終章|终章|後記|后记|尾声|番外" +
-            "|结语|完本感言|作者的话|内容提要|目录|幕間|幕间|番外編|番外篇|プロローグ" +
-            "|エピローグ|あとがき|まえがき|外伝|外传|付録|附录"
+    private const val FRONT_WORDS =
+        "序章|序言|序曲|序説|自序|楔子|引子|前言|引言|题记|題記|开篇|卷首语|序" +
+            "|prologue|foreword|preface|まえがき|プロローグ"
+    private const val BACK_WORDS =
+        "最终章|最終章|最终话|最終話|最终回|最終回|终章|終章|终幕|終幕|终话|終話" +
+            "|大结局|大結局|结局篇|結局篇|完结篇|完結篇|结语|結語|尾声|尾聲" +
+            "|后记|後記|后序|後序|完本感言|完结感言|番外篇|番外編|番外|外传|外傳|外伝" +
+            "|后日谈|後日談|附录|附錄|付録|epilogue|afterword|エピローグ|あとがき"
+    private const val SPECIAL_WORDS = FRONT_WORDS + "|" + BACK_WORDS +
+        "|interlude|幕間|幕间|间章|間章|插章|作者的话|内容提要|目录"
 
-    private const val SPECIAL_BOUNDARY =
-        "(?:\\s*[:：—\\-·]\\s*|\\s+|[（(【\\[]|[0-9０-９]{1,4}\\s*|$)"
+    /** 完整匹配，括号成对；编号只属于特殊章，不能被误当正文章号排序。 */
+    private fun specialPattern(words: String): Regex {
+        val brackets = listOf("（" to "）", "(" to ")", "【" to "】", "[" to "]", "「" to "」", "『" to "』")
+        val bracketSuffix = brackets.joinToString("|") { (open, close) ->
+            Regex.escape(open) + "[^（）()【】\\[\\]「」『』\\r\\n]{1,24}" + Regex.escape(close)
+        }
+        val label = "(?i:$words)(?:\\s*(?:第\\s*[$KANJI_DIGITS]{1,6}\\s*[章回话話篇節节]|[$KANJI_DIGITS]{1,6}))?" +
+            "(?:[上中下](?:篇|部|編|编))?"
+        val textStart = "[^（）()【】\\[\\]「」『』\\s\\r\\n]"
+        val subtitle = "(?:\\s*[:：—–\\-·]\\s*$textStart[^\\r\\n]{0,23}|\\s+$textStart[^\\r\\n]{0,23})?"
+        val core = "$label(?:\\s*(?:$bracketSuffix)){0,2}$subtitle"
+        val wrapped = brackets.joinToString("|") { (open, close) ->
+            val tail = if (open == "【" || open == "[") "(?:\\s*$textStart[^\\r\\n]{0,23})?" else subtitle
+            Regex.escape(open) + "\\s*$core\\s*" + Regex.escape(close) + tail
+        }
+        return Regex("^\\s{0,6}(?:$core|$wrapped)\\s*$")
+    }
 
     /** 特殊章节标题（中 / 日 / 英）：位置明确但不是「编号」的那一类 */
-    private val specialTitle = Regex(
-        "^\\s{0,6}[（(【\\[]?\\s*(?i:$SPECIAL_WORDS)\\s*[)）】\\]]?$SPECIAL_BOUNDARY(.{0,24})$"
+    private val specialTitle = specialPattern(SPECIAL_WORDS)
+
+    private const val EN_CHAPTER_WORDS = "chapter|chap|ch|episode|ep"
+    private const val EN_ALL_WORDS = "$EN_CHAPTER_WORDS|part|book|volume|vol"
+    private const val EN_NUMBER = "\\.?\\s*(?:(?i:no)\\.?\\s*|#\\s*)?"
+
+    /** 没有「第」的章号必须有边界，避免把「三章小说」当成标题。 */
+    private fun cnPattern(marks: String) = Regex(
+        "^\\s{0,6}(?:第\\s*[$KANJI_DIGITS]{1,10}\\s*[$marks]|" +
+            "[$KANJI_DIGITS]{1,10}\\s*[$marks](?=\\s|[:：.、（(【\\[]|$))\\s*(.{0,40})$"
     )
 
     // 中 / 日：第X章・第X話・第X節・第X巻（阿拉伯、全角、汉字数字都认）；含「节 / 節」
     private val cnTitle =
-        Regex("^\\s{0,6}第\\s*[$KANJI_DIGITS]{1,10}\\s*[$CH_MARKS]\\s*(.{0,40})$")
+        cnPattern(CH_MARKS)
 
     // 章级标题（严格版）：**不含「节 / 節」**，「第X节」是章内小节而不是一章
     private val cnChapterTitle =
-        Regex("^\\s{0,6}第\\s*[$KANJI_DIGITS]{1,10}\\s*[$CH_MARKS_STRICT]\\s*(.{0,40})$")
+        cnPattern(CH_MARKS_STRICT)
 
     // 只认「章 / 回 / 話 / 话」这一层（把「卷 / 部 / 篇 / 集 / 幕 / 折」这类上级划分排除在外）
     private val cnChapOnlyTitle =
-        Regex("^\\s{0,6}第\\s*[$KANJI_DIGITS]{1,10}\\s*[$CH_MARKS_CHAP]\\s*(.{0,40})$")
+        cnPattern(CH_MARKS_CHAP)
 
     /** 只认「节 / 節」这一层 */
     private val cnSectionOnlyTitle =
-        Regex("^\\s{0,6}第\\s*[$KANJI_DIGITS]{1,10}\\s*[節节]\\s*(.{0,40})$")
+        cnPattern("節节")
 
     private fun labeledTitle(marks: String) = Regex(
-        "^\\s{0,6}(?:[A-Za-z]{1,8}|[正文免费收费公众订阅VIP上架]{1,6})\\s+" +
+        "^\\s{0,6}(?:[A-Za-z]{1,8}|[正文免费收费公众订阅VIP上架]{1,6})(?:\\s+|\\s*[:：]\\s*)" +
             "第\\s*[$KANJI_DIGITS]{1,10}\\s*[$marks]\\s*(.{0,40})$"
     )
 
-    private fun bracketTitle(marks: String) = Regex(
-        "^\\s{0,6}[（(【\\[]\\s*第\\s*[$KANJI_DIGITS]{1,10}\\s*[$marks]\\s*[)）】\\]]\\s*(.{0,40})$"
-    )
+    private fun bracketTitle(marks: String): Regex {
+        val marker = "\\s*第\\s*[$KANJI_DIGITS]{1,10}\\s*[$marks]\\s*"
+        val pairs = listOf("（" to "）", "(" to ")", "【" to "】", "[" to "]")
+        val wrapped = pairs.joinToString("|") { (open, close) -> Regex.escape(open) + marker + Regex.escape(close) }
+        return Regex("^\\s{0,6}(?:$wrapped)\\s*(.{0,40})$")
+    }
 
     /** 松：含「节 / 卷」。只在「全文没有两个以上章级标题」时才轮得到它 */
     private val cnLabeledTitle = labeledTitle(CH_MARKS)
@@ -110,28 +143,62 @@ object ChapterSplitter {
     private val upperTitle = Regex(
         "^\\s{0,6}(?:第\\s*[$KANJI_DIGITS]{1,10}\\s*[卷巻集部篇編编幕折]" +
             "|[卷巻]\\s*[$KANJI_DIGITS]{1,10}" +
+            "|[上中下前后後][卷部篇編编](?=\\s|[:：]|$)" +
             "|(?i:volume|vol|book)\\.?\\s*$NUM)\\s*(.{0,40})$"
     )
 
     // 英 / 日：Chapter / Part / Book / Volume / Episode + 编号
     private val enTitle =
-        Regex("^\\s{0,6}(?i:chapter|part|book|volume|vol|episode|ep)\\.?\\s*$NUM\\s*[:：.、\\-–—]?\\s*(.{0,50})$")
+        Regex("^\\s{0,6}(?i:$EN_ALL_WORDS)$EN_NUMBER$NUM\\s*[:：.、\\-–—]?\\s*(.{0,50})$")
 
     /** 仅认英文 Chapter / Episode（不含 Part / Volume / Book） */
     private val enChapOnlyTitle =
-        Regex("^\\s{0,6}(?i:chapter|episode|ep)\\.?\\s*$NUM\\s*[:：.、\\-–—]?\\s*(.{0,50})$")
+        Regex("^\\s{0,6}(?i:$EN_CHAPTER_WORDS)$EN_NUMBER$NUM\\s*[:：.、\\-–—]?\\s*(.{0,50})$")
 
     /** 强模式：包含章、卷、节、特殊章 */
     private val strong =
-        listOf(cnTitle, cnLabeledTitle, cnBracketTitle, enTitle, specialTitle)
+        listOf(cnTitle, cnLabeledTitle, cnBracketTitle, enTitle, specialTitle, upperTitle)
 
     /** 章级强模式（**不含「节 / 節」**） */
     private val strongChapter =
-        listOf(cnChapterTitle, cnLabeledTitleStrict, cnBracketTitleStrict, enTitle, specialTitle)
+        listOf(cnChapterTitle, cnLabeledTitleStrict, cnBracketTitleStrict, enTitle, specialTitle, upperTitle)
 
     /** 只认「章 / 回 / 話」一级，把「卷 / 部 / 篇 / 集」这类上级标题排除在外 */
     private val strongChapOnly =
-        listOf(cnChapOnlyTitle, cnLabeledTitleChap, cnBracketTitleChap, enTitle, specialTitle)
+        listOf(cnChapOnlyTitle, cnLabeledTitleChap, cnBracketTitleChap, enChapOnlyTitle, specialTitle)
+
+    private val headingWrappers = listOf("【" to "】", "[" to "]", "(" to ")", "「" to "」", "『" to "』")
+    private val headingDecor = Regex("^[★☆◆◇※]{1,3}\\s*(.+?)(?:\\s*[★☆◆◇※]{1,3})?$")
+
+    internal fun isNumberedChapterTitle(raw: String): Boolean {
+        val title = headingText(raw)
+        return title.length in 1..44 && TITLE_FORBIDDEN_END.indexOf(title.last()) < 0 &&
+            !looksLikeChapterReference(title) &&
+            listOf(cnChapOnlyTitle, cnLabeledTitleChap, cnBracketTitleChap, enChapOnlyTitle).any { it.matches(title) }
+    }
+
+    internal fun isBookendTitle(raw: String): Boolean {
+        val title = headingText(raw)
+        return title.length in 1..44 && TITLE_FORBIDDEN_END.indexOf(title.last()) < 0 &&
+            (frontMatter.matches(title) || backMatter.matches(title))
+    }
+
+    /** 仅识别时规范化，标题和正文仍以原文保存；弱数字列表不做去括号处理。 */
+    private fun headingText(raw: String): String {
+        val trimmed = raw.trim()
+        if (trimmed.length > 96) return trimmed
+        var text = Normalizer.normalize(trimmed, Normalizer.Form.NFKC)
+        repeat(2) {
+            headingWrappers.firstOrNull { (open, close) -> text.startsWith(open) && text.endsWith(close) }?.let { (open, close) ->
+                val inner = text.substring(open.length, text.length - close.length).trim()
+                if (strong.any { it.matches(inner) }) text = inner
+            }
+            headingDecor.matchEntire(text)?.groupValues?.get(1)?.trim()?.let { inner ->
+                if (strong.any { it.matches(inner) }) text = inner
+            }
+        }
+        return text
+    }
 
     /** 弱模式：数字编号，容易和正文里的数字行冲突，需配合密度判断 */
     private val weak = listOf(
@@ -228,10 +295,10 @@ object ChapterSplitter {
 
     /** 判断一行是否为「第X卷 / 第X部 / Volume X」上级分卷标题，是则返回规范化卷名 */
     fun extractVolumeTitle(line: String): String? {
-        val t = line.trim()
+        val t = headingText(line)
         if (t.isEmpty() || t.length > 44) return null
         if (TITLE_FORBIDDEN_END.indexOf(t.last()) >= 0) return null
-        return if (upperTitle.matches(t)) t else null
+        return if (upperTitle.matches(t)) line.trim() else null
     }
 
     /** 从章节标题或正文前几行推断其所属分卷名 */
@@ -302,7 +369,7 @@ object ChapterSplitter {
         // 2. 自定义前缀或正则表达式切分
         if (options.mode == SplitMode.CUSTOM && options.customPattern.isNotBlank()) {
             val customRegex = buildCustomRegex(options.customPattern.trim())
-            val customIdx = customRegex?.let { findTitleLines(lines, listOf(it), contextGated = false) }.orEmpty()
+            val customIdx = customRegex?.let { findTitleLines(lines, listOf(it), contextGated = false, canonical = false) }.orEmpty()
             if (customIdx.isNotEmpty()) {
                 return assembleParts(lines, text, customIdx, fallbackTitle, options.cleanWatermark)
             }
@@ -397,7 +464,7 @@ object ChapterSplitter {
                 fallbackTitle
             )
         }
-        return assembleParts(lines, text, chosen, fallbackTitle, options.cleanWatermark)
+        return assembleParts(lines, text, recoverNumberGaps(lines, chosen), fallbackTitle, options.cleanWatermark)
     }
 
     /** 把用户输入的自定义前缀或正则表达式转成行级匹配 Regex */
@@ -510,7 +577,7 @@ object ChapterSplitter {
     }
 
     private fun classifyFamily(line: String): HeadingFamily {
-        val t = line.trim()
+        val t = headingText(line)
         return when {
             specialTitle.matches(t) -> HeadingFamily.SPECIAL
             cnChapOnlyTitle.matches(t) -> HeadingFamily.CHAP_CN
@@ -569,6 +636,8 @@ object ChapterSplitter {
         }
 
         val keep = BooleanArray(candidates.size) { true }
+        val prefix = LongArray(lines.size + 1)
+        for (line in lines.indices) prefix[line + 1] = prefix[line] + lines[line].length
         var i = 1
         while (i < candidates.lastIndex) {
             val curr = orders[i]
@@ -583,7 +652,11 @@ object ChapterSplitter {
                 if (neighborsContinuous && !currFitsBetween && !currStartsNewVolume) {
                     val jumpFromPrev = kotlin.math.abs(curr - prev)
                     val jumpToNext = kotlin.math.abs(next - curr)
-                    if (jumpFromPrev >= 5 && jumpToNext >= 5) {
+                    val nearby = prefix[candidates[i + 1]] - prefix[candidates[i - 1] + 1] <= 1200
+                    val crossesVolume = nearby && (candidates[i - 1] + 1 until candidates[i + 1]).any {
+                        extractVolumeTitle(lines[it]) != null
+                    }
+                    if (jumpFromPrev >= 5 && jumpToNext >= 5 && nearby && !crossesVolume) {
                         keep[i] = false
                         i += 2
                         continue
@@ -597,6 +670,120 @@ object ChapterSplitter {
             if (keep[k]) out += candidates[k]
         }
         return if (out.size >= 2) out else candidates
+    }
+
+    // ---------------------------------------------------------------- 编号缺口局部补查
+
+    private data class ContinuityHeading(val number: Int, val kind: String, val stem: String, val segment: Int)
+    private val gapCnMarker = Regex("^(?:第\\s*)?($SPACED_CN_NUMBER)\\s*([章回話话])")
+    private val gapEnMarker = Regex("^(?i:$EN_CHAPTER_WORDS)$EN_NUMBER($NUM)")
+    private val gapLabel = Regex("^(?:[A-Za-z]{1,8}|[正文免费收费公众订阅VIP上架]{1,6})(?:\\s+|\\s*:\\s*)(?=第)")
+    private val gapDecor = Regex("^[★☆◆◇※]{1,3}\\s*|\\s*[★☆◆◇※]{1,3}$")
+    private val gapMarkdown = Regex("^#{1,6}\\s+")
+    private val numberSpaces = Regex("\\s+")
+
+    /** 只为缺口比较放宽字间空格和包装；不改变全书主识别规则，也不改写原文。 */
+    private fun continuityHeading(raw: String, relaxed: Boolean): ContinuityHeading? {
+        if (!relaxed && !isNumberedChapterTitle(raw)) return null
+        if (raw.trim().length !in 1..80) return null
+        var title = Normalizer.normalize(raw.trim(), Normalizer.Form.NFKC)
+        if (relaxed && title.first() in "「『“\"") return null
+        if (relaxed) title = gapMarkdown.replaceFirst(title, "")
+        title = gapDecor.replace(title, "").trim()
+        repeat(2) {
+            val pair = headingWrappers.firstOrNull { title.startsWith(it.first) }
+            if (pair != null) {
+                val close = title.indexOf(pair.second, pair.first.length)
+                if (close < 0) return null
+                val inner = title.substring(pair.first.length, close).trim()
+                if (close == title.length - pair.second.length) title = inner
+                else if (gapCnMarker.matchEntire(inner) != null || gapEnMarker.matchEntire(inner) != null)
+                    title = inner + " " + title.substring(close + pair.second.length).trim()
+            }
+        }
+        title = gapLabel.replaceFirst(title, "")
+        if (specialTitle.matches(title)) return null
+        val cn = gapCnMarker.find(title)
+        val en = if (cn == null) gapEnMarker.find(title) else null
+        val match = cn ?: en ?: return null
+        val token = if (cn != null) numberSpaces.replace(cn.groupValues[1], "") else match.groupValues[1]
+        val number = parseNumberToken(token)?.takeIf { it in 1 until ORDER_BACK_MATTER } ?: return null
+        val kind = if (cn != null) cn.groupValues[2].replace('話', '话')
+            else if (title.startsWith("ep", ignoreCase = true)) "话" else "章"
+        val tail = title.substring(match.range.last + 1)
+        val subtitle = tail.trimStart { it.isWhitespace() || it in ":.、—–-" }
+        if (cn != null && !title.startsWith("第") && tail.isNotEmpty() &&
+            !tail.first().isWhitespace() && tail.first() !in ":.、([") return null
+        // 松规则必须比主规则更严格地排除引用和句子，不能只凭章号相符就切开正文。
+        if (relaxed && (tail.any { it in "。！？；，!?;\"“”「」『』" } ||
+                TITLE_FORBIDDEN_END.indexOf(title.last()) >= 0 ||
+                looksLikeChapterReference(if (cn != null) title.replaceRange(cn.groups[1]!!.range, token) else title) ||
+                (cn != null && subtitle.firstOrNull()?.let { it in REFERENCE_CONNECTORS } == true) ||
+                (en != null && subtitle.takeWhile { it.isLetter() }.lowercase() in EN_REFERENCE_WORDS))) return null
+        val normalized = title.replaceRange(match.groups[1]!!.range, number.toString())
+        val suffix = segmentSuffix.find(normalized)
+        val segment = suffix?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }?.let { "上中下".indexOf(it) } ?: -1
+        val stem = numberSpaces.replace(if (suffix == null) normalized else normalized.removeRange(suffix.range), "")
+        return ContinuityHeading(number, kind, stem, segment)
+    }
+
+    /**
+     * 仅在两个已确认、同类的章号之间补查；上下篇同号不构成缺口。
+     * 每段只扫描一次，最多补查 32 个缺号、5 万行、200 万字符；不跨卷或特殊章。
+     * 找不到、同号候选有歧义或候选顺序倒置时保留正文，不创建空章或重排内容。
+     */
+    internal fun recoverNumberGaps(lines: List<String>, chosen: List<Int>): List<Int> {
+        if (chosen.size < 2) return chosen
+        val recovered = ArrayList<Int>()
+        for (pair in chosen.zipWithNext()) {
+            val left = continuityHeading(lines[pair.first], relaxed = false) ?: continue
+            val right = continuityHeading(lines[pair.second], relaxed = false) ?: continue
+            if (left.kind != right.kind || right.number - left.number !in 2..33 || pair.second - pair.first > 50000) continue
+            val found = ArrayList<Pair<Int, ContinuityHeading>>()
+            val counts = LongArray(pair.second - pair.first + 1)
+            var fence: String? = null
+            var blocked = false
+            var scannedChars = 0L
+            for (line in pair.first + 1 until pair.second) {
+                val raw = lines[line]
+                scannedChars += raw.length.toLong() + 1
+                if (scannedChars > 2_000_000) { blocked = true; break }
+                val text = raw.trim()
+                counts[line - pair.first] = counts[line - pair.first - 1] + text.length
+                if (text.startsWith("```") || text.startsWith("~~~")) {
+                    val run = text.takeWhile { it == text.first() }
+                    if (fence == null) fence = run
+                    else if (run.first() == fence.first() && run.length >= fence.length && text == run) fence = null
+                    continue
+                }
+                if (fence != null) continue
+                if (extractVolumeTitle(text) != null || specialTitle.matches(headingText(text))) { blocked = true; break }
+                if (!lines[line - 1].isBlank() && !lines[line + 1].isBlank()) continue
+                val heading = continuityHeading(text, relaxed = true) ?: continue
+                if (heading.kind != left.kind) continue
+                // 边界编号也要参与顺序检查：12 → 松规则14 → 松规则13 → 14
+                // 不能先丢掉缺口外的14，再把孤立的13误当成可靠漏章。
+                if (heading.number <= left.number || heading.number >= right.number) { blocked = true; break }
+                found += line to heading
+            }
+            if (blocked || found.isEmpty()) continue
+            val unambiguous = found.groupBy { it.second.number }.values.flatMap { group ->
+                if (group.size == 1) group
+                else if (group.all { it.second.segment >= 0 } && group.map { it.second.stem }.distinct().size == 1 &&
+                    group.zipWithNext().all { it.first.second.segment < it.second.second.segment }) group
+                else emptyList()
+            }.sortedBy { it.first }
+            if (unambiguous.zipWithNext().any { it.first.second.number > it.second.second.number }) continue
+            unambiguous.forEach { candidate ->
+                val index = found.binarySearchBy(candidate.first) { it.first }
+                val previous = found.getOrNull(index - 1)?.first ?: pair.first
+                val next = found.getOrNull(index + 1)?.first ?: pair.second
+                fun bodyChars(start: Int, end: Int) = counts[end - pair.first - 1] - counts[start - pair.first]
+                if (bodyChars(previous, candidate.first) >= 40 && bodyChars(candidate.first, next) >= 40)
+                    recovered += candidate.first
+            }
+        }
+        return if (recovered.isEmpty()) chosen else (chosen + recovered).sorted()
     }
 
     // ---------------------------------------------------------------- 算法层增强 3：奇葩前缀自动归纳
@@ -672,7 +859,7 @@ object ChapterSplitter {
                 end--
                 continue
             }
-            if (!upperTitle.matches(t)) break
+            if (extractVolumeTitle(t) == null) break
             peeled.add(0, lines[end - 1])
             end--
         }
@@ -686,12 +873,14 @@ object ChapterSplitter {
     private fun findTitleLines(
         lines: List<String>,
         patterns: List<Regex>,
-        contextGated: Boolean
+        contextGated: Boolean,
+        canonical: Boolean = true
     ): List<Int> {
         val out = ArrayList<Int>()
+        val adjacentWithoutBody = HashSet<Int>()
         for (i in lines.indices) {
             val raw = lines[i]
-            val t = raw.trim()
+            val t = if (canonical) headingText(raw) else raw.trim()
             if (t.isEmpty() || t.length > 44) continue
             // 标题行不应以句末标点结尾（那更像正文）
             if (TITLE_FORBIDDEN_END.indexOf(t.last()) >= 0) continue
@@ -712,13 +901,16 @@ object ChapterSplitter {
             } else {
                 val nextIsTitle = run {
                     val nx = lines.getOrNull(i + 1)?.trim()
-                    nx != null && nx.isNotEmpty() && patterns.any { it.matches(nx) }
+                    nx != null && nx.isNotEmpty() && patterns.any { it.matches(if (canonical) headingText(nx) else nx) }
                 }
-                if (nextIsTitle && !standalone) continue
+                if (nextIsTitle && !standalone) adjacentWithoutBody += i
             }
             out += i
         }
         val candidates = dropLeadingToc(lines, out)
+        // 先让目录检测看到完整的密集标题簇，再抑制没有正文间隔的相邻候选。
+        // 提前丢掉目录中间项，会使目录不足最小行数，最后一条目录项反而被保留。
+        if (!contextGated) return candidates.filterNot { it in adjacentWithoutBody }
         // 弱模式再做一次「相邻间隔过小」的过滤；强模式不做 —— 卷标题紧邻章标题是正常写法
         if (!contextGated || candidates.size < 2) return candidates
         val filtered = ArrayList<Int>()
@@ -752,7 +944,7 @@ object ChapterSplitter {
         val seenTitles = HashSet<String>()
         var tocEnd = -1
         for (k in 0 until end) {
-            val norm = cleanChapterTitle(lines[candidates[k]].trim())
+            val norm = headingText(cleanChapterTitle(lines[candidates[k]].trim()))
             if (!seenTitles.add(norm)) {
                 tocEnd = k
                 break
@@ -760,10 +952,10 @@ object ChapterSplitter {
         }
         if (tocEnd < 0) {
             val restTitles = candidates.subList(end, candidates.size)
-                .map { cleanChapterTitle(lines[it].trim()) }
+                .map { headingText(cleanChapterTitle(lines[it].trim())) }
                 .toHashSet()
             val hit = candidates.subList(0, end).count {
-                cleanChapterTitle(lines[it].trim()) in restTitles
+                headingText(cleanChapterTitle(lines[it].trim())) in restTitles
             }
             if (hit * 2 < end) return candidates
             tocEnd = end
@@ -798,11 +990,11 @@ object ChapterSplitter {
 
     /** 「第X章」这类标记（只要标记本身，不含后面的标题词） */
     private val chapterMarkerRegex =
-        Regex("第\\s*[$KANJI_DIGITS]{1,10}\\s*[$CH_MARKS]")
+        Regex("(?:第\\s*[$KANJI_DIGITS]{1,10}\\s*[$CH_MARKS]|^[$KANJI_DIGITS]{1,10}\\s*[$CH_MARKS])")
 
     /** 英文标记 + 编号：只到编号为止，后面的 `:` 属于标题内容，不算「在引用某章」 */
     private val enMarkerRegex =
-        Regex("(?i)\\b(?:chapter|part|book|volume|vol|episode|ep)\\.?\\s*($NUM)")
+        Regex("(?i)\\b(?:$EN_ALL_WORDS)$EN_NUMBER($NUM)")
 
     private val EN_REFERENCE_WORDS = setOf(
         "of", "is", "was", "were", "are", "has", "have", "had", "in", "to", "and", "or",
@@ -853,7 +1045,7 @@ object ChapterSplitter {
 
     /** 合并导入时，用文件名生成一个章节标题 */
     fun titleFromFileName(name: String): String {
-        val base = name.substringAfterLast('/').substringBeforeLast('.')
+        val base = name.substringAfterLast('/').substringAfterLast('\\').substringBeforeLast('.')
         return base.trim().ifEmpty { "未命名" }
     }
 
@@ -861,15 +1053,30 @@ object ChapterSplitter {
      * 从文件名里抠出「第几」用于排序。
      */
     fun chapterOrderFromName(name: String): Int? {
-        val base = name.substringAfterLast('/').substringBeforeLast('.').trim()
+        val base = name.substringAfterLast('/').substringAfterLast('\\').substringBeforeLast('.').trim()
         return chapterOrderFromTitle(base)
+    }
+
+    internal data class FileOrderKey(val order: Int, val family: String, val segment: Int)
+    private val segmentSuffix = Regex("(?:\\(([上中下])(?:篇|部)?\\)|\\[([上中下])(?:篇|部)?\\]|([上中下])(?:篇|部))$")
+
+    internal fun fileOrderKey(name: String): FileOrderKey {
+        val base = headingText(titleFromFileName(name))
+        val suffix = segmentSuffix.find(base)?.takeIf { isNumberedChapterTitle(base) || isBookendTitle(base) }
+        val family = if (suffix != null) base.removeRange(suffix.range).trimEnd() else base
+        val segment = suffix?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }?.let { "上中下".indexOf(it) } ?: -1
+        return FileOrderKey(chapterOrderFromName(name) ?: Int.MAX_VALUE, family, segment)
     }
 
     /**
      * 只认「章 / 回 / 卷 / 集 / 部 / 篇 / 幕 / 折」这一级（**不认「节」**），
      * 用来判断一个文件是不是真的按「章」分好的。
      */
-    fun chapterLevelOrderFromTitle(title: String): Int? = orderOf(title, CH_MARKS_STRICT)
+    fun chapterLevelOrderFromTitle(title: String): Int? {
+        val canonical = headingText(title)
+        if (cnSectionOnlyTitle.matches(canonical) || labeledTitle("節节").matches(canonical) || bracketTitle("節节").matches(canonical)) return null
+        return orderOf(title, CH_MARKS_STRICT)
+    }
 
     /**
      * 从章节标题里解析排序用的章号（追加章节、自动排序都用它）。
@@ -904,16 +1111,18 @@ object ChapterSplitter {
      * 阅读页章首页那行蓝色小字「第 N 章」要不要显示。
      */
     fun showsOrdinalLabel(title: String): Boolean {
-        val t = title.trim()
+        val t = headingText(title)
         if (t.isEmpty()) return true
         if (chapterOrderFromTitle(t) != null) return false
         return !specialTitle.containsMatchIn(t)
     }
 
     private fun orderOf(title: String, marks: String): Int? {
-        val t = title.trim()
+        val t = headingText(title)
         if (t.isEmpty()) return null
-        if (frontMatter.containsMatchIn(t)) return ORDER_FRONT_MATTER
+        val cleaned = cleanChapterTitle(t)
+        if (frontMatter.matches(cleaned)) return ORDER_FRONT_MATTER
+        if (backMatter.matches(cleaned)) return ORDER_BACK_MATTER
         numberedOrder(t, marks)?.let { return it }
         // 章号区间：`4-6`、`第4~6章` —— 取区间起点当排序值
         rangeNumber.find(t)?.let { m -> halfWidthInt(m.groupValues[1])?.let { return it } }
@@ -928,15 +1137,17 @@ object ChapterSplitter {
         }
         // 整个标题就是个数字
         halfWidthInt(t)?.let { return it }
-        if (backMatter.containsMatchIn(t)) return ORDER_BACK_MATTER
         return null
     }
 
     private fun numberedOrder(t: String, marks: String): Int? {
-        Regex("第\\s*([$KANJI_DIGITS]{1,10})\\s*[$marks]").find(t)?.let { m ->
+        Regex("第\\s*($SPACED_CN_NUMBER)\\s*[$marks]").find(t)?.let { m ->
             parseNumberToken(m.groupValues[1])?.let { return it }
         }
-        Regex("(?i)\\b(?:chapter|part|book|volume|vol|episode|ep)\\.?\\s*($NUM)")
+        Regex("^([$KANJI_DIGITS]{1,10})\\s*[$marks](?=\\s|[:：.、（(【\\[]|$)").find(t)?.let { m ->
+            parseNumberToken(m.groupValues[1])?.let { return it }
+        }
+        Regex("(?i)\\b(?:$EN_ALL_WORDS)$EN_NUMBER($NUM)")
             .find(t)?.let { m ->
                 parseNumberToken(m.groupValues[1])?.let { return it }
             }
@@ -952,16 +1163,10 @@ object ChapterSplitter {
     }
 
     /** 前置内容：位置固定在正文之前，排到第一章前面 */
-    private val frontMatter = Regex(
-        "^(序|序章|序言|序曲|序説|自序|楔子|引子|前言|题记|引言|开篇|卷首语" +
-            "|(?i:prologue|foreword|preface)|まえがき|プロローグ)"
-    )
+    private val frontMatter = specialPattern(FRONT_WORDS)
 
     /** 后置内容：位置固定在正文之后，排到最后 */
-    private val backMatter = Regex(
-        "^(后记|后序|尾声|终章|结语|番外|附录|外传|終章|後記|あとがき|エピローグ|付録" +
-            "|(?i:epilogue|afterword))"
-    )
+    private val backMatter = specialPattern(BACK_WORDS)
 
     private val leadingNumber = Regex("^\\s*([0-9０-９]{1,6})\\s*[\\s._\\-、,，:：~～－—―–]")
 
@@ -990,10 +1195,10 @@ object ChapterSplitter {
     private fun parseNumberToken(raw: String): Int? {
         val s = raw.trim()
         if (s.isEmpty()) return null
-        halfWidthInt(s)?.let { return it }
+        halfWidthInt(numberSpaces.replace(s, ""))?.let { return it }
         romanToInt(s)?.let { return it }
         englishToInt(s)?.let { return it }
-        return chineseToInt(s)
+        return chineseToInt(numberSpaces.replace(s, ""))
     }
 
     /** 阿拉伯数字转整数，顺带把全角数字折成半角 */
@@ -1074,14 +1279,14 @@ object ChapterSplitter {
     private fun chineseToInt(s: String): Int? {
         if (s.isEmpty()) return null
         val digits = mapOf(
-            '零' to 0, '〇' to 0, '一' to 1, '二' to 2, '两' to 2, '三' to 3, '四' to 4,
+            '零' to 0, '〇' to 0, '一' to 1, '二' to 2, '两' to 2, '兩' to 2, '三' to 3, '四' to 4,
             '五' to 5, '六' to 6, '七' to 7, '八' to 8, '九' to 9,
-            '壹' to 1, '贰' to 2, '叁' to 3, '肆' to 4, '伍' to 5, '陆' to 6,
+            '壹' to 1, '贰' to 2, '貳' to 2, '叁' to 3, '參' to 3, '肆' to 4, '伍' to 5, '陆' to 6, '陸' to 6,
             '柒' to 7, '捌' to 8, '玖' to 9
         )
         val units = mapOf(
             '十' to 10, '百' to 100, '千' to 1000,
-            '拾' to 10, '佰' to 100, '仟' to 1000, '万' to 10000
+            '拾' to 10, '佰' to 100, '仟' to 1000, '万' to 10000, '萬' to 10000
         )
         // 无单位位值写法：`一〇八` = 108、`一二三` = 123、`二〇二五` = 2025
         if (s.length >= 2 && s.none { units.containsKey(it) }) {

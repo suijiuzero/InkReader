@@ -61,14 +61,14 @@
     <string name="shelf_file_names_more">" ほか"</string>
     <string name="shelf_import_mode">インポート方法</string>
     <string name="shelf_mode_separate_title">それぞれを1冊にする</string>
-    <string name="shelf_mode_separate_desc">各ファイルを個別の本にし、章を自動で認識します（ファイル名の章番号でも並べ替え）。</string>
+    <string name="shelf_mode_separate_desc">各ファイルを個別の本にします。章の分割方法とファイルの順序は下で設定できます。</string>
     <string name="shelf_mode_merge_title">1冊にまとめる</string>
-    <string name="shelf_mode_merge_desc">各ファイルを1章にします。ファイル名に「第N章」があるものは章番号で自動的に並べ替えます。</string>
+    <string name="shelf_mode_merge_desc">選択したファイルを1冊にまとめます。章の分割方法とファイルの順序は下で設定できます。</string>
     <string name="shelf_book_title_label">書名</string>
     <string name="shelf_title_auto_placeholder">空欄の場合は自動生成</string>
     <string name="shelf_chapter_split">章の分割</string>
     <string name="shelf_split_smart_title">スマート解析（推奨）</string>
-    <string name="shelf_split_smart_desc">「第X章」が複数あるファイルは複数の章に分割し、1章しかないものは全体を1章として、章番号で自動的に並べ替えます。</string>
+    <string name="shelf_split_smart_desc">章見出しが複数あるファイルは分割し、明確な章分けがないファイルは全体を1章にします。</string>
     <string name="shelf_split_per_file_title">各ファイルを1章として扱う</string>
     <string name="shelf_split_per_file_desc">分割せず、ファイル全体を1章とし、章名はファイル名にします。</string>
 

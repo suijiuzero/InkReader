@@ -20,13 +20,35 @@
 # 构建（Gradle wrapper 自带，无需本机装 Gradle）
 ./gradlew assembleDebug          # Windows: gradlew.bat assembleDebug
 
-# 安装到已连接设备
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+# 查看设备后替换 DEVICE_SERIAL，避免同时连接手机和模拟器时装错
+adb devices
+adb -s DEVICE_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
 构建产物与本机配置（`build/`、`local.properties`、`keystore.properties`、`*.jks`）已在 `.gitignore` 中，**不要提交**。
 
 > 工程目录名含中文时 AGP 会拒绝构建，本工程已在 `gradle.properties` 关闭该检查（`android.overridePathCheck=true`），中文目录下也能构建。
+
+## 验证与文档同步
+
+```bash
+./gradlew :app:unitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+```
+
+Windows 使用 .\gradlew.bat。unitTest 是项目自定义的测试发现入口，自动运行纯 Kotlin/JVM 的 *Test 类；它避免直接执行 Android Gradle 默认 JVM 测试任务时的中文路径问题。不要只新增测试而未确认它实际执行。
+
+需要模拟器验证数据、阅读、导入或压力行为时，安装同一次构建的主包及 AndroidTest 包，再使用 [测试工具说明](tools/testing/README.md) 中的明确目标与模式。隔离测试和真实界面操作的前置条件不同，不能将已有验收会话脚本当作可在任意书库运行的一键工具。截图、日志、内存采样和机器本地结果保存在忽略的 app/build/ 中；提交可复跑的源码、固定样本和准确的结果摘要即可。
+
+修改可见功能时同步：
+
+- 当前完整手册 docs/使用说明.md，以及中英 README。
+- 应用内简体中文、英文、日文说明 app/src/main/assets/help/help_*.md；这些资产会打包进 APK，仓库完整手册不是 APK 内的独立文件入口。
+- CHANGELOG.md 和 app/build.gradle.kts 的版本；不要把有限模拟器验证写成所有真机均通过。
+- 新测试工具需要记录适用设备、初始化条件和是否操作现有书库；不要提交个人路径、设备标识、配对码、语音包、APK 或缓存。
+
+## 发布签名
+
+常规自测使用 assembleDebug。release 打包需要在本机配置 keystore.properties（storeFile、storePassword、keyAlias、keyPassword），缺少配置时发布任务会失败，不会静默使用 debug 签名。密钥和配置保持在忽略列表中；不在日志、文档或提交中展示真实口令。
 
 ## 代码约定
 

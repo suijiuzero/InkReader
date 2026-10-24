@@ -1,0 +1,22 @@
+<resources>
+    <string name="picker_batch_title">Batch selection</string>
+    <string name="picker_batch_forward">Select from here to end</string>
+    <string name="picker_batch_reverse">Select from here to start</string>
+    <string name="picker_batch_all">Select all in display order</string>
+    <string name="picker_batch_all_reverse">Select all in reverse order</string>
+    <string name="picker_batch_range">Select a range between two files</string>
+    <string name="picker_batch_range_hint">Choose an ending file next</string>
+    <string name="picker_batch_hint">Uses the current display order and search filter in this folder only. Subfolders are excluded. New files are appended; existing selections keep their order.</string>
+    <string name="picker_batch_end_title">Choose ending file</string>
+    <string name="picker_batch_end_hint">Selects from the starting file above toward your ending file, including both. An earlier ending file selects in reverse.</string>
+    <string name="picker_batch_back">Back to options</string>
+    <plurals name="picker_batch_count">
+        <item quantity="one">%1$d file in range</item>
+        <item quantity="other">%1$d files in range</item>
+    </plurals>
+    <plurals name="picker_batch_added">
+        <item quantity="one">Added %1$d file</item>
+        <item quantity="other">Added %1$d files</item>
+    </plurals>
+    <string name="picker_batch_long_hint">Hold a file to select forward, backward, or a range</string>
+</resources>

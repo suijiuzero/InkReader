@@ -61,14 +61,14 @@
     <string name="shelf_file_names_more">" 等"</string>
     <string name="shelf_import_mode">导入方式</string>
     <string name="shelf_mode_separate_title">各自成为一本书</string>
-    <string name="shelf_mode_separate_desc">每个文件独立成书，自动识别章节（也是按文件名里的章号排序）</string>
+    <string name="shelf_mode_separate_desc">每个文件独立成书，章节划分与文件顺序可在下方设置</string>
     <string name="shelf_mode_merge_title">合并为一本书</string>
-    <string name="shelf_mode_merge_desc">每个文件成为一个章节；文件名里有「第N章」的会按章号自动排序</string>
+    <string name="shelf_mode_merge_desc">将所选文件合并成一本书，章节划分与文件顺序可在下方设置</string>
     <string name="shelf_book_title_label">书名</string>
     <string name="shelf_title_auto_placeholder">留空则自动生成</string>
     <string name="shelf_chapter_split">章节划分</string>
     <string name="shelf_split_smart_title">智能解析（推荐）</string>
-    <string name="shelf_split_smart_desc">有多个「第X章」的文件拆成多章，只有一个章节的整篇作为一章，并按章号自动排序</string>
+    <string name="shelf_split_smart_desc">有多个章节标题的文件拆成多章，没有明确分章的整篇作为一章</string>
     <string name="shelf_split_per_file_title">每个文件作为一章</string>
     <string name="shelf_split_per_file_desc">不拆分，文件整体成为一章，章节名取文件名</string>
 

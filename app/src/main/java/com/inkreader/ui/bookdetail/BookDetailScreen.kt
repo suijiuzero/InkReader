@@ -79,6 +79,8 @@ import com.inkreader.data.model.Book
 import com.inkreader.data.model.Chapter
 import com.inkreader.data.model.SplitMode
 import com.inkreader.data.model.SplitOptions
+import com.inkreader.data.model.ImportOrder
+import com.inkreader.ui.component.ImportOrderControls
 import com.inkreader.ui.component.BookCover
 import com.inkreader.ui.component.CardShape
 import com.inkreader.ui.component.CoverCache
@@ -115,7 +117,8 @@ fun BookDetailScreen(
     onBack: () -> Unit,
     onRead: (Int, Int) -> Unit,
     onEdit: (Long, String) -> Unit,
-    onGoShelf: () -> Unit = onBack
+    onGoShelf: () -> Unit = onBack,
+    onPickFiles: (() -> Unit)? = null
 ) {
     val p = LocalInkPalette.current
     val ctx = LocalContext.current
@@ -246,6 +249,7 @@ fun BookDetailScreen(
 
     // 追加文件：支持 MainActivity 级固定请求码返回与本地 fallback
     var appendUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var initialAppendOrder by remember { mutableStateOf(ImportOrder.AUTO) }
     var showAppendDialog by remember { mutableStateOf(false) }
     var appendSplit by remember { mutableStateOf(SplitMode.SMART) }
 
@@ -253,16 +257,22 @@ fun BookDetailScreen(
         ActivityResultContracts.StartActivityForResult()
     ) { result ->
         val uris = lenientPickedUris(result.data)
-        if (uris.isNotEmpty()) {
+        if (uris.isNotEmpty() && container.prefs.pendingAppendBookId == bookId) {
+            initialAppendOrder = ImportOrder.AUTO
+            container.prefs.pendingAppendBookId = 0L
             appendUris = uris
             showAppendDialog = true
-        }
+        } else if (container.prefs.pendingAppendBookId == bookId) container.prefs.pendingAppendBookId = 0L
     }
 
     LaunchedEffect(container.pendingAppendUris) {
         val pend = container.pendingAppendUris
-        if (pend.isNotEmpty()) {
+        if (pend.isNotEmpty() && container.pendingAppendBookId == bookId) {
             container.pendingAppendUris = emptyList()
+            container.pendingAppendBookId = 0L
+            container.prefs.pendingAppendBookId = 0L
+            initialAppendOrder = container.pendingAppendOrder
+            container.pendingAppendOrder = ImportOrder.AUTO
             appendUris = pend
             showAppendDialog = true
         }
@@ -298,6 +308,8 @@ fun BookDetailScreen(
     }
 
     fun launchAppendPicker() {
+        if (onPickFiles != null) { onPickFiles(); return }
+        container.prefs.pendingAppendBookId = bookId
         val act = container.docPickerLauncher
         if (act != null) {
             act(MainActivity.REQ_PICK_APPEND, "*/*", true, null)
@@ -326,10 +338,10 @@ fun BookDetailScreen(
         }
     }
 
-    fun runAppend(uris: List<Uri>, split: SplitMode) {
+    fun runAppend(uris: List<Uri>, split: SplitMode, fileOrder: ImportOrder) {
         busy = true
         scope.launch {
-            val errors = container.repo.appendFilesAsChapters(bookId, uris, split) { _, _ -> }
+            val errors = container.repo.appendFilesAsChapters(bookId, uris, split, fileOrder = fileOrder) { _, _ -> }
             val after = container.repo.chapters(bookId).size
             val added = after - chapters.size
             busy = false
@@ -939,6 +951,9 @@ fun BookDetailScreen(
     }
 
     if (showAppendDialog) {
+        var fileOrder by remember(appendUris) { mutableStateOf(initialAppendOrder) }
+        var selection by remember(appendUris) { mutableStateOf(appendUris.toList()) }
+        val names = remember(appendUris) { appendUris.associateWith { container.repo.displayName(it).orEmpty() } }
         InkDialogShell(
             onDismiss = { showAppendDialog = false },
             title = pluralStringResource(
@@ -952,11 +967,12 @@ fun BookDetailScreen(
                         showAppendDialog = false
                     }
                     InkTextButton(stringResource(R.string.detail_start_append)) {
-                        val uris = appendUris
+                        val uris = if (fileOrder == ImportOrder.SELECTION) selection else appendUris
                         val split = appendSplit
+                        val order = fileOrder
                         showAppendDialog = false
                         appendUris = emptyList()
-                        runAppend(uris, split)
+                        runAppend(uris, split, order)
                     }
                 }
             }
@@ -969,6 +985,13 @@ fun BookDetailScreen(
                 color = LocalInkPalette.current.textFaint,
                 maxLines = 2,
                 overflow = TextOverflow.Ellipsis
+            )
+            Spacer(Modifier.height(18.dp))
+            // 单文件追加也允许保留原文次序，避免被插入到旧章节中间。
+            ImportOrderControls(
+                order = fileOrder, names = selection.map { names[it].orEmpty() },
+                onOrderChange = { fileOrder = it },
+                onMove = { from, to -> selection = selection.toMutableList().apply { add(to, removeAt(from)) } }
             )
             Spacer(Modifier.height(18.dp))
             SectionLabel(stringResource(R.string.detail_chapter_split))

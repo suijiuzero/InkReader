@@ -20,6 +20,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -29,8 +30,11 @@ import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
+import com.inkreader.data.model.ImportOrder
+import com.inkreader.ui.picker.OrderedFilePickerScreen
 import com.inkreader.tts.TtsBus
 import com.inkreader.ui.bookdetail.BookDetailScreen
 import com.inkreader.ui.component.MiniTtsBar
@@ -57,6 +61,7 @@ sealed class Dest {
     data class Marks(val bookId: Long, val bookTitle: String) : Dest()
     data object Settings : Dest()
     data object Help : Dest()
+    data class OrderedPicker(val target: Int) : Dest()
 }
 
 class MainActivity : ComponentActivity() {
@@ -210,12 +215,15 @@ class MainActivity : ComponentActivity() {
         }
 
         if (requestCode == REQ_PICK_APPEND) {
-            if (uris.isNotEmpty()) {
+            val appendBook = container.prefs.pendingAppendBookId
+            if (uris.isNotEmpty() && appendBook > 0) {
+                container.pendingAppendOrder = ImportOrder.AUTO
+                container.pendingAppendBookId = appendBook
                 persistUriGrants(uris)
                 container.scope.launch {
                     container.pendingAppendUris = withContext(Dispatchers.IO) { uris.map { com.inkreader.ui.component.ensureReadableUri(applicationContext, it) } }
                 }
-            }
+            } else container.prefs.pendingAppendBookId = 0L
             return
         }
 
@@ -318,16 +326,40 @@ class MainActivity : ComponentActivity() {
 @Composable
 fun InkRoot() {
     val container = InkApp.instance.container
-    val backStack = remember { mutableStateListOf<Dest>(Dest.Shelf) }
+    val context = LocalContext.current
+    val backStack = remember {
+        mutableStateListOf<Dest>(Dest.Shelf).apply {
+            val target = container.prefs.orderedPickerTarget
+            if (target == MainActivity.REQ_PICK_APPEND && container.prefs.orderedPickerBookId > 0) {
+                add(Dest.Detail(container.prefs.orderedPickerBookId))
+                add(Dest.OrderedPicker(target))
+            } else if (target == MainActivity.REQ_PICK_SHELF) add(Dest.OrderedPicker(target))
+            else if (container.prefs.pendingAppendBookId > 0) add(Dest.Detail(container.prefs.pendingAppendBookId))
+        }
+    }
     val ttsState by TtsBus.state.collectAsState()
 
     fun push(d: Dest) = backStack.add(d)
     fun pop() {
+        val closing = backStack.lastOrNull()
+        if (closing is Dest.Detail && container.prefs.pendingAppendBookId == closing.bookId) {
+            container.prefs.pendingAppendBookId = 0L
+        }
+        if (closing is Dest.OrderedPicker) {
+            container.prefs.orderedPickerTarget = 0
+            container.prefs.orderedPickerBookId = 0L
+        }
         if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
     }
 
+    fun pickFiles(target: Int, bookId: Long = 0L) {
+        container.prefs.orderedPickerBookId = bookId
+        container.prefs.orderedPickerTarget = target
+        push(Dest.OrderedPicker(target))
+    }
+
     fun popToShelf() {
-        while (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+        while (backStack.size > 1) pop()
     }
 
     LaunchedEffect(container.pendingOpenBook) {
@@ -345,7 +377,7 @@ fun InkRoot() {
     val depth = backStack.size
 
     InkTheme(readerTheme = container.library.uiTheme, barRevision = depth) {
-        androidx.compose.foundation.layout.Box {
+        androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
             AnimatedContent(
                 targetState = current to depth,
                 transitionSpec = {
@@ -369,7 +401,8 @@ fun InkRoot() {
                         onOpenMarks = { id, title -> push(Dest.Marks(id, title)) },
                         onOpenGroup = { push(Dest.Group(it)) },
                         onOpenSearch = { push(Dest.Search) },
-                        onOpenSettings = { push(Dest.Settings) }
+                        onOpenSettings = { push(Dest.Settings) },
+                        onPickFiles = { pickFiles(MainActivity.REQ_PICK_SHELF) }
                     )
 
                     is Dest.Settings -> SettingsScreen(
@@ -401,7 +434,44 @@ fun InkRoot() {
                         onBack = { pop() },
                         onRead = { chapter, offset -> push(Dest.Reader(dest.bookId, chapter, offset)) },
                         onEdit = { chapterId, title -> push(Dest.Editor(dest.bookId, chapterId, title)) },
-                        onGoShelf = { popToShelf() }
+                        onGoShelf = { popToShelf() },
+                        onPickFiles = { pickFiles(MainActivity.REQ_PICK_APPEND, dest.bookId) }
+                    )
+
+                    is Dest.OrderedPicker -> OrderedFilePickerScreen(
+                        onBack = { pop() },
+                        onConfirm = { uris ->
+                            if (uris.isNotEmpty()) {
+                                if (dest.target == MainActivity.REQ_PICK_APPEND) {
+                                    val bookId = container.prefs.orderedPickerBookId
+                                    container.prefs.pendingAppendBookId = bookId
+                                    container.pendingAppendBookId = bookId
+                                    container.pendingAppendOrder = ImportOrder.SELECTION
+                                    container.pendingAppendUris = uris
+                                } else {
+                                    container.prefs.savePendingImport(uris.map { it.toString() }, ImportOrder.SELECTION)
+                                    container.pendingUris = uris
+                                }
+                                pop()
+                            }
+                        },
+                        onSystemPicker = {
+                            val target = dest.target
+                            val bookId = container.prefs.orderedPickerBookId
+                            pop()
+                            if (target == MainActivity.REQ_PICK_APPEND) container.prefs.pendingAppendBookId = bookId
+                            if (target == MainActivity.REQ_PICK_SHELF) {
+                                container.prefs.pickerLaunchedAt = System.currentTimeMillis()
+                                container.prefs.pickerRetriedAt = 0L
+                            }
+                            val opened = container.docPickerLauncher?.invoke(target, "*/*", true, arrayOf("*/*")) == true
+                            if (!opened) {
+                                container.prefs.pickerLaunchedAt = 0L
+                                if (target == MainActivity.REQ_PICK_APPEND) container.prefs.pendingAppendBookId = 0L
+                                Toast.makeText(context, context.getString(R.string.shelf_picker_open_failed,
+                                    context.getString(R.string.action_unknown_error)), Toast.LENGTH_LONG).show()
+                            }
+                        }
                     )
 
                     is Dest.Reader -> ReaderScreen(
@@ -434,8 +504,8 @@ fun InkRoot() {
                 }
             }
 
-            // 朗读悬浮条：任何界面之上都可见，方便随时暂停
-            if (ttsState.active) {
+            // 阅读器自己处理悬浮条与工具栏、面板的层级，根层不重复覆盖。
+            if (ttsState.active && current !is Dest.Reader && current !is Dest.OrderedPicker) {
                 MiniTtsBar(ttsState, Modifier.align(Alignment.BottomCenter))
             }
         }

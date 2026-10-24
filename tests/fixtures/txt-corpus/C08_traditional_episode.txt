@@ -1,0 +1,13 @@
+AUDIT_C08
+
+第一話 初見
+
+TXT_AUDIT_C08_S00 测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。
+
+第二話 重逢
+
+TXT_AUDIT_C08_S01 测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。
+
+第三話 歸來
+
+TXT_AUDIT_C08_S02 测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。

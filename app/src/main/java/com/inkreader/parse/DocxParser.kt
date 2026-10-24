@@ -3,9 +3,7 @@ package com.inkreader.parse
 import android.util.Xml
 import org.xmlpull.v1.XmlPullParser
 import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
 import java.io.InputStream
-import java.util.zip.ZipInputStream
 
 /**
  * docx 解析器。
@@ -26,27 +24,10 @@ class DocxParser {
     )
 
     fun parse(input: InputStream): Parsed {
-        var documentXml: ByteArray? = null
-        var coreXml: ByteArray? = null
-        var stylesXml: ByteArray? = null
-
-        ZipInputStream(input.buffered()).use { zip ->
-            while (true) {
-                val entry = zip.nextEntry ?: break
-                val name = entry.name
-                if (entry.isDirectory) {
-                    zip.closeEntry()
-                    continue
-                }
-                when {
-                    name == "word/document.xml" -> documentXml = readEntry(zip)
-                    name == "word/styles.xml" -> stylesXml = readEntry(zip)
-                    name == "docProps/core.xml" -> coreXml = readEntry(zip)
-                    name == "word/document2.xml" -> if (documentXml == null) documentXml = readEntry(zip)
-                }
-                zip.closeEntry()
-            }
-        }
+        val entries = DocxArchive.read(input)
+        val documentXml = entries["word/document.xml"] ?: entries["word/document2.xml"]
+        val coreXml = entries["docProps/core.xml"]
+        val stylesXml = entries["word/styles.xml"]
 
         val doc = documentXml ?: return Parsed(null, null, emptyList())
         val core = coreXml?.let { parseCore(it) }
@@ -294,32 +275,9 @@ class DocxParser {
         return if (i >= 0) name.substring(i + 1) else name
     }
 
-    /**
-     * 分块读一个 ZIP 条目，累计超过 [MAX_ENTRY_BYTES] 立即抛异常。
-     * 流式 ZIP 的 entry.size 常为 -1，不能拿它当闸门，只能边读边数。
-     */
-    private fun readEntry(zip: ZipInputStream): ByteArray {
-        val out = ByteArrayOutputStream()
-        val buf = ByteArray(32 * 1024)
-        while (true) {
-            val n = zip.read(buf)
-            if (n < 0) break
-            if (out.size() + n.toLong() > MAX_ENTRY_BYTES) {
-                throw IllegalStateException("zip 条目过大，已拒绝解析")
-            }
-            out.write(buf, 0, n)
-        }
-        return out.toByteArray()
-    }
-
     companion object {
         const val BODY = -1
         const val IMAGE_PLACEHOLDER = "〔图片〕"
 
-        /**
-         * 单个 XML 条目的解压体积上限。正常 docx 的 document.xml 远小于此，
-         * 超过基本可判定为畸形/压缩炸弹，直接拒绝（外层会包成 CORRUPTED）。
-         */
-        private const val MAX_ENTRY_BYTES = 64L * 1024 * 1024
     }
 }

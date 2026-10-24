@@ -315,6 +315,10 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
         return writableDatabase.insert("chapters", null, cv)
     }
 
+    fun chapterOf(bookId: Long, chapterId: Long): Chapter? = readableDatabase.rawQuery(
+        "SELECT * FROM chapters WHERE book_id=? AND id=?", arrayOf(bookId.toString(), chapterId.toString())
+    ).use { if (it.moveToFirst()) chapterFrom(it) else null }
+
     fun chaptersOf(bookId: Long): List<Chapter> {
         readableDatabase.rawQuery(
             "SELECT * FROM chapters WHERE book_id=? ORDER BY idx ASC",

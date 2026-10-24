@@ -1,0 +1,14 @@
+<resources>
+    <string name="picker_home_title">Folder home</string>
+    <string name="picker_home_add">Add folder</string>
+    <string name="picker_home_manage_hint">Tap to open. Long-press cards to select and remove shortcuts. Your file order is kept.</string>
+    <string name="picker_home_selected">Folders selected: %1$d</string>
+    <string name="picker_home_select_all">Select all</string>
+    <string name="picker_home_remove">Remove shortcuts</string>
+    <string name="picker_home_remove_title">Remove shortcuts (%1$d)</string>
+    <string name="picker_home_remove_hint">Only shortcuts on this file picker page are removed. No folders or files on your device are deleted. Keep the option below unchecked to retain selected files and their order.</string>
+    <string name="picker_home_cancel_selected">Also deselect files from these folders (%1$d)</string>
+    <string name="picker_home_open_hint">Tap to open · Hold to select</string>
+    <string name="picker_home_grant_hint">Tap to restore read access</string>
+    <string name="picker_home_toggle_hint">Tap to change selection</string>
+</resources>

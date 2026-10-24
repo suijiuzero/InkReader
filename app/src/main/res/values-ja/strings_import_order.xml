@@ -1,0 +1,10 @@
+<resources>
+    <string name="import_order_label">ファイルの順序</string>
+    <string name="import_order_auto">自動並べ替え</string>
+    <string name="import_order_selection">選択順</string>
+    <string name="import_order_auto_hint">従来の規則でファイル名や章番号を判別して並べ替えます。</string>
+    <string name="import_order_selection_hint">下の一覧の順で取り込み、ファイル名や章番号では並べ替えません。追加分は本の末尾に入ります。</string>
+    <string name="import_order_adjust_hint">一覧の順序が使われます。ファイル選択画面で順序が変わった場合は矢印で調整できます。短編には「1ファイルを1章に」を併用してください。</string>
+    <string name="import_order_move_up">%1$d 番目のファイルを上へ</string>
+    <string name="import_order_move_down">%1$d 番目のファイルを下へ</string>
+</resources>

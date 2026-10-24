@@ -1,238 +1,94 @@
 # 墨阅 · Ink Reader
 
-> 一款简洁、纯本地、支持六种格式的安卓电子书阅读器。
-> An Android e-book reader with offline reading and optional LAN computer voices.
+支持离线阅读的安卓电子书阅读器，可选连接局域网 Windows 电脑朗读。
+An Android e-book reader with offline reading and optional paired LAN computer voices.
 
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/Platform-Android%207.0%2B%20(API%2024)-brightgreen.svg)](https://developer.android.com/)
+[![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-brightgreen.svg)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)
-[![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose%20(M3)-4285F4.svg)](https://developer.android.com/jetpack/compose)
-[![Version](https://img.shields.io/badge/version-1.11.11-orange.svg)](CHANGELOG.md)
+[![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4.svg)](https://developer.android.com/jetpack/compose)
+[![Version](https://img.shields.io/badge/version-1.11.24-orange.svg)](CHANGELOG.md)
 
 [简体中文](#简体中文) ｜ [English](#english)
 
----
-
 ## 简体中文
 
-### 这是什么
+墨阅不需要账号，没有广告。书籍解析、阅读、批注与进度保存在本机；电脑语音是需要单独配对启用的可选功能。界面及应用内使用说明支持简体中文、English、日本語；部分电脑语音操作仍使用中文标签。
 
-墨阅是一个支持离线阅读的安卓电子书阅读器：不需要账号、没有广告，导入你自己的书就能读。可选连接同一局域网内的电脑，使用本地晓晓朗读。
+### 主要功能
 
-- **离线阅读**：所有解析与阅读都在设备上完成。开启电脑晓晓后，仅把当前及下一句发送给已配对的局域网电脑生成语音；关闭该功能时不进行语音联网。
-- 系统备份说明：Android 系统备份或换机迁移可能包含书籍、笔记和封面，是否备份由设备的系统设置控制。电脑语音配对凭据不参与备份。
-- **电脑晓晓**：阅读页 → 听书面板中配对、测试连接和试听；电脑端说明见 [tools/natural-voice/README.md](tools/natural-voice/README.md)。
-- **中文优先**：章节识别对中文（`第X章 / 回 / 節 / 話 / 卷 / 集 / 部 / 篇 / 幕 / 折`）与中/日/英数字编号做了专门处理，`Chapter 10` 排在 `Chapter 2` 之后（按数字而非字符串）。
-- **界面多语言**：应用界面随系统语言自动切换 **简体中文 / English / 日本語**，应用内「使用说明」也随之切换。
+- **六种格式**：TXT、DOCX、Markdown、文字版 PDF、HTML、EPUB。支持常见编码、文档标题结构和部分 Markdown 排版；不做 OCR，不完整复刻原书图片和页面版式。
+- **章节识别**：中日英标题与多种编号、最终章（上／中／下）、序章、番外等；编号缺口只在局部回查，不生成不存在的正文。
+- **按实际选择顺序导入**：文件旁实时编号，底部可调整。无编号散篇可组合「合并为一本书」＋「每个文件作为一章」＋「按选择顺序」。智能排序仍可选。
+- **文件夹首页**：添加多个授权目录，跨目录保留选择；长按首页卡片多选移出入口，源文件不删除。
+- **长按文件批量选择**：从当前文件正向／反向、全列表正向／反向，或指定两个文件选择含两端的范围；按当前搜索和显示顺序处理，跳过子文件夹，已有队列不重排。
+- **阅读与管理**：连续跨章、左右翻页／上下滚动、四种翻页动画、五种主题、全局排版、音量键翻页、批注、整页标签、分组、封面、搜索、编辑、合并与拆章。
+- **听书**：手机系统 TTS，或同一可信局域网内的电脑语音；可选自动、晓晓、七海，支持连接测试与试听。悬浮播放条避让阅读工具栏，不推高正文。
+- **TXT 导出**：整本／单章导出 UTF-8 BOM、CRLF 文本，下载或分享；不包含私人批注，不等于完整书库备份。
 
-### 特性
+### 上手与边界
 
-**支持六种格式**
+书架「导入」→ 添加小说文件夹 → 按顺序点选或长按批量选择 → 核对预计次序 → 继续并选择导入／分章方式。选文件页的「*」仅是文件夹首页，与书架首页不同。
 
-| 格式 | 支持程度 |
-|---|---|
-| `.txt` | 完整支持。自动识别 UTF-8 / UTF-8(BOM) / GBK / GB18030 / UTF-16 编码 |
-| `.docx` | 完整支持。读取正文段落与 Heading 1–6 标题层级，标题自动变章节 |
-| `.md` / `.markdown` | 完整支持，且**保留排版**：标题 / 粗体 / 斜体 / 删除线 / 行内代码 / 列表 / 引用 / 代码块 / 表格 / 链接 / 任务列表 |
-| `.pdf` | 支持**文字版** PDF。按页面组织阅读顺序、按字号识别标题、自动剔除重复页眉页脚（不做 OCR） |
-| `.html` / `.htm` | 支持。提取 `<title>` 与正文，`h1~h6` 转成章节层级 |
-| `.epub` | 支持。解析容器与 OPF，按 spine（阅读顺序）逐章提取 XHTML 正文 |
+单文件超过 200 MiB 会拒绝导入，压缩文档另有解压预算；更小的复杂文档也可能受内存或损坏影响。扫描 PDF 不支持；旧 DOC、MOBI、AZW3 不在当前格式列表中。大型书籍识别和后台全书页数统计需要时间。
 
-**章节自动识别与排序**
+电脑语音需要 Windows 本地音色、电脑保持唤醒，并与手机互通。自动模式中文／英文用晓晓，日语优先七海；电脑需安装对应音色。只发送当前与下一句至配对电脑，LAN 使用 HTTP、没有 TLS 加密，请在可信网络使用。[电脑端说明](tools/natural-voice/README.md)
 
-- 解析器自带层级优先（docx 标题样式 / Markdown `#` / HTML·EPUB `h1~h6` / PDF 字号）；
-- 中 / 日：`第X章 / 回 / 節 / 节 / 話 / 话 / 巻 / 卷 / 集 / 部 / 編 / 编 / 篇 / 幕 / 折`（阿拉伯、全角、汉字数字都认）；
-- 英 / 日：`Chapter / Part / Book / Volume / Episode + 编号`（数字 / 全角 / 罗马数字 / 英文单词，如 `Chapter 1`、`Part Two`、`Book I`、`Volume III`）；
-- 特殊章节：`序章 / 楔子 / 引子 / 前言 / 后记 / 尾声 / 番外 / 终章 / 结语 / Prologue / Epilogue / Interlude / Afterword / 幕間 / 番外編 / プロローグ / エピローグ`；
-- 编号**统一解析成整数再排序**；前置内容排最前、后置内容排最后、位置不固定的（`幕間 / Interlude`）**钉在原位**；正文里的「第一章里提到的…」这类**引用不会被误判成标题**。
+Android 系统备份／换机迁移可能包含书籍、笔记、进度和封面，取决于系统设置；配对凭据排除在备份之外。卸载或清除应用数据前请备份重要内容。
 
-**阅读体验**
+### 构建与验证
 
-- 五套主题：月白 / 纸白 / 护眼 / 深墨 / 纯黑；
-- 排版可调：字号、行距、段间距、字距、页边距、无衬线 / 衬线字体、首行缩进；
-- 翻页方式：左右翻页 / 上下滚动；翻页动画：平移 / 覆盖 / 仿真 / 无动画；
-- **真实页码**：后台用同一套排版参数把全书排一遍再数，`当前页/总页数` 与实际严格一致；
-- **跨章连续阅读**：翻到章末继续往后滑直接进下一章，往前滑回到上一章**末尾**；
-- 长按选中批注：四色高亮、整句 / 整段扩选、书签、笔记；
-- **下拉给整页打标签**（左右翻页模式），标签记的是字符位置，重排后依然跟着那段文字；
-- 全文搜索、全文 / 单章导出为 UTF-8(BOM)+CRLF 的 TXT（落下载目录并拉起分享面板）；
-- **听书**：调用系统 TTS 引擎朗读，通知栏 / 锁屏可控，支持定时停止与耳机线控；
-- 书架**分组**（一本书只属于一个分组）与书名 / 作者搜索；
-- 自定义封面（选图 → 拖动 / 双指缩放裁切）。
-
-> 阅读排版在 **v1.10.9** 起统一为一套全局设置：在任意一本书里改完，所有书通用。
-
-### 快速开始
-
-**前置条件**
-
-| 项 | 版本 |
-|---|---|
-| JDK | 17 |
-| Android SDK | platform 34 |
-| Android Studio | Koala 2024.1 或更新（可选，用命令行亦可） |
-
-**构建**
+需要 JDK 17、Android SDK platform 34，Android Studio 可选。项目使用 Gradle Wrapper；SDK 路径写入本机 `local.properties`，不要提交。
 
 ```bash
-# 在工程根目录（本仓库根即 InkReader/）
-./gradlew assembleDebug          # Windows: gradlew.bat assembleDebug
+./gradlew :app:unitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug
+# Windows: .\gradlew.bat 后接相同任务
+adb -s DEVICE_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-产物：`app/build/outputs/apk/debug/app-debug.apk`
+`DEVICE_SERIAL` 用 `adb devices` 查询并替换。相同签名的覆盖安装保留数据；不要为了更新先卸载。中文工程路径已配置 `android.overridePathCheck=true`。发布任务必须配置正式签名，不会静默回退 debug 签名。
 
-安装到设备：
+最近一次完整审计（1.11.23）通过 152 项 JVM、27 项 Android 数据／界面、17 项顺序检查，以及万章、1050 万字符、千文件、并发与持续写入等压力。报告区分模拟器、生成样本与实际手机验证，不保证所有设备和文件均可用。1.11.24 同步使用说明与开发文档，未扩大该审计的验证范围。
 
-```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-> 工程目录名含中文时 AGP 默认会拒绝构建，本工程已在 `gradle.properties` 中显式关闭该检查（`android.overridePathCheck=true`），因此中文目录名也可正常构建。
->
-> 依赖仓库已配置阿里云镜像优先、官方源兜底，国内同步较快。
->
-> 版本号唯一来源见 [`app/build.gradle.kts`](app/build.gradle.kts)（`versionCode` / `versionName`）。
-
-### 项目结构
-
-```
-app/src/main/java/com/inkreader/
-├─ MainActivity.kt        界面栈与路由
-├─ InkApp.kt              Application
-├─ AppContainer.kt        依赖容器 + 书架状态
-├─ data/                  存储层（SQLite + 正文文件 + 阅读偏好 + 导出）
-├─ parse/                 统一解析管线（格式识别 → 解析器 → 章节装配）
-├─ tts/                   朗读服务、句子切分、全局状态
-└─ ui/                    主题 / 通用控件 / 书架 / 阅读器 / 详情 / 编辑器 / 标记 / 使用说明
-```
-
-- 存储：SQLite（手写 DAO，未用 ORM / 注解处理器）+ 正文以 UTF-8 文件存在应用私有目录，数据库只存索引；
-- docx / HTML / EPUB 解析**未引入第三方库**（用系统 `XmlPullParser` + `ZipInputStream` 与手写状态机）；
-- 仅 PDF（pdfbox-android）与 Markdown（commonmark-java）引入第三方库，均为纯 Java、无 so、无 AWT。
-
-### 文档
+### 文档与结构
 
 | 文档 | 内容 |
-|---|---|
-| [docs/使用说明.md](docs/使用说明.md) | 完整用户手册：安装、导入、格式、操作、排版、朗读、章节管理、技术说明与已知限制 |
-| [CHANGELOG.md](CHANGELOG.md) | 各版本落地清单 |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | 构建、代码约定、提交规范、PR 流程 |
+| --- | --- |
+| [使用说明](docs/使用说明.md) | 当前导入、顺序、批量选择、章节、朗读、数据与限制 |
+| [更新日志](CHANGELOG.md) | 逐版本变更 |
+| [贡献指南](CONTRIBUTING.md) | 构建、签名、模拟器检查与提交约定 |
+| [审计与压力结果](docs/1.11.23-全面审计与模拟器压力测试.md) | 复现问题、修复、测量及未覆盖范围 |
+| [测试工具](tools/testing/README.md) | 样本、明确的模拟器目标与运行前置条件 |
+| [电脑语音](tools/natural-voice/README.md) | 配对、本地音色、日语模型与安全边界 |
 
-### 贡献
-
-欢迎 issue 与 PR，请先阅读 [CONTRIBUTING.md](CONTRIBUTING.md)。
-
-### 许可证
-
-[Apache-2.0](LICENSE)。第三方组件各自遵循其协议（见 [docs/使用说明.md](docs/使用说明.md) 技术说明一节）。
-
----
+主要代码在 `app/src/main/java/com/inkreader/`：`data/` 负责 SQLite、正文文件、偏好、导出和文件选择草稿，`parse/` 统一解析，`tts/` 负责语音，`ui/` 为 Compose 界面。应用内三语说明位于 `app/src/main/assets/help/`。PDF 使用 pdfbox-android，Markdown 使用 commonmark-java；DOCX、HTML、EPUB 的主要读取逻辑使用系统 XML／ZIP 与项目代码。
 
 ## English
 
-### What it is
+Ink Reader reads local books without accounts or ads. Reading, annotations and progress stay on-device. A paired Windows PC on a trusted LAN can optionally synthesize speech. The interface and built-in guide support Chinese, English and Japanese; some computer-voice controls currently retain Chinese labels.
 
-Ink Reader (墨阅) supports offline reading without accounts or ads. An optional paired Windows computer on your LAN can provide local Xiaoxiao speech.
+### Features and workflow
 
-- **Offline reading**: all parsing and reading happen on-device. Optional computer speech sends the current and next sentence only to your paired LAN computer.
-- Android system backup and device transfer may include books, annotations, and covers, according to your device's backup settings. Voice pairing credentials are excluded.
-- **Number-aware chapter ordering**: chapter numbers are parsed into integers before sorting, so `Chapter 10` comes after `Chapter 2` (numeric, not lexicographic).
-- **Localized UI**: the interface follows your system language — **简体中文 / English / 日本語**, and so does the in-app user guide.
+- TXT, DOCX, Markdown, text-based PDF, HTML and EPUB; common encodings and structured headings, supported Markdown formatting, no OCR or full original-page reproduction.
+- CJK/English chapter recognition, special sections and local number-gap recovery. Missing source content is never invented.
+- Live numbered file selection across authorized folders, editable import order, and batch selection forward/backward, all visible files or an inclusive two-file range. Existing selections stay in order; subfolders are excluded.
+- Choose Selection order to avoid filename/chapter reordering. For untitled scattered files, combine Merge into one book, One chapter per file and Selection order.
+- The file picker's * Folder home is separate from the shelf. Holding its cards allows multiple shortcut removal without deleting source files.
+- Cross-chapter reading, paging/scrolling, themes, global layout, annotations, groups, search and chapter editing. TXT exports exclude private annotations and are not a full-library backup.
+- Phone TTS or optional local PC voices: Auto, Xiaoxiao and Nanami. Auto prefers Nanami for Japanese; install the corresponding voice on the PC. The floating player avoids reader controls without resizing the text page.
 
-### Features
+Open Import, add a book folder, select files, inspect the expected order, then confirm import and splitting options. Sources over 200 MiB are rejected; smaller complex or damaged documents can also exceed practical limits. Scanned PDFs, old DOC, MOBI and AZW3 are not supported.
 
-**Six formats**
+Computer speech sends only the current sentence and next prefetched sentence to the paired PC over HTTP without TLS. Keep the PC awake and reachable on a trusted network. Android backup/device transfer may include books, annotations, progress and covers; voice credentials are excluded. Uninstalling or clearing data removes the local library.
 
-| Format | Support |
-|---|---|
-| `.txt` | Full. Auto-detects UTF-8 / UTF-8(BOM) / GBK / GB18030 / UTF-16 |
-| `.docx` | Full. Reads body paragraphs and Heading 1–6 levels; headings become chapters |
-| `.md` / `.markdown` | Full, **formatting preserved**: headings, bold, italic, strikethrough, inline code, lists, quotes, code blocks, tables, links, task lists |
-| `.pdf` | **Text-based** PDFs only: ordered by page, headings by font size, repeated headers/footers dropped (no OCR) |
-| `.html` / `.htm` | Supported. Extracts `<title>` and body; `h1~h6` become chapter levels |
-| `.epub` | Supported. Parses the container and OPF; reads XHTML chapters in spine order |
+### Build and documentation
 
-**Automatic chapter detection & ordering**
+JDK 17 and Android SDK platform 34 are required. Run the Gradle tasks above, or use `gradlew.bat` on Windows. Debug APK: `app/build/outputs/apk/debug/app-debug.apk`. Use an explicit device serial for installation. Release tasks require a configured release keystore.
 
-- Document-provided structure first (docx heading styles / Markdown `#` / HTML·EPUB `h1~h6` / PDF font size);
-- CJK: `第X章 / 回 / 節 / 話 / 巻 / 卷 / 集 / 部 / 編 / 篇 / 幕 / 折` (Arabic, full-width and CJK numerals);
-- English / Japanese: `Chapter / Part / Book / Volume / Episode + number` (`Chapter 1`, `Part Two`, `Book I`, `Volume III`);
-- Special sections: `序章 / 楔子 / 前言 / 后记 / 尾声 / 番外 / 终章 / Prologue / Epilogue / Interlude / Afterword`;
-- Numbers are **normalized to integers before sorting**; front matter goes first, back matter last, and position-ambiguous sections (`Interlude`) are **pinned in place** — in-text references like "…第一章里提到的…" are not mistaken for headings.
+The 1.11.23 audit passed 152 JVM checks, 27 Android data/UI checks, 17 import-order checks and generated-document/concurrency/soak workloads. These finite emulator and selected phone checks do not certify every file or device. Version 1.11.24 updates documentation and the built-in guide.
 
-**Reading experience**
+See the [manual](docs/使用说明.md), [changelog](CHANGELOG.md), [contributing guide](CONTRIBUTING.md), [test tools](tools/testing/README.md) and [PC voice setup](tools/natural-voice/README.md). The full repository manual is separate from the localized guides packaged in the APK.
 
-- Five themes, adjustable font size / line height / paragraph spacing / letter spacing / margins / serif toggle / first-line indent;
-- Page-turn modes (horizontal paging / vertical scroll) and animations (slide / cover / page-curl / none);
-- **Real page numbers** — computed by paginating the whole book with the same settings, so `current/total` matches actual paging;
-- **Seamless cross-chapter reading** — continue past a chapter's last page into the next; go back into the previous chapter's **end**;
-- Long-press annotations: four-color highlights, sentence/paragraph selection, bookmarks, notes;
-- **Pull down to tag a whole page** (in paging mode); tags store character offsets, so they survive re-pagination;
-- Full-text search; export a whole book or a single chapter as UTF-8(BOM) + CRLF TXT (saved to Downloads with a share sheet);
-- **Read-aloud** via the system TTS engine, controllable from the notification/lock screen, with timer and headset buttons;
-- Shelf **groups** (a book belongs to at most one group) and title/author search;
-- Custom covers (pick an image → drag / pinch to crop).
+## License
 
-> Since **v1.10.9**, reading layout is a single global setting shared by every book.
-
-### Quick start
-
-**Prerequisites**
-
-| Item | Version |
-|---|---|
-| JDK | 17 |
-| Android SDK | platform 34 |
-| Android Studio | Koala 2024.1 or newer (optional) |
-
-**Build**
-
-```bash
-# From the project root (this repo root is InkReader/)
-./gradlew assembleDebug          # Windows: gradlew.bat assembleDebug
-```
-
-Output: `app/build/outputs/apk/debug/app-debug.apk`
-
-Install:
-
-```bash
-adb install -r app/build/outputs/apk/debug/app-debug.apk
-```
-
-> A Chinese project path would normally be rejected by AGP; this project disables that check in `gradle.properties` (`android.overridePathCheck=true`), so a Chinese directory name builds fine.
->
-> Version number has a single source of truth in [`app/build.gradle.kts`](app/build.gradle.kts).
-
-### Project structure
-
-```
-app/src/main/java/com/inkreader/
-├─ MainActivity.kt        screen stack & routing
-├─ InkApp.kt             Application
-├─ AppContainer.kt       dependency container + shelf state
-├─ data/                 storage (SQLite + body files + prefs + export)
-├─ parse/                unified parsing pipeline (detect → parse → assemble)
-├─ tts/                  read-aloud service, sentence splitting, state
-└─ ui/                   theme / components / shelf / reader / detail / editor / marks / guide
-```
-
-- Storage: SQLite (hand-written DAO, no ORM / annotation processor) + bodies as UTF-8 files in app-private storage; the DB holds indexes only.
-- docx / HTML / EPUB parsing uses **no third-party library** (system `XmlPullParser` + `ZipInputStream` and a hand-written state machine).
-- Only PDF (pdfbox-android) and Markdown (commonmark-java) pull in libraries — both pure Java, no `.so`, no AWT.
-
-### Documentation
-
-| Document | Contents |
-|---|---|
-| [docs/使用说明.md](docs/使用说明.md) | Full user manual (Chinese): install, import, formats, controls, layout, read-aloud, chapter management, technical notes, known limitations |
-| [CHANGELOG.md](CHANGELOG.md) | Per-version change list |
-| [CONTRIBUTING.md](CONTRIBUTING.md) | Build, conventions, commit style, PR flow |
-
-### Contributing
-
-Issues and PRs are welcome — please read [CONTRIBUTING.md](CONTRIBUTING.md) first.
-
-### License
-
-[Apache-2.0](LICENSE). Third-party components keep their own licenses (see the technical notes in [docs/使用说明.md](docs/使用说明.md)).
+[Apache-2.0](LICENSE). Third-party components retain their respective licenses.

@@ -43,6 +43,9 @@ enum class ShelfView { GRID, LIST }
 /** 导入模式 */
 enum class ImportMode { SEPARATE, MERGE }
 
+/** 文件顺序独立于分章方式；SELECTION 保留传入顺序并禁止导入后的章号重排。 */
+enum class ImportOrder { AUTO, SELECTION }
+
 /**
  * 导入 / 追加文件 / 整书重分章时的「章节划分策略」。
  *

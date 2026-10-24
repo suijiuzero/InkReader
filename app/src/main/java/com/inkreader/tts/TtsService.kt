@@ -62,6 +62,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     private var chapters: List<Chapter> = emptyList()
     private var chapterPos = 0
     private var text = ""
+    private var chapterLanguage = "zh-CN"
+    private var phoneLanguage: String? = null
     private var sentences: List<IntRange> = emptyList()
     private var sentencePos = 0
     private var sleepMode = SleepMode.OFF
@@ -76,6 +78,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
     private var sleepDeadline = 0L
     private val computerClient by lazy { ComputerVoiceClient(this) }
     private var computer: ComputerVoice? = null
+    private var computerModel = ComputerVoiceModel.AUTO
     private var computerJob: Job? = null
     private var nextAudio: Pair<Int, Deferred<ByteArray>>? = null
     private var player: MediaPlayer? = null
@@ -132,6 +135,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
                 invalidateQueue()
                 contentReady = false
                 wantPlaying = true
+                computerModel = computerClient.model
                 bookId = intent.getLongExtra(EXTRA_BOOK, 0L)
                 chapters = emptyList()
                 text = ""
@@ -233,9 +237,10 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
             if (!isActive || generation != requestGeneration || !started) return@launch
             nextComputerProbeAt = SystemClock.elapsedRealtime() + 30_000
             computer = connected
-            TtsBus.update { it.copy(computerVoice = connected != null) }
+            TtsBus.update { it.copy(computerVoice = connected != null, computerModel = computerModel.title) }
             chapterPos = index
             text = body
+            chapterLanguage = SpeechLanguage.chapter(body)
             sentences = SentenceSplitter.split(body)
             sentencePos = if (offset < 0) sentences.lastIndex.coerceAtLeast(0) else if (offset > 0) {
                 sentences.indexOfFirst { it.last >= offset }.let { if (it < 0) 0 else it }
@@ -301,6 +306,8 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         val index = sentencePos
         val range = sentences[index]
         val piece = text.substring(range.first, range.last + 1)
+        val language = SpeechLanguage.sentence(piece, chapterLanguage)
+        val model = computerModel
         val settings = prefs.load()
         val cached = nextAudio?.takeIf { it.first == index }?.second
         if (cached != null) nextAudio = null
@@ -310,7 +317,7 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         computerJob = scope.launch {
             try {
                 val bytes = cached?.await() ?: withContext(Dispatchers.IO) {
-                    computerClient.synthesize(voice, piece, settings.ttsRate, settings.ttsPitch)
+                    computerClient.synthesize(voice, piece, settings.ttsRate, settings.ttsPitch, language, model)
                 }
                 if (!isActive || generation != playbackGeneration || !started || !wantPlaying) return@launch
                 val file = File.createTempFile("computer-voice-", ".wav", cacheDir)
@@ -354,8 +361,10 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
         if (index !in sentences.indices || nextAudio != null) return
         val range = sentences[index]
         val piece = text.substring(range.first, range.last + 1)
+        val language = SpeechLanguage.sentence(piece, chapterLanguage)
         // async is supervised by the service scope; a failure is consumed at the sentence boundary.
-        nextAudio = index to scope.async(Dispatchers.IO) { computerClient.synthesize(voice, piece, rate, pitch) }
+        val model = computerModel
+        nextAudio = index to scope.async(Dispatchers.IO) { computerClient.synthesize(voice, piece, rate, pitch, language, model) }
     }
 
     private fun computerFailed() {
@@ -368,6 +377,18 @@ class TtsService : Service(), TextToSpeech.OnInitListener {
 
     private fun enqueueAhead() {
         val engine = tts ?: return
+        if (phoneLanguage != chapterLanguage) {
+            val result = engine.setLanguage(if (chapterLanguage == "ja-JP") Locale.JAPANESE else Locale.CHINESE)
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                if (chapterLanguage == "ja-JP") {
+                    Toast.makeText(this, "手机尚未安装日语语音，请使用电脑日语音色或安装手机日语语音", Toast.LENGTH_LONG).show()
+                    pauseSpeaking()
+                    return
+                }
+                engine.setLanguage(Locale.getDefault()) // Preserve the existing Chinese/English fallback.
+            }
+            phoneLanguage = chapterLanguage
+        }
         val end = minOf(sentences.lastIndex, sentencePos + PREFETCH)
         while (queuedThrough < end) {
             val index = queuedThrough + 1

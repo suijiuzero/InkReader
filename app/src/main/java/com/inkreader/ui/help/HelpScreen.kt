@@ -65,7 +65,7 @@ import kotlinx.coroutines.withContext
  * 正文偏移上），说明书要的是「一屏往下滚」，套用只会把两件事都搞复杂。这里只按
  * 块类型给一点排版，行内样式直接套 [SpanStyle]。
  *
- * 完整手册（含技术说明与已知限制）仍随安装包提供，见 `docs/使用说明.md`。
+ * 完整手册（含技术说明与已知限制）位于源码仓库 `docs/使用说明.md`；安装包内提供上述精简说明。
  */
 private const val ASSET_DIR = "help"
 

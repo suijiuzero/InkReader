@@ -8,7 +8,7 @@ package com.inkreader.parse
  * 之所以把两步分开，是因为导入流程还会做归一化、合并、按文件名排序等操作，
  * 只有在正文最终定稿之后再渲染，样式区间才和落盘的正文严格对齐。
  *
- * 分章规则与旧版一致：取文档里最浅的标题层级作为章标题；
+ * 分章使用共享的标题层级与明确章号规划；
  * 全文没有标题就退回 [ChapterSplitter] 的启发式分章（第X章 / 按字数）。
  */
 class MarkdownParser : DocumentParser {
@@ -27,7 +27,7 @@ class MarkdownParser : DocumentParser {
         val chunks = splitByHeadings(body, fallbackTitle)
         if (chunks.isEmpty()) throw ParseException(ParseErrorCode.NO_CONTENT, format)
 
-        val parts = chunks.map { ChapterSplitter.Part(it.title.ifBlank { fallbackTitle }, it.markdown) }
+        val parts = chunks
         val title = meta.title?.takeIf { it.isNotBlank() }
             ?: chunks.firstOrNull { it.title.isNotBlank() }?.title
             ?: fallbackTitle
@@ -35,139 +35,58 @@ class MarkdownParser : DocumentParser {
         return ParsedDoc(title, meta.author.orEmpty(), parts, format)
     }
 
-    private class Chunk(val title: String, val markdown: String)
-
     private class FrontMatter(val title: String?, val author: String?, val body: String)
 
-    /**
-     * 按标题分章。
-     *
-     * 只有「最浅的那一级标题」负责分章（和旧版 [ChapterAssembler] 的规则一致），
-     * 更深的标题留在正文里，交给渲染端当小标题。
-     * 全文一个标题都没有时退回 [ChapterSplitter]，行为与旧版相同。
-     */
-    private fun splitByHeadings(body: String, fallbackTitle: String): List<Chunk> {
+    /** Scan headings once; fenced and indented code never supplies chapter boundaries. */
+    private fun splitByHeadings(body: String, fallbackTitle: String): List<ChapterSplitter.Part> {
         val lines = body.split('\n')
-        val level = shallowestLevel(lines)
-        if (level == 0) {
-            // 没有 Markdown 标题：交给启发式分章（第X章 / 按字数），与旧版一致
-            val normalized = ChapterSplitter.normalize(body)
-            return ChapterSplitter.split(normalized, fallbackTitle)
-                .map { Chunk(it.title, it.content) }
-        }
-
-        val out = ArrayList<Chunk>()
-        val buf = StringBuilder()
-        var curTitle: String? = null
-        var inFence = false
-        var fence = ""
-
-        fun flush() {
-            val markdown = buf.toString().trim('\n').trimEnd()
-            buf.setLength(0)
-            if (curTitle != null) {
-                out += Chunk(curTitle!!, markdown)
-            } else if (markdown.isNotBlank()) {
-                // 第一个标题之前的内容：标题取首行（够短的话），否则叫「前言」
-                val first = markdown.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
-                out += Chunk(
-                    if (first.isNotEmpty() && first.length <= 24) plainTitle(first) else "前言",
-                    markdown
-                )
-            }
-        }
-
-        var i = 0
-        while (i < lines.size) {
-            val line = lines[i]
+        val headings = ArrayList<ChapterAssembler.Heading>()
+        var fence: String? = null
+        var index = 0
+        while (index < lines.size) {
+            val line = lines[index]
             val head = line.trimStart()
-
+            if (fence != null) {
+                if (!line.startsWith("    ") && !line.startsWith("\t") && closesFence(head, fence)) fence = null
+                index++
+                continue
+            }
+            if (line.startsWith("    ") || line.startsWith("\t")) { index++; continue }
             val marker = fenceOf(head)
-            if (inFence) {
-                buf.append(line).append('\n')
-                if (closesFence(head, fence)) inFence = false
-                i++
-                continue
-            }
-            if (marker != null) {
-                inFence = true
-                fence = marker
-                buf.append(line).append('\n')
-                i++
-                continue
-            }
-
+            if (marker != null) { fence = marker; index++; continue }
             val atx = ATX_HEADING.find(head)
             if (atx != null) {
-                if (atx.groupValues[1].length == level) {
-                    flush()
-                    curTitle = plainTitle(atx.groupValues[2])
-                        .ifBlank { "第 ${out.size + 1} 章" }
-                } else {
-                    buf.append(line).append('\n')
-                }
-                i++
+                headings += ChapterAssembler.Heading(atx.groupValues[1].length, plainTitle(atx.groupValues[2]), index)
+                index++
                 continue
             }
-
-            val next = lines.getOrNull(i + 1)?.trim()
-            if (head.trim().isNotEmpty() && next != null) {
-                val setext = when {
-                    SETEXT_EQ.matches(next) -> 1
-                    SETEXT_DASH.matches(next) -> 2
-                    else -> 0
-                }
-                if (setext != 0 && setext == level) {
-                    flush()
-                    curTitle = plainTitle(head.trim()).ifBlank { "第 ${out.size + 1} 章" }
-                    i += 2
-                    continue
-                }
+            val nextLine = lines.getOrNull(index + 1)
+            val next = nextLine?.trim()
+            val level = when {
+                nextLine == null || nextLine.startsWith("    ") || nextLine.startsWith("\t") -> 0
+                next != null && SETEXT_EQ.matches(next) -> 1
+                next != null && SETEXT_DASH.matches(next) -> 2
+                else -> 0
             }
-
-            buf.append(line).append('\n')
-            i++
+            if (head.isNotBlank() && level != 0) {
+                headings += ChapterAssembler.Heading(level, plainTitle(head), index, index + 2)
+                index += 2
+            } else index++
         }
-        flush()
-        return out
-    }
-
-    /** 文档中最浅的标题层级（1..6），没有标题返回 0 */
-    private fun shallowestLevel(lines: List<String>): Int {
-        val levels = ArrayList<Int>()
-        var inFence = false
-        var fence = ""
-        var i = 0
-        while (i < lines.size) {
-            val head = lines[i].trimStart()
-            val marker = fenceOf(head)
-            if (inFence) {
-                if (closesFence(head, fence)) inFence = false
-                i++
-                continue
-            }
-            if (marker != null) {
-                inFence = true
-                fence = marker
-                i++
-                continue
-            }
-            val atx = ATX_HEADING.find(head)
-            if (atx != null) {
-                levels += atx.groupValues[1].length
-                i++
-                continue
-            }
-            val next = lines.getOrNull(i + 1)?.trim()
-            if (head.trim().isNotEmpty() && next != null) {
-                when {
-                    SETEXT_EQ.matches(next) -> levels += 1
-                    SETEXT_DASH.matches(next) -> levels += 2
-                }
-            }
-            i++
+        if (headings.isEmpty()) return ChapterSplitter.split(ChapterSplitter.normalize(body), fallbackTitle)
+        val sections = ChapterAssembler.plan(headings, lines.size)
+        val parts = ArrayList<ChapterSplitter.Part>()
+        val prefix = lines.take(sections.first().start).joinToString("\n").trim('\n').trimEnd()
+        if (prefix.isNotBlank()) {
+            val first = prefix.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
+            parts += ChapterSplitter.Part(if (first.length in 1..24) plainTitle(first) else "前言", prefix)
         }
-        return ChapterAssembler.chooseChapterLevel(levels) ?: 0
+        sections.forEachIndexed { number, section ->
+            val content = (section.start until section.end).filter { it !in section.heading.start until section.heading.end }
+                .joinToString("\n") { lines[it] }.trim('\n').trimEnd()
+            parts += ChapterSplitter.Part(section.heading.title.ifBlank { "第 ${number + 1} 章" }, content, section.volume)
+        }
+        return parts
     }
 
     // ---------------------------------------------------------------- 前置元数据

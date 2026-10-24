@@ -1,0 +1,37 @@
+<resources>
+    <string name="ordered_picker_title">按顺序选文件</string>
+    <string name="ordered_picker_subtitle">点选文件，立即看到导入次序</string>
+    <string name="ordered_picker_system">系统选文件</string>
+    <string name="ordered_picker_choose_folder">选择小说文件夹</string>
+    <string name="ordered_picker_welcome">先选文件夹，再按顺序勾选</string>
+    <string name="ordered_picker_folder_hint">只读取你授权的文件夹。进入后点选文件，右侧会依次显示 1、2、3。Android 11 及以上不能直接授权“下载”根目录，可先进入其中的小说子文件夹。</string>
+    <string name="ordered_picker_folder">文件夹</string>
+    <string name="ordered_picker_parent">返回上级文件夹</string>
+    <string name="ordered_picker_search">在当前文件夹搜索</string>
+    <string name="ordered_picker_clear_search">清除搜索</string>
+    <string name="ordered_picker_sort_asc">文件名升序，点按切换降序</string>
+    <string name="ordered_picker_sort_desc">文件名降序，点按切换升序</string>
+    <string name="ordered_picker_grant_failed">未能取得此文件夹的读取授权，请重新选择，或使用系统选文件。</string>
+    <string name="ordered_picker_permission_lost">文件夹读取授权已失效</string>
+    <string name="ordered_picker_load_failed">暂时无法读取这个文件夹</string>
+    <string name="ordered_picker_error_hint">可以重试、回到文件夹首页，或重新选择文件夹。已选文件的顺序仍然保留。</string>
+    <string name="ordered_picker_retry">重试</string>
+    <string name="ordered_picker_refresh">刷新</string>
+    <string name="ordered_picker_empty">这里还没有可导入的文件</string>
+    <string name="ordered_picker_supported">支持 TXT、Word、Markdown、PDF、HTML 和 EPUB。也可以进入子文件夹继续查找。</string>
+    <string name="ordered_picker_no_matches">没有找到匹配的文件</string>
+    <string name="ordered_picker_search_hint">搜索只筛选当前文件夹，不会改变已经选好的导入顺序。</string>
+    <string name="ordered_picker_unknown_size">大小未知</string>
+    <string name="ordered_picker_order">预计导入顺序</string>
+    <string name="ordered_picker_selected">已选：%1$d</string>
+    <string name="ordered_picker_no_selection">勾选文件后，顺序会显示在这里。</string>
+    <string name="ordered_picker_clear_all">清空</string>
+    <string name="ordered_picker_expand">展开顺序列表</string>
+    <string name="ordered_picker_collapse">收起顺序列表</string>
+    <string name="ordered_picker_continue">继续导入</string>
+    <string name="ordered_picker_move_up">上移文件：%1$d</string>
+    <string name="ordered_picker_move_down">下移文件：%1$d</string>
+    <string name="ordered_picker_remove">移除文件：%1$d</string>
+    <string name="ordered_picker_selected_item">已选，导入次序：%1$d</string>
+    <string name="ordered_picker_unselected_item">未选</string>
+</resources>

@@ -8,10 +8,11 @@ object PdfParagraphs {
     data class Line(val text: String, val size: Float, val y: Float, val paraEnd: Boolean)
     data class Para(val text: String, val size: Float)
 
-    fun collect(pages: List<List<Line>>, artifact: (String) -> Boolean, gap: (List<Line>) -> Float): List<Para> {
+    fun collect(pages: List<List<Line>>, artifact: (String) -> Boolean, gap: (List<Line>) -> Float,
+                artifactAt: ((Line, Int, Int) -> Boolean)? = null): List<Para> {
         val out = ArrayList<Para>()
         for (page in pages) {
-            val lines = page.filter { !artifact(it.text) }
+            val lines = page.filterIndexed { index, line -> !artifact(line.text) && artifactAt?.invoke(line, index, page.size) != true }
             val threshold = gap(lines)
             val buf = StringBuilder()
             var size = 0f

@@ -1073,7 +1073,9 @@ fun TtsSheet(
         ) {
             Spacer(Modifier.height(2.dp))
 
-            ComputerVoiceSettings()
+            ComputerVoiceSettings(previewLanguage = remember(session.chapterText) {
+                com.inkreader.tts.SpeechLanguage.chapter(session.chapterText)
+            })
 
             if (state.engineMissing && !state.computerVoice) {
                 Box(
@@ -1102,12 +1104,12 @@ fun TtsSheet(
                         .padding(horizontal = 15.dp, vertical = 14.dp)
                 ) {
                     Text(
-                        text = if (state.playing && state.buffering) "正在准备晓晓语音…" else if (state.playing) stringResource(R.string.sheets_tts_status_playing) else stringResource(R.string.sheets_tts_status_paused),
+                        text = if (state.playing && state.buffering) "正在准备电脑语音…" else if (state.playing) stringResource(R.string.sheets_tts_status_playing) else stringResource(R.string.sheets_tts_status_paused),
                         style = InkType.Caption.copy(fontSize = 10.5.sp, fontWeight = FontWeight.Medium),
                         color = p.accent
                     )
                     Spacer(Modifier.height(7.dp))
-                    Text(if (state.computerVoice) "电脑 · 本地晓晓" else "手机语音", style = InkType.Caption, color = p.textSecondary)
+                    Text(if (state.computerVoice) "电脑语音 · ${state.computerModel}" else "手机语音", style = InkType.Caption, color = p.textSecondary)
                     Text(
                         text = state.chapterTitle,
                         fontFamily = FontFamily.SansSerif,

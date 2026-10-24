@@ -258,13 +258,18 @@ class ReaderSession(
     // ==================== 加载 ====================
 
     fun open(initialChapter: Int, initialOffset: Int) {
+        // Reserve progress priority before IO; later user navigation must take precedence.
+        val progressToken = repo.newProgressToken(bookId)
         scope.launch(errors) {
             loading = true
             val b = repo.book(bookId)
             val chs = repo.chapters(bookId)
+            val loadedMarks = repo.marks(bookId)
+            // Publish the initial state atomically on Main. Exposing chapters before this
+            // suspension let a fast TOC request race with loadChapter(initialChapter).
             book = b
             chapters = chs
-            marks = repo.marks(bookId)
+            marks = loadedMarks
             if (b == null || chs.isEmpty()) {
                 loading = false
                 return@launch
@@ -274,7 +279,7 @@ class ReaderSession(
             val off = if (initialChapter >= 0) initialOffset.coerceAtLeast(0) else b.lastCharOffset
             loadChapter(target.coerceIn(0, chs.lastIndex), off)
             // 打开即算读过，书架排序会前移
-            repo.updateProgress(bookId, target.coerceIn(0, chs.lastIndex), off, b.progress)
+            repo.updateProgress(bookId, target.coerceIn(0, chs.lastIndex), off, b.progress, progressToken)
             loading = false
         }
     }
@@ -698,6 +703,7 @@ class ReaderSession(
      * 所以视觉上「下一章正文直接滑进来」，没有跳转感。
      */
     fun onPagerSettled(entryIndex: Int) {
+        if (pages.isEmpty()) return
         val e = pagerEntries.getOrNull(entryIndex) ?: return
         if (e.isCurrentChapter) {
             onUserPage(e.localPageIndex)

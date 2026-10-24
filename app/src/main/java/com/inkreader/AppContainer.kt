@@ -9,6 +9,7 @@ import androidx.compose.runtime.setValue
 import com.inkreader.data.model.Book
 import com.inkreader.data.model.BookGroup
 import com.inkreader.data.model.ImportMode
+import com.inkreader.data.model.ImportOrder
 import com.inkreader.data.model.ShelfSort
 import com.inkreader.data.model.ShelfView
 import com.inkreader.data.model.SplitMode
@@ -48,6 +49,8 @@ class AppContainer(context: Context) {
 
     /** 详情页「追加文件为章节」选回来的文件 URI 列表 */
     var pendingAppendUris by mutableStateOf<List<Uri>>(emptyList())
+    var pendingAppendOrder by mutableStateOf(ImportOrder.AUTO)
+    var pendingAppendBookId by mutableStateOf(0L)
 
     /** 详情页「导入封面」选回来的图片 URI */
     var pendingCoverUri by mutableStateOf<Uri?>(null)
@@ -151,6 +154,7 @@ class LibraryStore(
         title: String?,
         splitMode: SplitMode = SplitMode.SMART,
         splitOptions: SplitOptions = SplitOptions(mode = splitMode),
+        fileOrder: ImportOrder = ImportOrder.AUTO,
         onDone: (Long?) -> Unit = {}
     ) {
         if (uris.isEmpty()) return
@@ -173,7 +177,8 @@ class LibraryStore(
                     mode = mode,
                     customTitle = title,
                     splitMode = splitOptions.mode,
-                    splitOptions = splitOptions
+                    splitOptions = splitOptions,
+                    fileOrder = fileOrder
                 ) { stage, f ->
                     importStage = stage
                     importFraction = f

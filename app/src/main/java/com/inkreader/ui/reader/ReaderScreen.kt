@@ -10,6 +10,8 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -117,6 +119,7 @@ import com.inkreader.ui.component.InkIconButton
 import com.inkreader.ui.component.InkLoading
 import com.inkreader.ui.component.InkProgress
 import com.inkreader.ui.component.InkTextButton
+import com.inkreader.ui.component.MiniTtsBar
 import com.inkreader.ui.theme.HighlightColors
 import com.inkreader.ui.theme.InkPalette
 import com.inkreader.ui.theme.InkTheme
@@ -299,10 +302,12 @@ fun ReaderScreen(
         }
 
         val marginDp = prefs.margin.dp
+        // 在组合期读取，才能订阅首次测量及窗口尺寸变化；仅在 SideEffect 中读取
+        // 不会触发重组，正文可能一直使用 0×0 的分页区域。
+        val bodySize = measuredBodySize
         SideEffect {
-            val size = measuredBodySize
-            if (size.width > 0 && size.height > 0)
-                session.setPaginationContext(measurer, bodyStyle, size.width, size.height, density) {
+            if (bodySize.width > 0 && bodySize.height > 0)
+                session.setPaginationContext(measurer, bodyStyle, bodySize.width, bodySize.height, density) {
                     TextMeasurer(resolver, density, direction, 0)
                 }
         }
@@ -540,39 +545,44 @@ fun ReaderScreen(
                     )
                 }
 
-                AnimatedVisibility(
-                    visible = chrome && selection == null,
-                    enter = fadeIn(tween(160)),
-                    exit = fadeOut(tween(160)),
-                    modifier = Modifier.align(Alignment.BottomCenter)
-                ) {
-                    ReaderBottomBar(
-                        chapterIndex = session.chapterIndex,
-                        chapterCount = session.chapters.size,
-                        chapterTitleOf = { i -> session.chapters.getOrNull(i)?.title ?: "" },
-                        onPrevChapter = {
-                            // 是「跳章节」不是「翻一页」：直接到上一章开头
-                            val prev = session.chapterIndex - 1
-                            if (prev >= 0) session.loadChapter(prev, 0)
-                        },
-                        onNextChapter = {
-                            val next = session.chapterIndex + 1
-                            if (next <= session.chapters.lastIndex) session.loadChapter(next, 0)
-                        },
-                        onSeekChapter = { idx ->
-                            // 跳到某一章：整章从头开始排（和目录里点章节同一条路径）
-                            if (idx != session.chapterIndex) session.loadChapter(idx, 0)
-                        },
-                        onToc = { showToc = true },
-                        onTheme = {
-                            val order = com.inkreader.data.model.ReaderTheme.values()
-                            val next = order[(order.indexOf(prefs.theme) + 1) % order.size]
-                            session.updatePrefs({ it.copy(theme = next) })
-                        },
-                        onSettings = { showSettings = true },
-                        onTts = { showTts = true },
-                        onSearch = { showSearch = true }
-                    )
+                // 仅浮层随工具栏升降；正文仍使用完整视口，不触发重新分页。
+                Column(Modifier.align(Alignment.BottomCenter)) {
+                    if (tts.active && selection == null && !showToc && !showSettings && !showSearch && !showTts) {
+                        MiniTtsBar(tts, includeNavigationBarPadding = !chrome)
+                    }
+                    AnimatedVisibility(
+                        visible = chrome && selection == null,
+                        enter = expandVertically(tween(160), expandFrom = Alignment.Bottom) + fadeIn(tween(160)),
+                        exit = shrinkVertically(tween(160), shrinkTowards = Alignment.Bottom) + fadeOut(tween(160))
+                    ) {
+                        ReaderBottomBar(
+                            chapterIndex = session.chapterIndex,
+                            chapterCount = session.chapters.size,
+                            chapterTitleOf = { i -> session.chapters.getOrNull(i)?.title ?: "" },
+                            onPrevChapter = {
+                                // 是「跳章节」不是「翻一页」：直接到上一章开头
+                                val prev = session.chapterIndex - 1
+                                if (prev >= 0) session.loadChapter(prev, 0)
+                            },
+                            onNextChapter = {
+                                val next = session.chapterIndex + 1
+                                if (next <= session.chapters.lastIndex) session.loadChapter(next, 0)
+                            },
+                            onSeekChapter = { idx ->
+                                // 跳到某一章：整章从头开始排（和目录里点章节同一条路径）
+                                if (idx != session.chapterIndex) session.loadChapter(idx, 0)
+                            },
+                            onToc = { showToc = true },
+                            onTheme = {
+                                val order = com.inkreader.data.model.ReaderTheme.values()
+                                val next = order[(order.indexOf(prefs.theme) + 1) % order.size]
+                                session.updatePrefs({ it.copy(theme = next) })
+                            },
+                            onSettings = { showSettings = true },
+                            onTts = { showTts = true },
+                            onSearch = { showSearch = true }
+                        )
+                    }
                 }
 
                 // 选中操作
@@ -734,8 +744,15 @@ private fun PagedBody(
 ) {
     val p = LocalInkPalette.current
     val entryCount = session.pagerEntries.size
-    if (entryCount == 0) {
-        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+    // 邻章预排可能先于本章完成。此时不能用仅含邻章的槽位初始化 pager，
+    // 否则初始 settledPage 会被当成跨章手势，取消仍在进行的本章加载。
+    if (entryCount == 0 || session.pages.isEmpty()) {
+        Box(
+            Modifier.fillMaxSize().pointerInput(onTap) {
+                detectTapGestures(onTap = { onTap(it.x) })
+            },
+            contentAlignment = Alignment.Center
+        ) {
             Text(
                 text = if (session.chapterText.isBlank()) stringResource(R.string.reader_empty_chapter) else stringResource(R.string.reader_paginating),
                 style = InkType.Caption,

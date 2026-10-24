@@ -1,59 +1,81 @@
 # Ink Reader — User Guide
 
-Ink Reader supports offline reading without accounts or ads. Optional Computer Xiaoxiao sends the current and next sentence to your paired computer on the same trusted LAN for speech synthesis.
-
-## Computer Xiaoxiao
-
-Open a book → listening panel → Computer Xiaoxiao. Start the Windows voice bridge and enter its 16-character pairing code once. Use the connection test and voice preview buttons; previews play through the phone's media audio. If the computer is offline, listening falls back to phone TTS and retries about every 30 seconds. Keep the computer awake on the same Wi-Fi. Pairing credentials are excluded from system backup.
+For version 1.11.24. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
 
 ## Quick start
 
-- **Import books**: tap the button at the bottom-right of the shelf → pick files → choose "Merge into one book" or "Each file becomes a book"
-- **Start reading**: tap a cover to open the reader; tap the middle of the screen again to bring up the top and bottom bars
+- Tap Import on the shelf, add a book folder, then tap files in your preferred order.
+- Each selected file shows its import position. Expand Expected import order to move, remove or clear files.
+- Continue import, choose separate books or one merged book, and check both file order and chapter splitting.
+- Tap a cover to read. Tap the middle of the page to show or hide the reader bars.
+
+## Folder home and multiple folders
+
+The * button opens the file picker's Folder home, which is separate from the book shelf. Add several authorized folders and select across them; going back to Folder home keeps your selected files and their order.
+
+Android asks for folder read access. On Android 11 and later, choose a book subfolder inside Downloads if the system refuses access to the Downloads root.
+
+Hold a folder card on Folder home to enter multiple selection, select all, cancel or remove shortcuts. Removing a shortcut does not delete source files. The optional checkbox also deselects files from those folders; it is off by default.
+
+Inside a directory, tap a subfolder to enter it. Holding a subfolder does nothing. The top-right System picker remains available.
+
+## Hold a file for batch selection
+
+- Select from that file to the end, or backward to the start.
+- Select all visible files in display order or reverse order.
+- Choose a second file to select an inclusive range, following the direction from the starting file to the ending file.
+
+Only matching files in the current folder are included. The current search filter and display order apply; subfolders are excluded. Already selected files keep their positions and new files are appended without duplicates. Cancel makes no selection changes.
+
+## File order and chapter splitting
+
+- Selection order preserves the expected order and skips filename/chapter-number reordering. Appended files go after existing chapters.
+- Smart sorting uses recognized filename numbers and related metadata. Chapter management also offers automatic sorting.
+- Changing the browser's display sort does not reorder files already selected.
+- For scattered files without numbers or headings, choose Merge into one book, One chapter per file and Selection order.
+- Recognition includes CJK and English numbering, volumes and special headings such as 最终章（上） and extras. Gap recovery searches only between neighboring headings; missing source chapters are never invented.
+- If automatic splitting is unsuitable, try strict headings, numbered headings, fixed length or a custom prefix/regex and inspect the preview.
 
 ## Supported formats
 
-- **TXT**: auto-detects UTF-8 / UTF-8(BOM) / GBK / GB18030 / UTF-16
-- **DOCX**: reads body paragraphs and Heading 1–6 levels
-- **Markdown** (`.md`): formatting preserved — headings / bold / italic / lists / quotes / code blocks / tables
-- **PDF**: **text-based** only, no OCR
-- **HTML**: extracts `<title>` and body, `h1~h6` become chapters
-- **EPUB**: reads chapters in spine (reading) order
+TXT supports common UTF-8/BOM, GBK/GB18030 and UTF-16 encodings. DOCX extracts text and heading styles; convert old DOC files first. Markdown preserves supported text formatting. HTML/HTM/XHTML extracts text without running scripts or loading remote images. EPUB follows its spine reading order.
 
-## Reading controls
+PDF requires extractable text: there is no OCR, and complex columns may need manual checking. Images, tables and original page layout are not fully reproduced. Sources over 200 MiB are rejected; smaller complex or damaged documents can also exceed practical limits.
 
-- **Turn pages**: swipe, or tap the left/right edge of the screen; in scroll mode just scroll
-- **Contents**: the "Contents" button on the bottom bar, with "Chapters / Notes" tabs at the top
-- **Progress**: drag the bar above the bottom bar — a chapter preview appears, and the jump happens on release
-- **Annotate**: long-press text → drag to extend → four-color highlight / bookmark / note
-- **Whole-page tag**: in page mode, pull a whole page down to tag it
-- **Volume-key paging**: can be enabled in Settings
+## Reading and layout
 
-## Layout settings
+Swipe or tap page edges in paging mode; scroll normally in scroll mode. Reading continues across chapters. Contents includes Chapters and Notes. Drag the progress bar to preview a chapter and release to jump.
 
-The "Settings" on the shelf menu and the one in the reader's bottom bar are **one shared global set** — change it once and it applies everywhere:
+Long-press text to extend a selection, highlight, bookmark or annotate. Pull down a whole page to tag it in paging mode. Volume-key paging is optional.
 
-font size, line height, paragraph spacing, letter spacing, margins, font (sans / serif), theme, page mode, page animation, first-line indent, screen brightness.
+Shelf menu Settings and reader Settings share one global layout: font size, line/paragraph/letter spacing, margins, font, indent, brightness, theme, page mode and animation apply to all books.
 
-Five themes: Mist / Paper / Green / Ink / Night.
+## Read-aloud and computer voices
 
-## Read-aloud
+Open Read aloud in the reader to start from the current page or chapter beginning and adjust rate, pitch and sleep timer. Phone TTS depends on installed engines and language data.
 
-The "Read aloud" button in the reader starts the system TTS engine. Control it from the notification / lock screen; a sleep timer and headset buttons are supported. You can also "read from this paragraph".
+- Start the project's Windows voice bridge, keep both devices on the same trusted Wi-Fi, and enter the 16-character pairing code under 电脑语音 (computer voice).
+- A manual private IPv4 address is available if discovery fails. 测试连接 tests the connection; 试听语音 plays a preview through the phone's media output.
+- 选择朗读模型 opens the model picker beside the unpair action. Choose Auto, Xiaoxiao or Nanami and save; cancelling keeps the old choice.
+- Auto uses Xiaoxiao for Chinese/English and prefers Nanami for Japanese. Nanami must be installed on the computer. Japanese written entirely in kanji may need manual Nanami selection.
+- Preview uses the new model immediately. Stop and restart existing listening to apply a changed model; pause listening before previewing.
+- If the PC is unavailable, the app attempts phone TTS. If the required phone language is unavailable too, listening pauses with a message. Keep the PC awake, signed in and reachable.
+- The floating player moves above visible reader controls without resizing the text page.
 
-## Chapter management
+Only the current sentence and the next prefetched sentence are sent to the paired PC. LAN traffic uses HTTP without TLS encryption. Use a trusted network. Voice pairing credentials are excluded from system backup. Some computer-voice controls currently retain Chinese labels.
 
-"Chapter management" on the book detail page: view, rename, delete, add manually, and auto-sort chapters. When you append files, a chapter number in the filename is inserted at the matching position automatically.
+## Management, search and export
 
-## Search & export
+Shelf groups and title/author search are supported. Each book belongs to at most one group. Chapter management supports adding, editing, moving, merging, splitting, deleting, sorting, re-splitting and appending files; review the target and preview before confirming.
 
-- **Search**: the shelf's top search box filters by title / author; full-text search works inside a book
-- **Export**: export a whole book or a single chapter as a UTF-8(BOM) + CRLF TXT into the Downloads folder
+The editor autosaves after about 1.2 seconds of inactivity and waits for a save before returning. Forcibly killing the process immediately after typing can lose the latest unsaved input.
 
-## FAQ
+Full-text search jumps to matching text. Large-book parsing, page counting and search take time. Whole-book or chapter export produces UTF-8 BOM + CRLF TXT without private annotations. A share copy may remain available if writing to Downloads fails.
 
-- **Import seems to do nothing**: make sure the extension is supported and the file is under 200MB
-- **PDF shows garbage / blank**: scanned (image-based) PDFs contain no extractable text — use a text-based PDF
-- **Chapters aren't split**: a chapter title must be on its own line and match a pattern like "Chapter N"
+## Troubleshooting and data
 
-> The full manual (with technical notes, known limitations and the changelog) ships with the package at `docs/使用说明.md`.
+Reauthorize expired folders. Removing a shortcut keeps existing read grants. For unexpected order, inspect the expected sequence and Selection order separately from splitting mode. For Japanese speech, install/select Nanami or phone Japanese TTS data.
+
+Inspect per-file import failures and your shelf before retrying: earlier completed imports can remain after interruption. System backup/device transfer may include books, notes, progress and covers. Uninstalling or clearing app data removes the local library; export important content first.
+
+The full manual and changelog are in the GitHub repository at docs/使用说明.md and CHANGELOG.md. Emulator and selected phone checks do not cover every document, device or background policy.

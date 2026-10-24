@@ -13,3 +13,6 @@ gradlew text eol=lf
 *.jpg binary
 *.jpeg binary
 *.wav binary
+
+# Preserve authored encodings, BOMs, CRLF/CR, and intentional whitespace in parser fixtures.
+tests/fixtures/txt-corpus/*.txt -text -whitespace

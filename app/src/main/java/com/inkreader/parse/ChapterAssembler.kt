@@ -1,12 +1,15 @@
 package com.inkreader.parse
 
+import com.inkreader.data.model.SplitMode
+import com.inkreader.data.model.SplitOptions
+
 /**
  * 「带层级的段落流 → 章节」的组装规则。
  *
  * 原先只存在于 [DocxParser] 内部，现在 Markdown / PDF / HTML / EPUB 解析出来的
  * 也都是同一形态（每个段落带一个标题层级，正文为 [BODY]），统一走这里，
  * 保证不同格式的分章行为一致：
- *  · 取文档中最浅的标题层级作为分章依据，更深的层级留在正文里；
+ *  · 结合明确章号与卷标题选择分章层级，未满足条件时按标题样式层级处理；
  *  · 没有标题时退回 [ChapterSplitter] 的启发式分章；
  *  · 标题之前的内容作为「前言」；
  *  · 单章过长时按字数再拆。
@@ -28,70 +31,75 @@ object ChapterAssembler {
         } else shallow
     }
 
+    internal data class Heading(val level: Int, val title: String, val start: Int, val end: Int = start + 1)
+    internal data class Section(val heading: Heading, val start: Int, val end: Int, val volume: String)
+
+    /** Prefer repeated explicit chapter headings when parents are volumes or a single book title. */
+    internal fun plan(headings: List<Heading>, end: Int): List<Section> {
+        if (headings.isEmpty()) return emptyList()
+        val numbered = headings.filter { ChapterSplitter.isNumberedChapterTitle(it.title) }
+        val repeated = numbered.groupingBy { it.level }.eachCount().filterValues { it >= 2 }.keys.sorted()
+        val semantic = repeated.firstOrNull { level ->
+            val parents = headings.filter { it.level < level }
+            parents.none { ChapterSplitter.isNumberedChapterTitle(it.title) } &&
+                parents.count { ChapterSplitter.extractVolumeTitle(it.title) == null && !ChapterSplitter.isBookendTitle(it.title) } <= 1
+        }
+        val shallow = headings.minOf { it.level }
+        val declaredParent = numbered.any { it.level == shallow }
+        val level = semantic ?: (if (declaredParent) shallow else chooseChapterLevel(headings.map { it.level })) ?: return emptyList()
+        val chapters = headings.filter {
+            (it.level == level && (semantic == null || ChapterSplitter.extractVolumeTitle(it.title) == null)) ||
+                (semantic != null && it.level < level && ChapterSplitter.isBookendTitle(it.title))
+        }
+        val volumes = headings.filter { (it.level < level || (semantic != null && it.level == level)) && ChapterSplitter.extractVolumeTitle(it.title) != null }
+        val starts = ArrayList<Int>()
+        val names = ArrayList<String>()
+        var volumeIndex = 0
+        var volume = ""
+        chapters.forEachIndexed { index, chapter ->
+            val previous = chapters.getOrNull(index - 1)?.end ?: 0
+            var start = chapter.start
+            while (volumeIndex < volumes.size && volumes[volumeIndex].start < chapter.start) {
+                val current = volumes[volumeIndex++]
+                if (current.start >= previous && start == chapter.start) start = current.start
+                volume = current.title
+            }
+            starts += start
+            names += volume
+        }
+        return chapters.mapIndexed { index, chapter ->
+            Section(chapter, starts[index], starts.getOrNull(index + 1) ?: end, names[index])
+        }
+    }
+
     fun assemble(paragraphs: List<Para>, fallbackTitle: String = "正文"): List<ChapterSplitter.Part> {
         if (paragraphs.isEmpty()) return emptyList()
-
-        // 找到文档中最浅的标题层级，只有它作为分章依据；更深的层级留在正文里
-        val levels = paragraphs.mapNotNull { if (it.level >= 0) it.level else null }.distinct().sorted()
-        val chapterLevel = chooseChapterLevel(paragraphs.map { it.level })
-
-        val plain = paragraphs.joinToString("\n\n") { it.text }
-
-        if (chapterLevel == null) {
-            // 没有标题样式：退回 TXT 的章节识别逻辑
-            val normalized = ChapterSplitter.normalize(plain)
-            return ChapterSplitter.split(normalized, fallbackTitle)
+        val headings = paragraphs.mapIndexedNotNull { index, para ->
+            if (para.level >= 0) Heading(para.level, para.text, index) else null
         }
-
+        if (headings.isEmpty()) {
+            return ChapterSplitter.split(ChapterSplitter.normalize(paragraphs.joinToString("\n\n") { it.text }), fallbackTitle)
+        }
+        val sections = plan(headings, paragraphs.size)
         val parts = ArrayList<ChapterSplitter.Part>()
-        val headBuf = ArrayList<String>()
-        var curTitle: String? = null
-        val curBuf = ArrayList<String>()
-
-        fun flushChapter() {
-            val t = curTitle ?: return
-            val body = curBuf.joinToString("\n\n").trim()
-            parts += ChapterSplitter.Part(t, body.ifEmpty { t })
-            curBuf.clear()
+        val head = paragraphs.take(sections.first().start).joinToString("\n\n") { it.text }.trim()
+        if (head.isNotEmpty()) {
+            val first = head.lineSequence().firstOrNull { it.isNotBlank() }.orEmpty().trim()
+            parts += ChapterSplitter.Part(first.takeIf { it.length in 1..24 } ?: "前言", head)
         }
-
-        for (p in paragraphs) {
-            if (p.level == chapterLevel) {
-                flushChapter()
-                curTitle = p.text.ifBlank { "第 ${parts.size + 1} 章" }
+        sections.forEachIndexed { index, section ->
+            val title = section.heading.title.ifBlank { "第 ${index + 1} 章" }
+            val body = (section.start until section.end).filter { it !in section.heading.start until section.heading.end }
+                .joinToString("\n\n") { paragraphs[it].text }.trim().ifEmpty { title }
+            if (body.length <= 120000) {
+                parts += ChapterSplitter.Part(title, body, section.volume)
             } else {
-                val line = if (p.level in (chapterLevel + 1)..(chapterLevel + 3)) {
-                    // 子标题：保留为独立段落，前面留一个空行拉开层次
-                    curBuf.add("")
-                    p.text
-                } else p.text
-                if (curTitle == null) headBuf += line else curBuf += line
+                val chunks = ChapterSplitter.split(body, title, SplitOptions(
+                    mode = SplitMode.FIXED_SIZE, fixedChunkChars = 50000, cleanWatermark = false))
+                chunks.forEachIndexed { number, chunk -> parts += chunk.copy(
+                    title = if (number == 0) title else "$title（${number + 1}）", volume = section.volume) }
             }
         }
-        flushChapter()
-
-        // 标题之前的内容作为前言
-        val head = headBuf.joinToString("\n\n").trim()
-        if (head.isNotEmpty()) {
-            val firstLine = head.lineSequence().firstOrNull { it.isNotBlank() }?.trim().orEmpty()
-            val t = if (firstLine.isNotEmpty() && firstLine.length <= 24) firstLine else "前言"
-            parts.add(0, ChapterSplitter.Part(t, head))
-        }
-
-        // 单章过长时再按字数拆
-        val result = ArrayList<ChapterSplitter.Part>()
-        for (p in parts) {
-            if (p.content.length > 120000) {
-                ChapterSplitter.split(p.content, p.title).forEachIndexed { i, sub ->
-                    result += ChapterSplitter.Part(
-                        if (i == 0) p.title else "${p.title}（${i + 1}）",
-                        sub.content
-                    )
-                }
-            } else result += p
-        }
-        return if (result.isEmpty()) {
-            ChapterSplitter.split(ChapterSplitter.normalize(plain), fallbackTitle)
-        } else result
+        return parts
     }
 }

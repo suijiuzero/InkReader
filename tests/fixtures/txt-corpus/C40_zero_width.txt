@@ -1,0 +1,9 @@
+AUDIT_C40
+
+第​一章 初见
+
+TXT_AUDIT_C40_S00 测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。
+
+第二章 重逢
+
+TXT_AUDIT_C40_S01 测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。测试正文保留人物对白、数字42和普通网址 https://example.org/reference 。

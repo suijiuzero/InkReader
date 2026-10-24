@@ -67,6 +67,8 @@ object CharsetDetector {
             // 排除过长编码
             if (extra == 2 && b == 0xE0 && (bytes[i + 1].toInt() and 0xFF) < 0xA0) return false
             if (extra == 3 && b == 0xF0 && (bytes[i + 1].toInt() and 0xFF) < 0x90) return false
+            if (extra == 2 && b == 0xED && (bytes[i + 1].toInt() and 0xFF) >= 0xA0) return false
+            if (extra == 3 && b == 0xF4 && (bytes[i + 1].toInt() and 0xFF) >= 0x90) return false
             i += extra + 1
             multiByteSequences++
         }
@@ -77,7 +79,7 @@ object CharsetDetector {
     fun decode(bytes: ByteArray): String {
         if (bytes.isEmpty()) return ""
         val r = detect(bytes)
-        val body = if (r.bomLength > 0 && bytes.size > r.bomLength)
+        val body = if (r.bomLength > 0)
             bytes.copyOfRange(r.bomLength, bytes.size) else bytes
         return runCatching { String(body, r.charset) }
             .getOrElse { String(bytes, Charsets.UTF_8) }

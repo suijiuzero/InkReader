@@ -1,0 +1,13 @@
+AUDIT_C54
+
+Chapter 1 — 朝
+
+LANG_C54_0 La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!
+
+Chapter 2 — 昼
+
+LANG_C54_1 La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!
+
+Chapter 3 — 夜
+
+LANG_C54_2 La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!La niña encontró un libro extraño. ¿Quién recordó la promesa? ¡Mañana volverá con el número 42!

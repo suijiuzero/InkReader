@@ -3,11 +3,15 @@ import json
 import threading
 import unittest
 
-from bridge import BridgeServer, private_peer
+from bridge import BridgeServer, private_peer, speech_language
 
 
 class FakeWorker:
-    def synthesize(self, text, rate, pitch):
+    models = ['auto', 'xiaoxiao', 'nanami']
+
+    def synthesize(self, text, rate, pitch, language="auto", model="auto"):
+        self.language = language
+        self.model = model
         return b"RIFF" + bytes(4) + b"WAVE" + bytes(40)
 
 
@@ -41,6 +45,7 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertEqual(json.loads(body)["id"], "a" * 32)
         self.assertNotIn(b"0123456789ABCDEF", body)
+        self.assertEqual(json.loads(body)['models'], ['auto', 'xiaoxiao', 'nanami'])
 
     def test_invalid_payloads(self):
         for body in ["{", "[]", '{"text":null}', '{"text":""}', json.dumps({"text": "x" * 1201}),
@@ -52,11 +57,33 @@ class BridgeTest(unittest.TestCase):
         self.assertEqual(status, 200)
         self.assertTrue(body.startswith(b"RIFF"))
 
+    def test_japanese_routing_and_kanji_context(self):
+        for text, hint, expected in [("今日は良い天気です。", "auto", "ja-JP"),
+                                     ("東京。", "ja-JP", "ja-JP"), ("你好。", "auto", "zh-CN"),
+                                     ("Hello.", "en-US", "en-US"), ("ｺﾝﾆﾁﾊ", "auto", "ja-JP")]:
+            self.assertEqual(speech_language(text, hint), expected)
+            status, _ = self.request('/v1/speak', json.dumps(dict(text=text, language=hint)))
+            self.assertEqual(status, 200)
+            self.assertEqual(self.server.worker.language, expected)
+        for hint in ("ja", "../../../voice", [], None):
+            self.assertEqual(self.request('/v1/speak', json.dumps(dict(text='hello', language=hint)))[0], 400)
+
     def test_private_networks_only(self):
         for host in ["127.0.0.1", "10.1.1.2", "192.168.2.3", "172.31.1.2"]:
             self.assertTrue(private_peer(host))
         for host in ["8.8.8.8", "172.32.1.2", "169.254.1.1", "example.com", "::1"]:
             self.assertFalse(private_peer(host))
+
+    def test_model_selection_is_forwarded_independently_of_language(self):
+        for model in ('auto', 'xiaoxiao', 'nanami'):
+            for text in ('你好。', 'こんにちは。'):
+                status, _ = self.request('/v1/speak', json.dumps(dict(text=text, model=model)))
+                self.assertEqual(status, 200)
+                self.assertEqual(self.server.worker.model, model)
+
+    def test_invalid_model_is_rejected(self):
+        for model in ('other', 'Local-Xiaoxiao', [], {}, None):
+            self.assertEqual(self.request('/v1/speak', json.dumps(dict(text='hello', model=model)))[0], 400)
 
 
 if __name__ == "__main__":

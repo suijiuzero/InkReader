@@ -1,0 +1,14 @@
+<resources>
+    <string name="picker_home_title">文件夹首页</string>
+    <string name="picker_home_add">添加文件夹</string>
+    <string name="picker_home_manage_hint">点击进入，长按卡片可多选移出；已选文件的顺序会保留。</string>
+    <string name="picker_home_selected">已选文件夹：%1$d</string>
+    <string name="picker_home_select_all">全选</string>
+    <string name="picker_home_remove">移出首页</string>
+    <string name="picker_home_remove_title">移出文件夹入口（%1$d）</string>
+    <string name="picker_home_remove_hint">只移除墨阅选文件页中的入口，不会删除手机上的文件夹或文件。未勾选下方选项时，已选文件及顺序会继续保留。</string>
+    <string name="picker_home_cancel_selected">同时取消这些文件夹内的已选文件（%1$d）</string>
+    <string name="picker_home_open_hint">点按进入 · 长按多选</string>
+    <string name="picker_home_grant_hint">点按重新授权</string>
+    <string name="picker_home_toggle_hint">点按切换选择</string>
+</resources>

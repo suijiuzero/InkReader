@@ -272,8 +272,9 @@ class Paginator(private val measurer: TextMeasurer) {
         fun lineHeightOf(s: TextStyle): Float {
             lineHeights[s]?.let { return it }
             val nominal = with(density) {
-                val lh = s.lineHeight.toPx()
-                if (lh.isNaN() || lh <= 0f) s.fontSize.toPx() * 1.6f else lh
+                val lh = if (s.lineHeight.isSp) s.lineHeight.toPx() else Float.NaN
+                val font = if (s.fontSize.isSp) s.fontSize.toPx() else 19f * density.density
+                if (!lh.isFinite() || lh <= 0f) font * 1.6f else lh
             }
             val probe = runCatching {
                 val r = measurer.measure(
@@ -331,20 +332,32 @@ class Paginator(private val measurer: TextMeasurer) {
                 }
                 // 极小窗口至少推进一行；空页不能反复 flush 而不消耗字符。
                 val maxLines = floor(avail / lineHeightPx).toInt().coerceAtLeast(1)
-                val sub = block.text.substring(cursor)
-                // 段落第一截带缩进测量，续排的那截按块规则来——必须和渲染端一致
+                // Shape only enough lookahead for this page. Passing the entire remaining
+                // paragraph on every page made long, unbroken text quadratic in time/memory.
                 val indent = st.indentForSlice(block, continuation)
                 val measureStyle = if (indent != null) blockStyle.copy(textIndent = indent) else blockStyle
-                val result: TextLayoutResult = measurer.measure(
-                    text = inlineText(sub, block.start + cursor, block),
-                    style = measureStyle,
-                    maxLines = maxLines,
-                    constraints = constraints
-                )
-                val fittingLines = (0 until result.lineCount)
-                    .takeWhile { result.getLineBottom(it) <= avail }.size.coerceAtLeast(1)
-                val consumed = result.getLineEnd(fittingLines - 1, false).coerceIn(1, sub.length)
-                val fitsAll = consumed == sub.length
+                var window = maxOf(2048, maxLines.coerceAtMost(256) * 256)
+                var consumed: Int
+                var result: TextLayoutResult
+                var fittingLines: Int
+                var sub: String
+                while (true) {
+                    cancellation.ensureActive()
+                    var end = (cursor.toLong() + window).coerceAtMost(block.text.length.toLong()).toInt()
+                    if (end < block.text.length && Character.isHighSurrogate(block.text[end - 1]) &&
+                        Character.isLowSurrogate(block.text[end])) end--
+                    sub = block.text.substring(cursor, end)
+                    result = measurer.measure(
+                        text = inlineText(sub, block.start + cursor, block), style = measureStyle,
+                        maxLines = maxLines, constraints = constraints)
+                    fittingLines = (0 until result.lineCount)
+                        .takeWhile { result.getLineBottom(it) <= avail }.size.coerceAtLeast(1)
+                    consumed = result.getLineEnd(fittingLines - 1, false).coerceIn(1, sub.length)
+                    // If the lookahead fits completely, grow it until we find the real page end.
+                    if (consumed < sub.length || end == block.text.length) break
+                    window = (window.toLong() * 2).coerceAtMost(block.text.length.toLong()).toInt()
+                }
+                val fitsAll = cursor + consumed == block.text.length
                 val consumedHeight = result.getLineBottom(fittingLines - 1)
 
                 items += Placed(

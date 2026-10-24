@@ -1,0 +1,10 @@
+<resources>
+    <string name="import_order_label">文件顺序</string>
+    <string name="import_order_auto">智能排序</string>
+    <string name="import_order_selection">按选择顺序</string>
+    <string name="import_order_auto_hint">按现有规则识别文件名或章节编号，自动安排顺序。</string>
+    <string name="import_order_selection_hint">按下方列表依次导入，不按文件名或章号重排；追加文件会放在原书末尾。</string>
+    <string name="import_order_adjust_hint">顺序以下方列表为准。如果文件管理器打乱了选择顺序，可用箭头调整。散篇可搭配“每个文件作为一章”。</string>
+    <string name="import_order_move_up">上移第 %1$d 个文件</string>
+    <string name="import_order_move_down">下移第 %1$d 个文件</string>
+</resources>

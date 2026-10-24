@@ -95,13 +95,13 @@ class PdfParser : DocumentParser {
     private val PUNCT_END = "。！？；：，、,.!?;:"
 
     private fun buildFromPages(pages: List<List<PdfParagraphs.Line>>): List<ChapterSplitter.Part> {
-        val artifacts = findRunningHeads(pages)
+        val artifacts = PdfArtifacts(pages)
         val allLines = pages.flatten()
         if (allLines.isEmpty()) return emptyList()
 
         val bodySize = bodyFontSize(allLines)
 
-        val paras = PdfParagraphs.collect(pages, { isArtifact(it, artifacts) }, ::paragraphGap)
+        val paras = PdfParagraphs.collect(pages, { false }, ::paragraphGap, artifacts::drop)
         if (paras.isEmpty()) return emptyList()
 
         val headings = paras
@@ -172,44 +172,6 @@ class PdfParser : DocumentParser {
 
     private fun isLatinWordChar(c: Char): Boolean =
         c.isLetterOrDigit() && c.code < 0x2E80
-
-    // ------------------------------------------------------------------ 页眉页脚
-
-    /**
-     * 找出「每页首尾重复出现」的行（页码、页眉书名）。
-     * 判据：把数字统一替换成 # 之后，同一条文本出现在多数页面的开头/结尾。
-     */
-    private fun findRunningHeads(pages: List<List<PdfParagraphs.Line>>): Set<String> {
-        if (pages.size < 4) return emptySet()
-        val counts = HashMap<String, Int>()
-        for (page in pages) {
-            if (page.isEmpty()) continue
-            val candidates = LinkedHashSet<String>()
-            page.take(2).forEach { candidates += normalizeArtifact(it.text) }
-            page.takeLast(2).forEach { candidates += normalizeArtifact(it.text) }
-            for (c in candidates) {
-                if (c.isNotEmpty()) counts[c] = (counts[c] ?: 0) + 1
-            }
-        }
-        val threshold = max(3, (pages.size * 0.55f).toInt())
-        return counts.filterValues { it >= threshold }.keys
-    }
-
-    private fun isArtifact(text: String, artifacts: Set<String>): Boolean {
-        val t = text.trim()
-        if (t.isEmpty()) return true
-        // 纯页码：即使只有两三页也剔掉
-        if (Regex("^[-—–\\[\\]()\\s]*\\d{1,4}[-—–\\[\\]()\\s]*$").matches(t)) return true
-        if (Regex("(?i)^(第\\s*\\d+\\s*页|page\\s*\\d+|\\d+\\s*/\\s*\\d+)$").matches(t)) return true
-        return normalizeArtifact(t) in artifacts
-    }
-
-    /** 归一化：去掉空白、把数字换成 #，让「第 12 页」「第 13 页」落到同一条 */
-    private fun normalizeArtifact(text: String): String =
-        text.lowercase()
-            .replace(Regex("\\s+"), "")
-            .replace(Regex("\\d+"), "#")
-            .trim()
 
     // ------------------------------------------------------------------ 词流收集
 

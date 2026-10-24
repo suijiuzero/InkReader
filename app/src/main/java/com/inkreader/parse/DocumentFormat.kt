@@ -53,12 +53,14 @@ object FormatDetector {
         if (isOle2(bytes)) return DocumentFormat.DOC
         if (isPdf(bytes)) return DocumentFormat.PDF
         if (isZip(bytes)) {
+            val inspected = inspectZip(bytes)
+            if (inspected != DocumentFormat.ZIP) return inspected
             return when (ext) {
                 "docx" -> DocumentFormat.DOCX
                 "epub" -> DocumentFormat.EPUB
                 "xlsx", "xlsm" -> DocumentFormat.XLSX
                 "pptx" -> DocumentFormat.PPTX
-                else -> inspectZip(bytes)
+                else -> DocumentFormat.ZIP
             }
         }
 
@@ -83,35 +85,34 @@ object FormatDetector {
 
     /** PK 开头但扩展名不确定：读内部条目名判断到底是哪种「ZIP 家族」格式 */
     private fun inspectZip(bytes: ByteArray): DocumentFormat {
-        var sawOffice = false
-        var sawEpub = false
-        var sawDocx = false
+        var found = DocumentFormat.ZIP
         runCatching {
             java.util.zip.ZipInputStream(bytes.inputStream().buffered()).use { zip ->
                 var guard = 0
+                var inflated = 0L
+                val buffer = ByteArray(8192)
                 while (guard++ < 512) {
                     val entry = zip.nextEntry ?: break
                     val n = entry.name.lowercase()
                     when {
-                        n == "mimetype" || n == "meta-inf/container.xml" -> sawEpub = true
-                        n.startsWith("word/document") -> sawDocx = true
-                        n.startsWith("xl/") -> sawOffice = true
-                        n.startsWith("ppt/") -> sawOffice = true
+                        n == "meta-inf/container.xml" -> found = DocumentFormat.EPUB
+                        n == "word/document.xml" || n == "word/document2.xml" -> found = DocumentFormat.DOCX
+                        n == "xl/workbook.xml" -> found = DocumentFormat.XLSX
+                        n == "ppt/presentation.xml" -> found = DocumentFormat.PPTX
                     }
-                    if (sawEpub || sawDocx || sawOffice) {
-                        zip.closeEntry()
-                        break
+                    if (found != DocumentFormat.ZIP) break
+                    // closeEntry/nextEntry also inflate skipped data: drain it under a shared budget first.
+                    while (inflated <= 2L * 1024 * 1024) {
+                        val count = zip.read(buffer)
+                        if (count < 0) break
+                        inflated += count
                     }
+                    if (inflated > 2L * 1024 * 1024) break
                     zip.closeEntry()
                 }
             }
         }
-        return when {
-            sawEpub -> DocumentFormat.EPUB
-            sawDocx -> DocumentFormat.DOCX
-            sawOffice -> DocumentFormat.XLSX
-            else -> DocumentFormat.ZIP
-        }
+        return found
     }
 
     /** 文本流里不该出现 NUL；出现基本可以断定是二进制（图片、音频、未知容器…） */
@@ -145,15 +146,19 @@ object FormatDetector {
     fun isZip(bytes: ByteArray): Boolean =
         bytes.size >= 4 &&
             bytes[0] == 0x50.toByte() && bytes[1] == 0x4B.toByte() &&
-            (bytes[2] == 0x03.toByte() || bytes[2] == 0x05.toByte() || bytes[2] == 0x07.toByte())
+            ((bytes[2] == 0x03.toByte() && bytes[3] == 0x04.toByte()) ||
+                (bytes[2] == 0x05.toByte() && bytes[3] == 0x06.toByte()) ||
+                (bytes[2] == 0x07.toByte() && bytes[3] == 0x08.toByte()))
 
     fun isOle2(bytes: ByteArray): Boolean =
         bytes.size >= 8 &&
             bytes[0] == 0xD0.toByte() && bytes[1] == 0xCF.toByte() &&
-            bytes[2] == 0x11.toByte() && bytes[3] == 0xE0.toByte()
+            bytes[2] == 0x11.toByte() && bytes[3] == 0xE0.toByte() &&
+            bytes[4] == 0xA1.toByte() && bytes[5] == 0xB1.toByte() &&
+            bytes[6] == 0x1A.toByte() && bytes[7] == 0xE1.toByte()
 
     fun isPdf(bytes: ByteArray): Boolean =
         bytes.size >= 5 &&
             bytes[0] == 0x25.toByte() && bytes[1] == 0x50.toByte() &&
-            bytes[2] == 0x44.toByte() && bytes[3] == 0x46.toByte()
+            bytes[2] == 0x44.toByte() && bytes[3] == 0x46.toByte() && bytes[4] == 0x2D.toByte()
 }

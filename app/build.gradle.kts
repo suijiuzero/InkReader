@@ -9,7 +9,7 @@ plugins {
 }
 
 // 正式签名配置：工程根目录放 keystore.properties 即启用；
-// 缺这个文件时 release 回退用 debug 签名，行为与以前一致（本机自测够用）。
+// 缺这个文件时仍可构建 debug；release 打包任务会明确失败，不回退 debug 签名。
 val keystorePropertiesFile = rootProject.file("keystore.properties")
 val keystoreProperties = Properties().apply {
     if (keystorePropertiesFile.exists()) {
@@ -25,8 +25,8 @@ android {
         applicationId = "com.inkreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 48
-        versionName = "1.11.11"
+        versionCode = 61
+        versionName = "1.11.24"
         testInstrumentationRunner = "com.inkreader.AuditInstrumentation"
         resourceConfigurations += listOf("zh", "en", "ja")
     }

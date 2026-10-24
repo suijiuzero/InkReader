@@ -22,6 +22,7 @@ data class TtsState(
     val pitch: Float = 1f,
     val engineMissing: Boolean = false,
     val computerVoice: Boolean = false,
+    val computerModel: String = "自动",
     val buffering: Boolean = false
 )
 

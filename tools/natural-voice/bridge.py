@@ -7,6 +7,7 @@ import math
 import os
 from pathlib import Path
 import queue
+import re
 import secrets
 import socket
 import subprocess
@@ -18,6 +19,14 @@ HTTP_PORT = 37262
 DISCOVERY_PORT = 37261
 MARKER = "INKREADER_VOICE_V1"
 MAX_TEXT = 1200
+LANGUAGES = ("auto", "zh-CN", "en-US", "ja-JP")
+MODELS = ("auto", "xiaoxiao", "nanami")
+KANA = re.compile(r"[\u3041-\u3096\u309d\u309e\u30a1-\u30fa\u30fd\u30fe\uff66-\uff9d]")
+
+
+def speech_language(text, hint="auto"):
+    # Kana wins over a stale Chinese hint; chapter hints cover Kanji-only sentences.
+    return "ja-JP" if KANA.search(text) else ("zh-CN" if hint == "auto" else hint)
 
 
 def private_peer(host):
@@ -46,6 +55,9 @@ class SapiWorker:
     def __init__(self):
         self.lock = threading.Lock()
         self.process = None
+        self.languages = ["zh-CN", "en-US"]
+        self.models = ["auto", "xiaoxiao"]
+        self.last_voice = ""
 
     def close(self):
         if self.process:
@@ -70,18 +82,22 @@ class SapiWorker:
             lines.put("")
         threading.Thread(target=read, daemon=True).start()
 
-    def synthesize(self, text, rate, pitch):
+    def synthesize(self, text, rate, pitch, language="auto", model="auto"):
         if not self.lock.acquire(timeout=2):
             raise TimeoutError("语音服务忙，请稍后重试")
         try:
             if self.process is None or self.process.poll() is not None:
                 self._start()
-            self.process.stdin.write(json.dumps({"text": text, "rate": rate, "pitch": pitch}) + "\n")
+            self.process.stdin.write(json.dumps({"text": text, "rate": rate, "pitch": pitch,
+                                                 "language": speech_language(text, language), "model": model}) + "\n")
             self.process.stdin.flush()
             try:
                 result = json.loads(self.lines.get(timeout=45))
                 if not result.get("ok"):
                     raise RuntimeError("本地晓晓不可用，请检查 NaturalVoiceSAPIAdapter")
+                self.languages = result.get("languages", self.languages)
+                self.models = result.get("models", self.models)
+                self.last_voice = result.get("voice", "")
                 audio = base64.b64decode(result["audio"], validate=True)
                 if not 44 < len(audio) <= 12_000_000 or audio[:4] != b"RIFF":
                     raise ValueError("无效音频")
@@ -159,7 +175,9 @@ class Handler(BaseHTTPRequestHandler):
                     "仅在可信的家庭局域网使用。文字只发送给配对电脑，语音临时文件播放后删除。</p>")
             self.reply(200, html.encode("utf-8"), "text/html; charset=utf-8")
         elif self.path == "/v1/health" and self.authorized():
-            self.reply(200, {"service": MARKER, "id": self.server.config["id"], "voice": "本地晓晓"})
+            self.reply(200, {"service": MARKER, "id": self.server.config["id"], "voice": "电脑语音",
+                             "languages": getattr(self.server.worker, "languages", ["zh-CN", "en-US"]),
+                             "models": getattr(self.server.worker, "models", ["auto"])})
         else:
             self.reply(403, {"error": "需要配对"})
 
@@ -173,6 +191,12 @@ class Handler(BaseHTTPRequestHandler):
                 raise ValueError()
             body = json.loads(self.rfile.read(length))
             text = body["text"]
+            language = body.get("language", "auto")
+            model = body.get("model", "auto")
+            if language not in LANGUAGES:
+                raise ValueError()
+            if model not in MODELS:
+                raise ValueError()
             rate, pitch = float(body.get("rate", 1)), float(body.get("pitch", 1))
             if not isinstance(text, str) or not text.strip() or len(text) > MAX_TEXT:
                 raise ValueError()
@@ -182,7 +206,7 @@ class Handler(BaseHTTPRequestHandler):
             self.reply(400, {"error": "无效朗读请求"})
             return
         try:
-            self.reply(200, self.server.worker.synthesize(text, rate, pitch), "audio/wav")
+            self.reply(200, self.server.worker.synthesize(text, rate, pitch, speech_language(text, language), model), "audio/wav")
         except Exception:
             self.reply(503, {"error": "电脑语音暂不可用"})
 

@@ -1,0 +1,20 @@
+<resources>
+    <string name="picker_batch_title">一括選択</string>
+    <string name="picker_batch_forward">ここから末尾まで選択</string>
+    <string name="picker_batch_reverse">ここから先頭まで逆順に選択</string>
+    <string name="picker_batch_all">表示順ですべて選択</string>
+    <string name="picker_batch_all_reverse">逆順ですべて選択</string>
+    <string name="picker_batch_range">2つのファイルの間を選択</string>
+    <string name="picker_batch_range_hint">次に終了ファイルを指定</string>
+    <string name="picker_batch_hint">現在のフォルダーの表示順と検索条件を使い、サブフォルダーは含みません。未選択のファイルを末尾に追加し、選択済みの順序は保持します。</string>
+    <string name="picker_batch_end_title">終了ファイルを選択</string>
+    <string name="picker_batch_end_hint">上の開始ファイルから終了ファイルまで両端を含めて選択します。終了ファイルが前にある場合は逆順になります。</string>
+    <string name="picker_batch_back">選択方法に戻る</string>
+    <plurals name="picker_batch_count">
+        <item quantity="other">範囲内 %1$d ファイル</item>
+    </plurals>
+    <plurals name="picker_batch_added">
+        <item quantity="other">%1$d ファイルを追加しました</item>
+    </plurals>
+    <string name="picker_batch_long_hint">ファイルを長押しして正順・逆順・範囲で一括選択</string>
+</resources>

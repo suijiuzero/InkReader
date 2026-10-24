@@ -69,6 +69,8 @@ import com.inkreader.R
 import com.inkreader.data.model.Book
 import com.inkreader.data.model.BookGroup
 import com.inkreader.data.model.ImportMode
+import com.inkreader.data.model.ImportOrder
+import com.inkreader.ui.component.ImportOrderControls
 import com.inkreader.data.model.ShelfSort
 import com.inkreader.data.model.ShelfView
 import com.inkreader.data.model.SplitMode
@@ -151,7 +153,8 @@ fun ShelfScreen(
     onOpenMarks: (Long, String) -> Unit,
     onOpenGroup: (Long) -> Unit = {},
     onOpenSearch: () -> Unit = {},
-    onOpenSettings: () -> Unit = {}
+    onOpenSettings: () -> Unit = {},
+    onPickFiles: (() -> Unit)? = null
 ) {
     val lib = container.library
     val p = LocalInkPalette.current
@@ -159,6 +162,7 @@ fun ShelfScreen(
     val selected = remember { mutableStateListOf<Long>() }
 
     var pendingUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var pendingFileOrder by remember { mutableStateOf(ImportOrder.AUTO) }
     var showImportDialog by remember { mutableStateOf(false) }
     var showNewBookDialog by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
@@ -209,6 +213,7 @@ fun ShelfScreen(
      * 统一入口：用 AOSP 文档选择器选文件（意图显式指向 documentsui，找不到则退回系统默认）。
      */
     fun launchPicker(retry: Boolean = false) {
+        if (!retry && onPickFiles != null) { onPickFiles(); return }
         val now = System.currentTimeMillis()
         container.prefs.pickerLaunchedAt = now
         container.prefs.pickerRetriedAt = if (retry) now else 0L
@@ -241,6 +246,7 @@ fun ShelfScreen(
             PickerTrace.log(ctx, "shelf.pendingUris observed n=${pend.size} -> show dialog")
             container.pendingUris = emptyList()
             pendingUris = pend
+            pendingFileOrder = container.prefs.pendingImportOrder
             showImportDialog = true
         }
     }
@@ -252,7 +258,7 @@ fun ShelfScreen(
         pendingNames = if (pendingUris.isEmpty()) {
             emptyList()
         } else {
-            withContext(Dispatchers.IO) { pendingUris.mapNotNull { container.repo.displayName(it) } }
+            withContext(Dispatchers.IO) { pendingUris.map { container.repo.displayName(it) ?: it.lastPathSegment.orEmpty() } }
         }
     }
 
@@ -279,6 +285,7 @@ fun ShelfScreen(
             Log.i(TAG, "resume pending import: ${resumedUris.size} file(s)")
             container.docPickerInterrupted = false
             pendingUris = resumedUris
+            pendingFileOrder = container.prefs.pendingImportOrder
             showImportDialog = true
             return@LaunchedEffect
         }
@@ -491,17 +498,17 @@ fun ShelfScreen(
             uris = pendingUris,
             fileCount = pendingUris.size,
             names = pendingNames,
+            initialOrder = pendingFileOrder,
             onDismiss = {
                 showImportDialog = false
                 pendingUris = emptyList()
                 container.prefs.pendingImportUris = emptyList()
             },
-            onConfirm = { mode, title, options ->
+            onConfirm = { uris, mode, title, options, fileOrder ->
                 showImportDialog = false
-                val uris = pendingUris
                 pendingUris = emptyList()
                 container.prefs.pendingImportUris = emptyList()
-                lib.import(uris, mode, title, options.mode, options)
+                lib.import(uris, mode, title, options.mode, options, fileOrder)
             }
         )
     }
@@ -1000,11 +1007,16 @@ private fun ImportDialog(
     uris: List<Uri>,
     fileCount: Int,
     names: List<String>,
+    initialOrder: ImportOrder = ImportOrder.AUTO,
     onDismiss: () -> Unit,
-    onConfirm: (ImportMode, String?, SplitOptions) -> Unit
+    onConfirm: (List<Uri>, ImportMode, String?, SplitOptions, ImportOrder) -> Unit
 ) {
     val p = LocalInkPalette.current
     var mode by remember { mutableStateOf(ImportMode.SEPARATE) }
+    var fileOrder by remember(uris) { mutableStateOf(initialOrder) }
+    var selection by remember(uris) { mutableStateOf(uris.toList()) }
+    val nameByUri = remember(uris, names) { uris.mapIndexed { i, uri -> uri to names.getOrElse(i) { uri.lastPathSegment.orEmpty() } }.toMap() }
+    val effectiveUris = if (fileOrder == ImportOrder.SELECTION) selection else uris
     var title by remember { mutableStateOf("") }
     var splitMode by remember { mutableStateOf(SplitMode.SMART) }
     var customPattern by remember { mutableStateOf("") }
@@ -1021,11 +1033,12 @@ private fun ImportDialog(
         )
     }
 
-    LaunchedEffect(uris, mode, currentOptions) {
+    LaunchedEffect(effectiveUris, mode, currentOptions, fileOrder) {
         if (uris.isEmpty()) return@LaunchedEffect
         previewLoading = true
+        preview = null
         kotlinx.coroutines.delay(300)
-        preview = container.repo.previewImport(uris, mode, currentOptions)
+        preview = container.repo.previewImport(effectiveUris, mode, currentOptions, fileOrder)
         previewLoading = false
     }
 
@@ -1036,14 +1049,14 @@ private fun ImportDialog(
             Row(horizontalArrangement = Arrangement.End) {
                 InkTextButton(stringResource(R.string.action_cancel), color = p.textSecondary) { onDismiss() }
                 InkTextButton(stringResource(R.string.shelf_start_import)) {
-                    onConfirm(mode, title.takeIf { it.isNotBlank() }, currentOptions)
+                    onConfirm(effectiveUris, mode, title.takeIf { it.isNotBlank() }, currentOptions, fileOrder)
                 }
             }
         }
     ) {
         if (names.isNotEmpty()) {
             Text(
-                text = names.take(6).joinToString(stringResource(R.string.shelf_file_name_separator)) +
+                text = effectiveUris.take(6).mapNotNull { nameByUri[it] }.joinToString(stringResource(R.string.shelf_file_name_separator)) +
                     if (names.size > 6) stringResource(R.string.shelf_file_names_more) else "",
                 style = InkType.Caption.copy(fontSize = 11.5.sp),
                 color = p.textFaint,
@@ -1128,6 +1141,15 @@ private fun ImportDialog(
                 value = title,
                 onValueChange = { title = it },
                 placeholder = stringResource(R.string.shelf_title_auto_placeholder)
+            )
+        }
+
+        if (fileCount > 1) {
+            Spacer(Modifier.height(16.dp))
+            ImportOrderControls(
+                order = fileOrder, names = selection.map { nameByUri[it].orEmpty() },
+                onOrderChange = { fileOrder = it },
+                onMove = { from, to -> selection = selection.toMutableList().apply { add(to, removeAt(from)) } }
             )
         }
 

@@ -1,0 +1,10 @@
+<resources>
+    <string name="import_order_label">File order</string>
+    <string name="import_order_auto">Smart order</string>
+    <string name="import_order_selection">Selection order</string>
+    <string name="import_order_auto_hint">Use the existing rules to arrange files and numbered chapters.</string>
+    <string name="import_order_selection_hint">Import in the list order, without sorting names or chapter numbers. Appended files go at the end of the book.</string>
+    <string name="import_order_adjust_hint">The list below sets the final order. Use the arrows if the file picker changed your selection order. For loose pieces, choose One chapter per file.</string>
+    <string name="import_order_move_up">Move up: file %1$d</string>
+    <string name="import_order_move_down">Move down: file %1$d</string>
+</resources>
