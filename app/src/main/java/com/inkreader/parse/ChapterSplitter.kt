@@ -67,7 +67,7 @@ object ChapterSplitter {
 
     /** 完整匹配，括号成对；编号只属于特殊章，不能被误当正文章号排序。 */
     private fun specialPattern(words: String): Regex {
-        val brackets = listOf("（" to "）", "(" to ")", "【" to "】", "[" to "]", "「" to "」", "『" to "』")
+        val brackets = listOf("（" to "）", "(" to ")", "【" to "】", "[" to "]", "「" to "」", "『" to "』", "〔" to "〕")
         val bracketSuffix = brackets.joinToString("|") { (open, close) ->
             Regex.escape(open) + "[^（）()【】\\[\\]「」『』\\r\\n]{1,24}" + Regex.escape(close)
         }
@@ -93,7 +93,7 @@ object ChapterSplitter {
     /** 没有「第」的章号必须有边界，避免把「三章小说」当成标题。 */
     private fun cnPattern(marks: String) = Regex(
         "^\\s{0,6}(?:第\\s*[$KANJI_DIGITS]{1,10}\\s*[$marks]|" +
-            "[$KANJI_DIGITS]{1,10}\\s*[$marks](?=\\s|[:：.、（(【\\[]|$))\\s*(.{0,40})$"
+            "[$KANJI_DIGITS]{1,10}\\s*[$marks](?=\\s|[:：.、（(【\\[]|$))\\s*(.{0,160})$"
     )
 
     // 中 / 日：第X章・第X話・第X節・第X巻（阿拉伯、全角、汉字数字都认）；含「节 / 節」
@@ -114,14 +114,14 @@ object ChapterSplitter {
 
     private fun labeledTitle(marks: String) = Regex(
         "^\\s{0,6}(?:[A-Za-z]{1,8}|[正文免费收费公众订阅VIP上架]{1,6})(?:\\s+|\\s*[:：]\\s*)" +
-            "第\\s*[$KANJI_DIGITS]{1,10}\\s*[$marks]\\s*(.{0,40})$"
+            "第\\s*[$KANJI_DIGITS]{1,10}\\s*[$marks]\\s*(.{0,160})$"
     )
 
     private fun bracketTitle(marks: String): Regex {
         val marker = "\\s*第\\s*[$KANJI_DIGITS]{1,10}\\s*[$marks]\\s*"
-        val pairs = listOf("（" to "）", "(" to ")", "【" to "】", "[" to "]")
+        val pairs = listOf("（" to "）", "(" to ")", "【" to "】", "[" to "]", "〔" to "〕")
         val wrapped = pairs.joinToString("|") { (open, close) -> Regex.escape(open) + marker + Regex.escape(close) }
-        return Regex("^\\s{0,6}(?:$wrapped)\\s*(.{0,40})$")
+        return Regex("^\\s{0,6}(?:$wrapped)\\s*(.{0,160})$")
     }
 
     /** 松：含「节 / 卷」。只在「全文没有两个以上章级标题」时才轮得到它 */
@@ -144,7 +144,7 @@ object ChapterSplitter {
         "^\\s{0,6}(?:第\\s*[$KANJI_DIGITS]{1,10}\\s*[卷巻集部篇編编幕折]" +
             "|[卷巻]\\s*[$KANJI_DIGITS]{1,10}" +
             "|[上中下前后後][卷部篇編编](?=\\s|[:：]|$)" +
-            "|(?i:volume|vol|book)\\.?\\s*$NUM)\\s*(.{0,40})$"
+            "|(?i:volume|vol|book)\\.?\\s*$NUM)\\s*(.{0,160})$"
     )
 
     // 英 / 日：Chapter / Part / Book / Volume / Episode + 编号
@@ -167,7 +167,7 @@ object ChapterSplitter {
     private val strongChapOnly =
         listOf(cnChapOnlyTitle, cnLabeledTitleChap, cnBracketTitleChap, enChapOnlyTitle, specialTitle)
 
-    private val headingWrappers = listOf("【" to "】", "[" to "]", "(" to ")", "「" to "」", "『" to "』")
+    private val headingWrappers = listOf("【" to "】", "[" to "]", "(" to ")", "「" to "」", "『" to "』", "〔" to "〕")
     private val headingDecor = Regex("^[★☆◆◇※]{1,3}\\s*(.+?)(?:\\s*[★☆◆◇※]{1,3})?$")
 
     internal fun isNumberedChapterTitle(raw: String): Boolean {
@@ -186,11 +186,11 @@ object ChapterSplitter {
     /** 仅识别时规范化，标题和正文仍以原文保存；弱数字列表不做去括号处理。 */
     private fun headingText(raw: String): String {
         val trimmed = raw.trim()
-        if (trimmed.length > 96) return trimmed
-        var text = Normalizer.normalize(trimmed, Normalizer.Form.NFKC)
+        if (trimmed.length > 200) return trimmed
+        var text = HeadingNumbers.canonical(trimmed)
         repeat(2) {
             headingWrappers.firstOrNull { (open, close) -> text.startsWith(open) && text.endsWith(close) }?.let { (open, close) ->
-                val inner = text.substring(open.length, text.length - close.length).trim()
+                val inner = HeadingNumbers.canonical(text.substring(open.length, text.length - close.length).trim())
                 if (strong.any { it.matches(inner) }) text = inner
             }
             headingDecor.matchEntire(text)?.groupValues?.get(1)?.trim()?.let { inner ->
@@ -295,7 +295,10 @@ object ChapterSplitter {
 
     /** 判断一行是否为「第X卷 / 第X部 / Volume X」上级分卷标题，是则返回规范化卷名 */
     fun extractVolumeTitle(line: String): String? {
-        val t = headingText(line)
+        val raw = line.trim()
+        if (raw.isEmpty()) return null
+        if (!mayBeHeading(raw)) return null
+        val t = headingText(raw)
         if (t.isEmpty() || t.length > 44) return null
         if (TITLE_FORBIDDEN_END.indexOf(t.last()) >= 0) return null
         return if (upperTitle.matches(t)) line.trim() else null
@@ -312,6 +315,7 @@ object ChapterSplitter {
 
     /** 归一化：统一换行符、去掉行尾空白、压缩连续空行、剔除零宽字符 */
     fun normalize(raw: String): String {
+        ParseCancellation.checkpoint()
         val s = raw.replace("\r\n", "\n")
             .replace("\r", "\n")
             .replace("\uFEFF", "")
@@ -321,7 +325,8 @@ object ChapterSplitter {
         val lines = s.split("\n").map { it.trimEnd() }
         val sb = StringBuilder(s.length)
         var blank = 0
-        for (line in lines) {
+        for ((index, line) in lines.withIndex()) {
+            if (index and 511 == 0) ParseCancellation.checkpoint()
             if (line.isBlank()) {
                 blank++
                 if (blank <= 1) sb.append('\n')
@@ -350,7 +355,28 @@ object ChapterSplitter {
         text: String,
         fallbackTitle: String = "正文",
         options: SplitOptions = SplitOptions(mode = SplitMode.SMART, cleanWatermark = false)
-    ): List<Part> {
+    ): List<Part> = splitInternal(text, fallbackTitle, options, null)
+
+    fun analyze(
+        text: String,
+        fallbackTitle: String = "正文",
+        options: SplitOptions = SplitOptions(mode = SplitMode.SMART, cleanWatermark = false)
+    ): ChapterAnalysis {
+        val trace = AnalysisTrace()
+        val parts = splitInternal(text, fallbackTitle, options, trace)
+        return ChapterAnalysis(parts, trace.decisions, trace.gaps, trace.toc,
+            trace.fallback, trace.truncated)
+    }
+
+    private class AnalysisTrace {
+        val decisions = ArrayList<HeadingDecision>()
+        val gaps = ArrayList<NumberGap>()
+        var toc = 0
+        var fallback = false
+        var truncated = false
+    }
+
+    private fun splitInternal(text: String, fallbackTitle: String, options: SplitOptions, trace: AnalysisTrace?): List<Part> {
         if (text.isBlank()) return listOf(Part(fallbackTitle, ""))
 
         // 1. 特殊切分档位：整篇作为一章 / 固定字数切分
@@ -360,6 +386,7 @@ object ChapterSplitter {
             return listOf(Part(title, body))
         }
         if (options.mode == SplitMode.FIXED_SIZE) {
+            trace?.fallback = true
             val cleaned = if (options.cleanWatermark) cleanBodyWatermarks(text) else text
             return splitBySize(cleaned, fallbackTitle, options.fixedChunkChars.coerceIn(2000, 50000))
         }
@@ -373,6 +400,7 @@ object ChapterSplitter {
             if (customIdx.isNotEmpty()) {
                 return assembleParts(lines, text, customIdx, fallbackTitle, options.cleanWatermark)
             }
+            trace?.fallback = true
             // 自定义规则一行都没命中（或正则本身写不合法）：明确按固定字数兜底，
             // 不要悄悄滑进 SMART 自动管线 —— 用户显式指定了规则，却拿到完全另一套结果，
             // 会被当成「规则没生效」的 bug，而且很难察觉。
@@ -382,38 +410,117 @@ object ChapterSplitter {
             )
         }
 
-        // 3. 按档位挑选候选标题行
-        val chosen: List<Int> = when (options.mode) {
+        val plan = plan(lines, text.length, options)
+        if (trace != null) {
+            trace.decisions += plan.decisions
+            trace.gaps += plan.gaps
+            trace.toc = plan.skippedTocEntries
+            trace.truncated = plan.truncated
+        }
+        if (plan.headings.isEmpty()) {
+            trace?.fallback = true
+            return splitBySize(if (options.cleanWatermark) cleanBodyWatermarks(text) else text, fallbackTitle)
+        }
+        return assembleParts(lines, text, plan.headings, fallbackTitle, options.cleanWatermark, trace, plan.mergeLeadingBody)
+    }
+
+    fun plan(lines: List<String>, totalChars: Int, options: SplitOptions): ChapterPlan {
+        // Canonical title forms and code fences are computed once, shared by all rule passes.
+        val memo = HashMap<Int, String>()
+        val canonical = object : AbstractList<String>() {
+            override val size get() = lines.size
+            override fun get(index: Int): String {
+                if (index and 511 == 0) ParseCancellation.checkpoint()
+                val trimmed = lines[index].trim()
+                if (!mayBeHeading(trimmed)) return trimmed
+                return memo.getOrPut(index) { headingText(trimmed) }
+            }
+        }
+        val fenced = fencedLines(lines)
+        val global = chooseTitleLines(lines, canonical, fenced, totalChars, options.mode)
+        val regionalCandidates = augmentFlexibleHeadings(lines, canonical, fenced,
+            regionalTitleLines(lines, canonical, fenced, global, options.mode), options.mode)
+        val skippedToc = leadingTocLines(lines, canonical, fenced)
+        val regional = regionalCandidates.filterNot { it in skippedToc }
+        if (regional.isEmpty() && options.forcedHeadingLines.isEmpty())
+            return ChapterPlan(emptyList(), emptyList(), emptyList(), 0, false, false)
+        val recovered = recoverNumberGaps(lines, regional)
+        val scored = scoreHeadings(lines, canonical, fenced, recovered).toMutableList()
+        for (line in options.forcedHeadingLines.sorted()) {
+            val index = line - 1
+            if (index !in lines.indices || lines[index].isBlank()) continue
+            val position = scored.indexOfFirst { it.line == line }
+            if (position >= 0) scored[position] = scored[position].copy(
+                accepted = true, reasons = scored[position].reasons + HeadingReason.USER_CONFIRMED)
+            else scored += HeadingDecision(line, lines[index].trim(), 100, setOf(HeadingReason.USER_CONFIRMED), true)
+        }
+        scored.sortBy { it.line }
+        val selected = (scored.filter { it.accepted }.map { it.line - 1 } +
+            options.forcedHeadingLines.map { it - 1 }.filter { it in lines.indices && lines[it].isNotBlank() })
+            .distinct().sorted()
+        val decisions = ArrayList<HeadingDecision>()
+        run {
+            val regionalSet = regional.toHashSet()
+            val globalSet = global.toHashSet()
+            scored.take(500).forEach { decision ->
+                val idx = decision.line - 1
+                val reasons = decision.reasons.toMutableSet()
+                if (idx !in regionalSet) reasons += HeadingReason.NUMBER_RECOVERY
+                if (idx in regionalSet && idx !in globalSet) reasons += HeadingReason.LOCAL_STYLE
+                if (decision.line in options.ignoredHeadingLines) reasons += HeadingReason.USER_IGNORED
+                decisions += decision.copy(reasons = reasons,
+                    accepted = decision.accepted && decision.line !in options.ignoredHeadingLines)
+            }
+        }
+        val chosen = selected.filterNot { it + 1 in options.ignoredHeadingLines }
+        return ChapterPlan(chosen, decisions, unresolvedGaps(lines, selected).take(100),
+            skippedToc.count { canonical[it].trim() !in tocLabels },
+            skippedToc.isNotEmpty() || selected.firstOrNull()?.let { it + 1 in options.ignoredHeadingLines } == true,
+            scored.size > 500)
+    }
+
+    private fun lineCharacters(lines: List<String>, index: Int, trim: Boolean = false): Int =
+        (lines as? SizedLines)?.characters(index, trim) ?: if (trim) lines[index].trim().length else lines[index].length
+
+    private fun sliceLines(lines: List<String>, start: Int, end: Int): List<String> {
+        if (lines !is SizedLines) return lines.subList(start, end)
+        return object : AbstractList<String>(), SizedLines {
+            override val size get() = end - start
+            override fun get(index: Int) = lines[index + start]
+            override fun characters(index: Int, trim: Boolean) = lines.characters(index + start, trim)
+            override fun fence(index: Int) = lines.fence(index + start)
+        }
+    }
+
+    private fun chooseTitleLines(lines: List<String>, canonical: List<String>, fenced: BooleanArray,
+        totalChars: Int, mode: SplitMode): List<Int> {
+        fun find(patterns: List<Regex>, contextGated: Boolean) =
+            findTitleLines(lines, patterns, contextGated, canonicalLines = canonical, fenced = fenced)
+        return when (mode) {
             SplitMode.STRICT_CHAP -> {
-                val rawChap = findTitleLines(lines, strongChapOnly, contextGated = false)
+                val rawChap = find(strongChapOnly, contextGated = false)
                 val voted = filterByDominantFamily(lines, rawChap)
                 val cleaned = filterSequenceOutliers(lines, voted)
                 if (cleaned.isNotEmpty()) cleaned
-                else return splitBySize(
-                    if (options.cleanWatermark) cleanBodyWatermarks(text) else text,
-                    fallbackTitle
-                )
+                else emptyList()
             }
 
             SplitMode.NUMBERED -> {
-                val rawWeak = findTitleLines(lines, weak, contextGated = true)
-                val rawChap = findTitleLines(lines, strongChapOnly, contextGated = false)
+                val rawWeak = find(weak, contextGated = true)
+                val rawChap = find(strongChapOnly, contextGated = false)
                 val combo = (rawChap + rawWeak).sorted().distinct()
                 val cleaned = filterSequenceOutliers(lines, combo)
                 if (cleaned.size >= 2) cleaned
-                else return splitBySize(
-                    if (options.cleanWatermark) cleanBodyWatermarks(text) else text,
-                    fallbackTitle
-                )
+                else emptyList()
             }
 
             else -> {
                 // SMART / IN_FILE 默认智能多级管线：
                 // 强模式（整行就是一个「第X章 …」）特征足够强，不强制要求上下有空行；
                 // 只有弱模式（`1.`、`一、` 这类容易和正文列表撞车的写法）才需要上下文把关。
-                val strongIdx = findTitleLines(lines, strong, contextGated = false)
-                val chapOnlyIdx = findTitleLines(lines, strongChapOnly, contextGated = false)
-                val chapterIdx = findTitleLines(lines, strongChapter, contextGated = false)
+                val strongIdx = find(strong, contextGated = false)
+                val chapOnlyIdx = find(strongChapOnly, contextGated = false)
+                val chapterIdx = find(strongChapter, contextGated = false)
 
                 val primaryCandidates: List<Int> = when {
                     chapOnlyIdx.size >= 2 -> {
@@ -435,36 +542,201 @@ object ChapterSplitter {
                     primaryCandidates
                 } else {
                     // 退到弱模式：弱候选要过上下文 + 密度两道关，再过同族投票与序号连续性校验
-                    val weakOnly = findTitleLines(lines, weak, contextGated = true)
+                    val weakOnly = find(weak, contextGated = true)
                     val combo = (strongIdx + weakOnly).sorted().distinct()
-                    val avgGap = if (combo.size > 1) text.length.toFloat() / combo.size else Float.MAX_VALUE
+                        .filterNot { extractVolumeTitle(lines[it]) != null }
+                    val avgGap = if (combo.size > 1) totalChars.toFloat() / combo.size else Float.MAX_VALUE
                     if (combo.size >= 3 && avgGap >= 300) {
                         filterSequenceOutliers(lines, combo)
                     } else {
                         // 第三道自学习防线：无规则奇葩排版的自动归纳（如 `◆ 01`、`§ 1`、`★ 01`）
-                        val induced = induceCustomPrefixLines(lines, text.length)
+                        val induced = induceCustomPrefixLines(lines, totalChars)
                         if (induced.size >= 3) {
                             induced
                         } else if (strongIdx.size == 1) {
                             strongIdx
                         } else {
-                            return splitBySize(
-                                if (options.cleanWatermark) cleanBodyWatermarks(text) else text,
-                                fallbackTitle
-                            )
+                            emptyList()
                         }
                     }
                 }
             }
         }
+    }
 
-        if (chosen.isEmpty()) {
-            return splitBySize(
-                if (options.cleanWatermark) cleanBodyWatermarks(text) else text,
-                fallbackTitle
-            )
+    private val headingInitials = SPECIAL_WORDS.split('|').map { it.first() }.toSet() +
+        "零〇一二三四五六七八九十百千万萬两兩壹贰貳叁參肆伍陆陸柒捌玖拾佰仟第卷巻上中下前后後序楔引题題开終终最大全结結完尾附付番外幕间間插作内目まプエあ【[(（「『★☆◆◇※".toSet()
+    private val englishStarts = listOf("chapter", "chap", "ch", "episode", "ep", "part", "book", "volume", "vol",
+        "prologue", "foreword", "preface", "epilogue", "afterword", "interlude", "cap", "roz", "bab", "böl").groupBy { it.first() }
+
+    /** A cheap superset of built-in title starts. Custom prefixes bypass this gate. */
+    private fun mayBeHeading(text: String): Boolean {
+        val first = text.firstOrNull() ?: return false
+        if (first in headingInitials || first.isDigit()) return true
+        // Compatibility numbers/letters and non-CJK scripts still reach NFKC (e.g. ①, Ⅳ, full-width Chapter).
+        if (first.code > 127 && first !in '\u4E00'..'\u9FFF') return true
+        if (text.indexOf('第') in 1..16) return true
+        return englishStarts[first.lowercaseChar()]?.any { text.startsWith(it, true) } == true
+    }
+
+    private fun fencedLines(lines: List<String>): BooleanArray {
+        val result = BooleanArray(lines.size)
+        var fence: FenceInfo? = null
+        for (i in lines.indices) {
+            if (i and 511 == 0) ParseCancellation.checkpoint()
+            val info = if (lines is SizedLines) lines.fence(i) else {
+                val text = lines[i].trimStart()
+                val run = text.takeWhile { it == '`' || it == '~' }
+                run.takeIf { it.isNotEmpty() && it.all { c -> c == it.first() } }
+                    ?.let { FenceInfo(it.first(), it.length, text.trim() == it) }
+            }
+            val valid = info != null && info.length >= 3
+            if (fence != null) {
+                result[i] = true
+                if (valid && info!!.marker == fence.marker && info.length >= fence.length && info.onlyMarker) fence = null
+            } else if (valid) {
+                fence = info
+                result[i] = true
+            }
         }
-        return assembleParts(lines, text, recoverNumberGaps(lines, chosen), fallbackTitle, options.cleanWatermark)
+        return result
+    }
+
+    /** Select each explicit volume independently; numeric subsections cannot override chapters in that volume. */
+    private fun regionalTitleLines(lines: List<String>, canonical: List<String>, fenced: BooleanArray,
+        global: List<Int>, mode: SplitMode): List<Int> {
+        if (mode != SplitMode.SMART && mode != SplitMode.IN_FILE) return global
+        val volumes = lines.indices.filter { !fenced[it] && extractVolumeTitle(canonical[it]) != null }
+        if (volumes.isEmpty()) return global
+        val starts = (listOf(0) + volumes).distinct().sorted()
+        val result = ArrayList<Int>()
+        for ((position, start) in starts.withIndex()) {
+            val end = starts.getOrNull(position + 1) ?: lines.size
+            val localLines = sliceLines(lines, start, end)
+            val first = global.binarySearch(start).let { if (it < 0) -it - 1 else it }
+            val last = global.binarySearch(end).let { if (it < 0) -it - 1 else it }
+            val existing = global.subList(first, last)
+            val local = chooseTitleLines(localLines, canonical.subList(start, end),
+                fenced.copyOfRange(start, end), (start until end).sumOf { lineCharacters(lines, it) }, mode)
+            // A volume label alone is not an additional chapter. Preserve the existing result in uncertain regions.
+            val actual = local.filter { extractVolumeTitle(localLines[it]) == null }
+            if (actual.size >= 2) result += actual.map { it + start }
+            else result += existing
+        }
+        return result.distinct().sorted()
+    }
+
+    private val bareNumber = Regex("^[0-9零〇一二三四五六七八九十百千万萬两兩壹贰貳叁參肆伍陆陸柒捌玖拾佰仟]{1,9}$")
+
+    /** Bare numerals need a coherent body-backed series, never isolated page numbers. */
+    private fun augmentFlexibleHeadings(lines: List<String>, canonical: List<String>, fenced: BooleanArray,
+        original: List<Int>, mode: SplitMode): List<Int> {
+        if (mode != SplitMode.SMART && mode != SplitMode.IN_FILE && mode != SplitMode.NUMBERED) return original
+        val prefix = LongArray(lines.size + 1)
+        for (i in lines.indices) prefix[i + 1] = prefix[i] + lineCharacters(lines, i, true)
+        val result = original.toMutableSet()
+        val candidates = lines.indices.filter { i ->
+            if (fenced[i] || i in result || canonical[i].length !in 1..44) false
+            else (bareNumber.matches(canonical[i]) || weak.any { it.matches(canonical[i]) }) &&
+                (i == 0 || lines[i - 1].isBlank()) && (i == lines.lastIndex || lines[i + 1].isBlank())
+        }
+        var start = 0
+        while (start < candidates.size) {
+            var end = start + 1
+            while (end < candidates.size) {
+                val a = chapterOrderFromTitle(canonical[candidates[end - 1]])
+                val b = chapterOrderFromTitle(canonical[candidates[end]])
+                val nextOriginal = original.binarySearch(candidates[end - 1]).let { if (it < 0) -it - 1 else it + 1 }
+                if (a == null || b != a + 1 || original.getOrNull(nextOriginal)?.let { it < candidates[end] } == true) break
+                end++
+            }
+            val run = candidates.subList(start, end)
+            if (run.size >= 3) {
+                val first = run.first()
+                val previous = original.lastOrNull { it < first }
+                val startsBook = prefix[first] < 200 && (chapterOrderFromTitle(canonical[first]) ?: 0) in 1..20
+                val continues = previous != null &&
+                    chapterOrderFromTitle(canonical[first]) == (HeadingNumbers.interval(lines[previous])?.last
+                        ?: chapterOrderFromTitle(lines[previous]) ?: -100) + 1 &&
+                    original.none { it > first && it < run.last() }
+                val hasBody = run.indices.all { position ->
+                    val line = run[position]
+                    val next = run.getOrNull(position + 1) ?: original.firstOrNull { it > line } ?: lines.size
+                    prefix[next] - prefix[line + 1] >= 160
+                }
+                if ((startsBook || continues) && hasBody) result.addAll(run)
+            }
+            start = end
+        }
+        return result.sorted()
+    }
+
+    /** Combine independent evidence. Existing strong titles remain conservative; code and clear outliers are rejected. */
+    private fun scoreHeadings(lines: List<String>, canonical: List<String>, fenced: BooleanArray,
+        candidates: List<Int>): List<HeadingDecision> {
+        val prefix = LongArray(lines.size + 1)
+        val volume = IntArray(lines.size)
+        var region = 0
+        for (i in lines.indices) {
+            if (i and 511 == 0) ParseCancellation.checkpoint()
+            prefix[i + 1] = prefix[i] + lineCharacters(lines, i, true)
+            if (extractVolumeTitle(canonical[i]) != null && !fenced[i]) region++
+            volume[i] = region
+        }
+        val numbers = candidates.map { chapterOrderFromTitle(canonical[it])?.takeIf { n -> n in 1 until ORDER_BACK_MATTER } }
+        return candidates.mapIndexed { index, line ->
+            val reasons = linkedSetOf(HeadingReason.TITLE_SHAPE)
+            val family = classifyFamily(canonical[line])
+            var score = if (family == HeadingFamily.OTHER) 46 else 58
+            val isolated = line == 0 || lines[line - 1].isBlank() || line == lines.lastIndex || lines[line + 1].isBlank()
+            if (isolated) { score += 12; reasons += HeadingReason.ISOLATED_LINE }
+            val previous = candidates.getOrNull(index - 1)
+            val next = candidates.getOrNull(index + 1)
+            val number = numbers[index]
+            if (number != null) {
+                val pn = previous?.let { HeadingNumbers.interval(lines[it])?.last } ?: numbers.getOrNull(index - 1)
+                val nn = numbers.getOrNull(index + 1)
+                val follows = previous != null && volume[previous] == volume[line] && pn != null && number - pn in 0..1
+                val precedes = next != null && volume[next] == volume[line] && nn != null && nn - number in 0..1
+                if (follows || precedes) { score += 16; reasons += HeadingReason.NUMBER_SEQUENCE }
+                if (previous != null && next != null && pn == number && volume[previous] == volume[line] &&
+                    prefix[next] - prefix[line + 1] < 40 && segmentSuffix.find(canonical[line]) == null &&
+                    segmentSuffix.find(canonical[previous]) == null) score -= 60
+                // A short isolated false chapter between two sequential anchors is still a quotation.
+                if (previous != null && next != null && volume[previous] == volume[next] &&
+                    pn != null && nn != null && nn == pn + 1 && number !in pn..nn &&
+                    prefix[next] - prefix[previous + 1] < 1200) score -= 60
+            }
+            if (next == null || prefix[next] - prefix[line + 1] >= 40) score += 6
+            if (fenced[line]) score = 0
+            HeadingDecision(line + 1, lines[line].trim(), score.coerceIn(0, 100), reasons, score >= 50)
+        }
+    }
+
+    private fun unresolvedGaps(lines: List<String>, selected: List<Int>): List<NumberGap> {
+        val result = ArrayList<NumberGap>()
+        for ((start, end) in selected.zipWithNext()) {
+            val left = continuityHeading(lines[start], relaxed = true) ?: continue
+            val right = continuityHeading(lines[end], relaxed = true) ?: continue
+            if (left.kind != right.kind || right.number - left.end !in 2..33) continue
+            if ((start + 1 until end).any {
+                    extractVolumeTitle(lines[it]) != null || specialTitle.matches(headingText(lines[it]))
+                }) continue
+            result += NumberGap(lines[start].trim(), lines[end].trim(), (left.end + 1 until right.number).toList())
+            if (result.size == 100) break
+        }
+        return result
+    }
+
+    private val tocLabels = setOf("目录", "目錄", "目次", "Contents", "CONTENTS")
+    private fun leadingTocLines(lines: List<String>, canonical: List<String>, fenced: BooleanArray): Set<Int> {
+        val all = lines.indices.filter { index ->
+            val text = canonical[index]
+            !fenced[index] && text.length in 1..96 && mayBeHeading(text) &&
+                (strong.any { it.matches(tocTitle(text)) } || weak.any { it.matches(tocTitle(text)) })
+        }
+        val kept = dropLeadingToc(lines, all).toHashSet()
+        return all.filterNot { it in kept }.toSet()
     }
 
     /** 把用户输入的自定义前缀或正则表达式转成行级匹配 Regex */
@@ -494,7 +766,9 @@ object ChapterSplitter {
         fullText: String,
         chosen: List<Int>,
         fallbackTitle: String,
-        cleanWatermark: Boolean
+        cleanWatermark: Boolean,
+        trace: AnalysisTrace? = null,
+        mergeLeadingBody: Boolean = false
     ): List<Part> {
         val parts = ArrayList<Part>()
 
@@ -506,7 +780,7 @@ object ChapterSplitter {
 
         // 第一个标题之前的内容作为前言
         val head = lines.subList(0, chosen.first()).joinToString("\n").trim()
-        if (head.isNotEmpty() && head.length >= 200) {
+        if (head.isNotEmpty() && head.length >= 200 && !mergeLeadingBody) {
             val hTitle = guessHeadTitle(head)
             val hBody = if (cleanWatermark) cleanBodyWatermarks(head) else head
             parts += Part(if (cleanWatermark) cleanChapterTitle(hTitle) else hTitle, hBody, activeVolume)
@@ -515,6 +789,7 @@ object ChapterSplitter {
         // 上一章末尾剥出来的卷标题（`第二卷 惊雷`），挂到这一章的开头当卷首，并更新当前所属卷
         var carryTitles = ""
         for ((i, lineIdx) in chosen.withIndex()) {
+            ParseCancellation.checkpoint()
             val endIdx = if (i + 1 < chosen.size) chosen[i + 1] else lines.size
             val rawTitle = lines[lineIdx].trim().ifEmpty { "第 ${i + 1} 章" }
             val title = if (cleanWatermark) cleanChapterTitle(rawTitle) else rawTitle
@@ -534,7 +809,7 @@ object ChapterSplitter {
                 }
                 body = if (body.isEmpty()) carryTitles else "$carryTitles\n\n$body"
             }
-            if (i == 0 && head.isNotEmpty() && head.length < 200) {
+            if (i == 0 && head.isNotEmpty() && (head.length < 200 || mergeLeadingBody)) {
                 body = "$head\n\n$body"
             }
             if (cleanWatermark) {
@@ -547,6 +822,7 @@ object ChapterSplitter {
 
             // 单章过长时再按字数拆
             if (body.length > MAX_CHAPTER_CHARS) {
+                trace?.fallback = true
                 val subs = splitBySize(body, title)
                 subs.forEachIndexed { k, p ->
                     parts += Part(
@@ -637,7 +913,7 @@ object ChapterSplitter {
 
         val keep = BooleanArray(candidates.size) { true }
         val prefix = LongArray(lines.size + 1)
-        for (line in lines.indices) prefix[line + 1] = prefix[line] + lines[line].length
+        for (line in lines.indices) prefix[line + 1] = prefix[line] + lineCharacters(lines, line)
         var i = 1
         while (i < candidates.lastIndex) {
             val curr = orders[i]
@@ -674,7 +950,7 @@ object ChapterSplitter {
 
     // ---------------------------------------------------------------- 编号缺口局部补查
 
-    private data class ContinuityHeading(val number: Int, val kind: String, val stem: String, val segment: Int)
+    private data class ContinuityHeading(val number: Int, val kind: String, val stem: String, val segment: Int, val end: Int = number)
     private val gapCnMarker = Regex("^(?:第\\s*)?($SPACED_CN_NUMBER)\\s*([章回話话])")
     private val gapEnMarker = Regex("^(?i:$EN_CHAPTER_WORDS)$EN_NUMBER($NUM)")
     private val gapLabel = Regex("^(?:[A-Za-z]{1,8}|[正文免费收费公众订阅VIP上架]{1,6})(?:\\s+|\\s*:\\s*)(?=第)")
@@ -686,7 +962,7 @@ object ChapterSplitter {
     private fun continuityHeading(raw: String, relaxed: Boolean): ContinuityHeading? {
         if (!relaxed && !isNumberedChapterTitle(raw)) return null
         if (raw.trim().length !in 1..80) return null
-        var title = Normalizer.normalize(raw.trim(), Normalizer.Form.NFKC)
+        var title = HeadingNumbers.canonical(raw.trim())
         if (relaxed && title.first() in "「『“\"") return null
         if (relaxed) title = gapMarkdown.replaceFirst(title, "")
         title = gapDecor.replace(title, "").trim()
@@ -724,7 +1000,7 @@ object ChapterSplitter {
         val suffix = segmentSuffix.find(normalized)
         val segment = suffix?.groupValues?.drop(1)?.firstOrNull { it.isNotEmpty() }?.let { "上中下".indexOf(it) } ?: -1
         val stem = numberSpaces.replace(if (suffix == null) normalized else normalized.removeRange(suffix.range), "")
-        return ContinuityHeading(number, kind, stem, segment)
+        return ContinuityHeading(number, kind, stem, segment, HeadingNumbers.interval(raw)?.last ?: number)
     }
 
     /**
@@ -738,7 +1014,7 @@ object ChapterSplitter {
         for (pair in chosen.zipWithNext()) {
             val left = continuityHeading(lines[pair.first], relaxed = false) ?: continue
             val right = continuityHeading(lines[pair.second], relaxed = false) ?: continue
-            if (left.kind != right.kind || right.number - left.number !in 2..33 || pair.second - pair.first > 50000) continue
+            if (left.kind != right.kind || right.number - left.end !in 2..33 || pair.second - pair.first > 50000) continue
             val found = ArrayList<Pair<Int, ContinuityHeading>>()
             val counts = LongArray(pair.second - pair.first + 1)
             var fence: String? = null
@@ -746,10 +1022,10 @@ object ChapterSplitter {
             var scannedChars = 0L
             for (line in pair.first + 1 until pair.second) {
                 val raw = lines[line]
-                scannedChars += raw.length.toLong() + 1
+                scannedChars += lineCharacters(lines, line).toLong() + 1
                 if (scannedChars > 2_000_000) { blocked = true; break }
                 val text = raw.trim()
-                counts[line - pair.first] = counts[line - pair.first - 1] + text.length
+                counts[line - pair.first] = counts[line - pair.first - 1] + lineCharacters(lines, line, true)
                 if (text.startsWith("```") || text.startsWith("~~~")) {
                     val run = text.takeWhile { it == text.first() }
                     if (fence == null) fence = run
@@ -763,7 +1039,7 @@ object ChapterSplitter {
                 if (heading.kind != left.kind) continue
                 // 边界编号也要参与顺序检查：12 → 松规则14 → 松规则13 → 14
                 // 不能先丢掉缺口外的14，再把孤立的13误当成可靠漏章。
-                if (heading.number <= left.number || heading.number >= right.number) { blocked = true; break }
+                if (heading.number <= left.end || heading.end >= right.number) { blocked = true; break }
                 found += line to heading
             }
             if (blocked || found.isEmpty()) continue
@@ -773,7 +1049,7 @@ object ChapterSplitter {
                     group.zipWithNext().all { it.first.second.segment < it.second.second.segment }) group
                 else emptyList()
             }.sortedBy { it.first }
-            if (unambiguous.zipWithNext().any { it.first.second.number > it.second.second.number }) continue
+            if (unambiguous.zipWithNext().any { it.first.second.end > it.second.second.number }) continue
             unambiguous.forEach { candidate ->
                 val index = found.binarySearchBy(candidate.first) { it.first }
                 val previous = found.getOrNull(index - 1)?.first ?: pair.first
@@ -804,6 +1080,7 @@ object ChapterSplitter {
         val buckets = HashMap<String, MutableList<Int>>()
 
         for (i in lines.indices) {
+            if (i and 511 == 0) ParseCancellation.checkpoint()
             val t = lines[i].trim()
             if (t.length !in 2..34) continue
             if (TITLE_FORBIDDEN_END.indexOf(t.last()) >= 0) continue
@@ -874,14 +1151,26 @@ object ChapterSplitter {
         lines: List<String>,
         patterns: List<Regex>,
         contextGated: Boolean,
-        canonical: Boolean = true
+        canonical: Boolean = true,
+        canonicalLines: List<String>? = null,
+        fenced: BooleanArray = fencedLines(lines)
     ): List<Int> {
         val out = ArrayList<Int>()
         val adjacentWithoutBody = HashSet<Int>()
+        var inExplicitList = false
         for (i in lines.indices) {
+            if (i and 511 == 0) ParseCancellation.checkpoint()
+            if (fenced[i]) continue
             val raw = lines[i]
-            val t = if (canonical) headingText(raw) else raw.trim()
-            if (t.isEmpty() || t.length > 44) continue
+            if (contextGated) {
+                if (explicitListLabel.matches(raw.trim())) inExplicitList = true
+                if (inExplicitList && isNumberedChapterTitle(raw)) inExplicitList = false
+                if (inExplicitList) continue
+            }
+            val canonicalText = if (canonical) canonicalLines?.get(i) ?: headingText(raw) else raw.trim()
+            if (canonicalText.length > 200 || (canonical && !mayBeHeading(canonicalText))) continue
+            val t = if (canonical) tocPageTail.replace(canonicalText, "").trim() else canonicalText
+            if (t.isEmpty() || t.length > (if (canonical && !contextGated) 180 else 44)) continue
             // 标题行不应以句末标点结尾（那更像正文）
             if (TITLE_FORBIDDEN_END.indexOf(t.last()) >= 0) continue
             // 正文里引用某一章：「第一章里提到的…」「第三章的约定」，不是标题
@@ -895,6 +1184,7 @@ object ChapterSplitter {
                 nx != null && nx.isNotBlank() && nx.trim().length > 44
             }
             val standalone = prevBlank || nextBlank || nextLong
+            if (t.length > 44 && (!prevBlank || !nextBlank || chapterOrderFromTitle(t) == null)) continue
 
             if (contextGated) {
                 if (!standalone) continue
@@ -907,7 +1197,16 @@ object ChapterSplitter {
             }
             out += i
         }
-        val candidates = dropLeadingToc(lines, out)
+        val coherent = out.filterIndexed { index, line ->
+            if (lines[line].trim().length <= 44) true
+            else {
+                val number = chapterOrderFromTitle(lines[line])
+                val before = out.getOrNull(index - 1)?.let { chapterOrderFromTitle(lines[it]) }
+                val after = out.getOrNull(index + 1)?.let { chapterOrderFromTitle(lines[it]) }
+                number != null && out.size >= 3 && ((before != null && number == before + 1) || (after != null && after == number + 1))
+            }
+        }
+        val candidates = dropLeadingToc(lines, coherent)
         // 先让目录检测看到完整的密集标题簇，再抑制没有正文间隔的相邻候选。
         // 提前丢掉目录中间项，会使目录不足最小行数，最后一条目录项反而被保留。
         if (!contextGated) return candidates.filterNot { it in adjacentWithoutBody }
@@ -930,37 +1229,56 @@ object ChapterSplitter {
      *
      * 允许目录出现在前 45 行以内（兼容书名 + 作者 + 内容简介后面跟目录的常见 TXT 排版）。
      */
+    private val tocPageTail = Regex("(?:[.·…．⋯]{2,}\\s*|\\t+|\\s{2,})[0-9０-９]{1,6}\\s*$")
+    private fun tocTitle(raw: String): String = headingText(tocPageTail.replace(raw, "").trim())
+    private fun tocKey(raw: String): String {
+        val title = tocPageTail.replace(cleanChapterTitle(raw), "").trim()
+        val heading = continuityHeading(title, relaxed = true)
+        return if (heading != null) "${heading.kind}:${heading.number}:${heading.end}:${heading.segment}"
+        else headingText(title).lowercase().filterNot { it.isWhitespace() || it in ":：.、—–-" }
+    }
+
     private fun dropLeadingToc(lines: List<String>, candidates: List<Int>): List<Int> {
-        if (candidates.size < TOC_MIN_LINES || candidates.first() > 45) return candidates
+        if (candidates.size < TOC_MIN_LINES) return candidates
+        val explicit = lines.take(256).indexOfFirst { it.trim() in tocLabels }
+        if (candidates.first() > (if (explicit >= 0) 256 else 45)) return candidates
         var end = 1
         while (end < candidates.size) {
-            val gap = lines.subList(candidates[end - 1] + 1, candidates[end])
-                .sumOf { it.trim().length }
+            val gap = lines.subList(candidates[end - 1] + 1, candidates[end]).sumOf { it.trim().length }
             if (gap > TOC_GAP_CHARS) break
             end++
         }
         if (end < TOC_MIN_LINES) return candidates
-
-        val seenTitles = HashSet<String>()
-        var tocEnd = -1
-        for (k in 0 until end) {
-            val norm = headingText(cleanChapterTitle(lines[candidates[k]].trim()))
-            if (!seenTitles.add(norm)) {
-                tocEnd = k
-                break
+        // Unlabelled short chapters spanning real volumes are not evidence of a contents page.
+        if (explicit < 0 && (candidates.first()..candidates[end - 1]).any { extractVolumeTitle(lines[it]) != null }) return candidates
+        var activeVolume = ""
+        var cursorLine = 0
+        val keys = candidates.map { candidate ->
+            while (cursorLine <= candidate) {
+                val raw = lines[cursorLine++]
+                if (raw.length <= 96 && mayBeHeading(raw.trim())) {
+                    extractVolumeTitle(tocTitle(raw))?.let { volume ->
+                        activeVolume = headingText(volume).lowercase().filterNot { it.isWhitespace() || it in ":：.、—–-" }
+                    }
+                }
             }
+            "$activeVolume|${tocKey(lines[candidate])}"
         }
-        if (tocEnd < 0) {
-            val restTitles = candidates.subList(end, candidates.size)
-                .map { headingText(cleanChapterTitle(lines[it].trim())) }
-                .toHashSet()
-            val hit = candidates.subList(0, end).count {
-                headingText(cleanChapterTitle(lines[it].trim())) in restTitles
-            }
-            if (hit * 2 < end) return candidates
-            tocEnd = end
-        }
+        // Repeated chapter numbers in different volumes are distinct contents entries.
+        val seen = HashSet<String>()
+        val duplicate = (0 until end).firstOrNull { !seen.add(keys[it]) }
+        val tocEnd = duplicate ?: end
         if (tocEnd < TOC_MIN_LINES - 1) return candidates
+        val rest = keys.subList(tocEnd, keys.size)
+        var cursor = 0
+        var matched = 0
+        for (key in keys.take(tocEnd)) {
+            val index = (cursor until rest.size).firstOrNull { rest[it] == key } ?: continue
+            cursor = index + 1
+            matched++
+        }
+        // Number matches alone need several entries in the same order. Never delete a merely dense cluster.
+        if (matched < 3 || matched * 2 < tocEnd) return candidates
         return candidates.subList(tocEnd, candidates.size).toList()
     }
 
@@ -982,7 +1300,7 @@ object ChapterSplitter {
             val rest = line.substring(m.range.last + 1).trimStart()
             if (rest.isEmpty()) return false
             if (rest[0] == ':' || rest[0] == '：') return false
-            val word = rest.takeWhile { it.isLetter() }.lowercase()
+            val word = rest.removePrefix(".").trimStart().takeWhile { it.isLetter() }.lowercase()
             return word in EN_REFERENCE_WORDS
         }
         return false
@@ -1003,7 +1321,8 @@ object ChapterSplitter {
         "not", "it"
     )
 
-    private val REFERENCE_PHRASES = listOf("里提到", "中提到", "的内容", "的约定是", "写着", "所说", "提到的")
+    private val explicitListLabel = Regex("(?iu)^(?:操作步骤|步骤|清单|列表|例如|例子|steps|checklist|examples)\\s*[:：]$")
+    private val REFERENCE_PHRASES = listOf("里提到", "中提到", "里说到", "中说到", "的内容", "的约定是", "写着", "所说", "提到的")
 
     private const val REFERENCE_CONNECTORS =
         "的里中内末结时是有写着说讲提描介对和及或被让使令就都还也又只要能"
@@ -1135,8 +1454,8 @@ object ChapterSplitter {
             val token = m.groupValues[2].ifEmpty { m.groupValues[4] }
             parseNumberToken(token)?.let { return it }
         }
-        // 整个标题就是个数字
-        halfWidthInt(t)?.let { return it }
+        // Entire numeric headings include Chinese positional and financial numerals.
+        parseNumberToken(t)?.let { return it }
         return null
     }
 

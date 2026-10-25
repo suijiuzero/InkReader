@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="analysis_show">Recognition details</string>
+    <string name="analysis_hide">Hide details</string>
+    <string name="analysis_sampled">Preview inspected %1$d / %2$d files; %3$d could not be read. Counts for uninspected files are estimates.</string>
+    <string name="analysis_encoding">Text encoding: %1$s</string>
+    <string name="analysis_encoding_uncertain">Encoding is uncertain. Check the excerpt and change the encoding if needed.</string>
+    <string name="analysis_choose_encoding">Choose text encoding</string>
+    <string name="analysis_auto_encoding">Automatic</string>
+    <string name="analysis_single_encoding">Encoding and excerpt refer to the first file. Import that TXT alone to change its encoding.</string>
+    <string name="analysis_toc">Matched and skipped %1$d leading contents entries. Body order is preserved.</string>
+    <string name="analysis_fallback">Some text has no clear headings or is too long for one chapter; size-based splitting is used.</string>
+    <string name="analysis_gap">Possible gap: %1$s → %2$s. Numbers %3$s were not found; no chapters will be invented.</string>
+    <string name="analysis_edit_hint">Checked entries start chapters. Unchecking keeps the heading and text within the surrounding content.</string>
+    <string name="analysis_first_file_hint">These details describe the first TXT. Import it alone to adjust boundaries.</string>
+    <string name="analysis_reason_ignored">Keep within body</string>
+    <string name="analysis_reason_recovery">Recovered within a number gap</string>
+    <string name="analysis_reason_local">Matches this volume’s heading style</string>
+    <string name="analysis_reason_sequence">Heading format and adjacent numbers agree</string>
+    <string name="analysis_reason_shape">Matches heading format and layout</string>
+    <string name="analysis_limited">For responsiveness, only the first 40 boundaries are shown. The remaining text uses the current rules.</string>
+    <string name="analysis_remember">Remember these chapter adjustments</string>
+    <string name="analysis_use_memory">Use saved chapter corrections (%1$d)</string>
+    <string name="analysis_memory_context">Only for this book. Changed or ambiguous text will not force a boundary.</string>
+    <string name="analysis_forget">Forget this book’s corrections</string>
+</resources>

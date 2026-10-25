@@ -1043,6 +1043,9 @@ fun BookDetailScreen(
         var resplitMode by remember { mutableStateOf(SplitMode.SMART) }
         var customPattern by remember { mutableStateOf("") }
         var cleanWatermark by remember { mutableStateOf(true) }
+        var useMemory by remember { mutableStateOf(true) }
+        var savedCount by remember { mutableStateOf(0) }
+        LaunchedEffect(bookId) { savedCount = container.repo.savedCorrectionCount(bookId) }
 
         InkDialogShell(
             onDismiss = { showResplitDialog = false },
@@ -1064,7 +1067,7 @@ fun BookDetailScreen(
                                     SplitOptions(
                                         mode = resplitMode,
                                         cleanWatermark = cleanWatermark,
-                                        customPattern = customPattern.trim()
+                                        customPattern = customPattern.trim(), useSavedCorrections = useMemory
                                     )
                                 )
                             }.getOrElse { e ->
@@ -1102,6 +1105,16 @@ fun BookDetailScreen(
                 color = p.textSecondary,
                 lineHeight = 18.sp
             )
+            if (savedCount > 0) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(stringResource(R.string.analysis_use_memory, savedCount), modifier = Modifier.weight(1f), style = InkType.Caption, color = p.textSecondary)
+                    Switch(checked = useMemory, onCheckedChange = { useMemory = it })
+                }
+                Text(stringResource(R.string.analysis_memory_context), style = InkType.Caption, color = p.textFaint)
+                InkTextButton(stringResource(R.string.analysis_forget)) {
+                    scope.launch { container.repo.clearRecognitionMemory(bookId); savedCount = 0 }
+                }
+            }
             Spacer(Modifier.height(14.dp))
             AppendChoice(
                 checked = resplitMode == SplitMode.SMART,

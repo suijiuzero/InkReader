@@ -71,6 +71,12 @@ class AuditInstrumentation : Instrumentation() {
                 SQLiteDatabase.openDatabase(getDatabasePath(name).path, factory, SQLiteDatabase.CREATE_IF_NECESSARY, errorHandler)
         }
         try {
+            if (auditArguments?.getString("recognition") == "true") {
+                val report = runBlocking { RecognitionChecks.run(this@AuditInstrumentation, isolated) }
+                results.putString("stream", report.toString(2))
+                finish(if (report.getInt("failed") == 0) -1 else 0, results)
+                return
+            }
             if (auditArguments?.getString("stress") != null) {
                 val report = runBlocking { StressChecks.run(this@AuditInstrumentation, isolated, auditArguments!!.getString("stress")!!) }
                 results.putString("stream", report.toString(2))

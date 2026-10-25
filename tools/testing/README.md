@@ -48,3 +48,26 @@ python tools/testing/run_full_audit.py soak
 - 其他 exercise_* 脚本是特定验收会话的点击辅助工具，运行前阅读其前置条件；语音相关脚本可能需要已配对的本地电脑服务。
 
 原始输出与截图、生成的大文件、APK、Python 缓存都不提交。仓库中的 TXT 与 manifest 是人工定义预期的测试样本，不是用户书库。压力结果与可推广的范围见 [审计报告](../../docs/1.11.23-全面审计与模拟器压力测试.md)。
+
+
+## 1.12.0 编码与章节回归
+
+新增金标准位于 `tests/fixtures/recognition-gold/`。预期标题和正文标记独立标注；原有 154 份样本中的能力探测仍按识别限制单独计数。
+
+构建并覆盖安装 debug 主包和 androidTest 包到 `emulator-5554` 后，运行：
+
+```powershell
+python tools/testing/run_algorithm_audit.py --rounds 2
+```
+
+默认依次运行 recognition、device、order、full、additional、soak 六组，每组每轮分别保存日志和结果到忽略的 `app/build/audit/algorithm-日期-时间/`。可用 `--modes recognition,full` 选择组别，用 `--output` 指定结果目录。驱动固定选择模拟器，不会选择真机；不自动安装、清数据或卸载。单组超时 30 分钟，缺少完整结果按失败处理，不把中断当通过。
+
+recognition 在隔离测试书库实际导入全部旧样本和新标注样本，核对预览与最终章节、手动编码、取消分章点、取消预览、并发分析和错误章节归属。连续压力为有限轮次，不能据此保证所有设备、书源或长期无泄漏。
+
+## 1.13.0 分区评估与磁盘导入
+
+`tests/fixtures/recognition-eval/` 新增64份冻结输入与标注，开发40／留出24；T 为原样标题，L 为规范化后的边界行号，P64 为完整原始段落。核对段落时仅按既定导入契约移除行尾空白。默认 JVM 测试仅选开发分区，设置环境变量 `INK_EVAL_PARTITION=holdout` 单独记录首次留出结果，最终 `all` 跑全部。来源组不能跨分区；按语言分别输出 TP、FP、FN、精确率、召回率和段落错误。生成器不读取解析输出，拒绝覆盖既有样本；这不是第三方盲标。
+
+recognition 组增加 Android 64份实际预览—导入核对、单书记忆重启／关闭／清除、缓存失效、并发源隔离、400章大 TXT 及流式写入故障回滚。只操作 runner 的临时书库。磁盘缓存以完整源字节和选项为键；每个仓库独占缓存会话，旧会话清理不会删除其他活跃仓库文件。
+
+`run_algorithm_audit.py` 现在也约每2秒采样主进程PSS，每组保存内存CSV、样本数和采样最大值；无样本记为null，不能解释为零内存或真正瞬时峰值。当前版本结果见[1.13.0验收记录](../../docs/1.13.0-多语言分章与磁盘导入验收.md)。

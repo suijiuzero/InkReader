@@ -16,3 +16,9 @@ gradlew text eol=lf
 
 # Preserve authored encodings, BOMs, CRLF/CR, and intentional whitespace in parser fixtures.
 tests/fixtures/txt-corpus/*.txt -text -whitespace
+
+tests/fixtures/recognition-gold/*.txt -text -whitespace
+
+tests/fixtures/recognition-eval/*.txt -text -whitespace
+tests/fixtures/recognition-eval/*.gold -text -whitespace
+tests/fixtures/recognition-eval/manifest.tsv -text -whitespace

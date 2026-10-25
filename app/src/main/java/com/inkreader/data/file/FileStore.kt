@@ -40,6 +40,23 @@ class FileStore(context: Context) {
         atomicWrite(file(name), text.toByteArray(Charsets.UTF_8))
     }
 
+    fun write(name: String, reader: java.io.Reader): Int {
+        val atomic = AtomicFile(file(name))
+        val output = atomic.startWrite()
+        try {
+            val writer = output.writer(Charsets.UTF_8)
+            val buffer = CharArray(16384)
+            var total = 0
+            while (true) {
+                if (Thread.currentThread().isInterrupted) throw java.util.concurrent.CancellationException()
+                val count = reader.read(buffer); if (count < 0) break
+                writer.write(buffer, 0, count); total += count
+            }
+            writer.flush(); atomic.finishWrite(output)
+            return total
+        } catch (t: Throwable) { atomic.failWrite(output); throw t }
+    }
+
     fun read(name: String): String =
         AtomicFile(file(name)).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() }
 

@@ -1,0 +1,25 @@
+id	encoding	scenario
+G01	utf-8	中文章号
+G02	utf-8	大写繁体章号
+G03	cp932	Shift-JIS 日文
+G04	euc_jp	EUC-JP 日文
+G05	big5	Big5 繁体
+G06	gb18030	GB18030 中文
+G07	utf-8	阿拉伯语正文
+G08	utf-8	印地语正文
+G09	utf-8	混合标题体系
+G10	utf-8	缺口内字间空格
+G11	utf-8	源文件缺章
+G12	utf-8	上下篇同号
+G13	utf-8	终章上下篇
+G14	utf-8	弱编号散文
+G15	utf-16	UTF-16LE BOM 与换行
+G16	utf-8	正文中的扩展字符
+G17	utf-8	带页码且标点不同的目录
+G18	utf-8	换卷切换为弱编号散文
+G19	utf-8	正文引用不会切章
+G20	utf-8	长围栏与假标题
+G21	utf-8	无标题散篇
+G22	utf-8	很短的真实章节不是目录
+G23	utf-8	含分卷的目录不应被局部识别重新加入
+G24	utf-8	真实短章分卷重编号不是目录

@@ -6,6 +6,7 @@
         <include domain="sharedpref" path="." />
         <include domain="file" path="chapters/" />
         <include domain="file" path="covers/" />
+        <include domain="file" path="recognition-notes/" />
     </cloud-backup>
     <device-transfer>
         <exclude domain="sharedpref" path="computer_voice.xml" />
@@ -13,5 +14,6 @@
         <include domain="sharedpref" path="." />
         <include domain="file" path="chapters/" />
         <include domain="file" path="covers/" />
+        <include domain="file" path="recognition-notes/" />
     </device-transfer>
 </data-extraction-rules>

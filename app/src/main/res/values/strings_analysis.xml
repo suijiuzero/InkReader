@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="analysis_show">查看识别与疑点</string>
+    <string name="analysis_hide">收起识别详情</string>
+    <string name="analysis_sampled">预览已检查 %1$d / %2$d 个文件，%3$d 个未能读取；未检查的文件数量为估算。</string>
+    <string name="analysis_encoding">文字编码：%1$s</string>
+    <string name="analysis_encoding_uncertain">编码判断不确定，请核对下面的文字；若乱码可切换编码。</string>
+    <string name="analysis_choose_encoding">选择文字编码</string>
+    <string name="analysis_auto_encoding">自动识别</string>
+    <string name="analysis_single_encoding">编码与正文预览来自第一个文件；单独导入该 TXT 可手动调整。</string>
+    <string name="analysis_toc">已核对并跳过 %1$d 个文首目录项，正文保持原顺序。</string>
+    <string name="analysis_fallback">部分内容没有明确分章，或单章过长，已按字数在段落边界拆分。</string>
+    <string name="analysis_gap">疑似缺章：%1$s → %2$s；未找到编号 %3$s，不会生成空章。</string>
+    <string name="analysis_edit_hint">勾选表示在此分章；取消后，标题及正文并入相邻章节，不删除文字。</string>
+    <string name="analysis_first_file_hint">下方展示第一个 TXT 的分章依据。需要调整时，请单独导入该文件。</string>
+    <string name="analysis_reason_ignored">保留为正文</string>
+    <string name="analysis_reason_recovery">在编号缺口中补查找到</string>
+    <string name="analysis_reason_local">符合本卷的标题格式</string>
+    <string name="analysis_reason_sequence">标题格式与前后编号吻合</string>
+    <string name="analysis_reason_shape">符合标题格式与排版特征</string>
+    <string name="analysis_limited">为保持流畅，这里仅展示前 40 个分章点；其余按当前规则导入。</string>
+    <string name="analysis_remember">记住这本书的分章调整</string>
+    <string name="analysis_use_memory">参考已保存的分章纠错（%1$d）</string>
+    <string name="analysis_memory_context">仅用于本书；标题或附近正文变化后，不会强行套用。</string>
+    <string name="analysis_forget">清除本书纠错记忆</string>
+</resources>

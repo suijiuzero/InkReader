@@ -34,7 +34,9 @@ object SentenceSplitter {
                     break
                 }
             }
-            val stop = if (lastBreak > start) lastBreak else minOf(end, n)
+            var stop = if (lastBreak > start) lastBreak else minOf(end, n)
+            if (stop < n && stop > start && Character.isHighSurrogate(text[stop - 1]) &&
+                Character.isLowSurrogate(text[stop])) stop--
             val piece = text.substring(start, stop)
             if (piece.isNotBlank()) out += start until stop
             start = stop

@@ -5,4 +5,5 @@
     <exclude domain="sharedpref" path="computer_voice.xml" />
     <include domain="file" path="chapters/" />
     <include domain="file" path="covers/" />
+        <include domain="file" path="recognition-notes/" />
 </full-backup-content>

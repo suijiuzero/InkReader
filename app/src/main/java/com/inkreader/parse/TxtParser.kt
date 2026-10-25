@@ -1,19 +1,27 @@
 package com.inkreader.parse
 
+import com.inkreader.data.model.SplitOptions
+
 /** TXT 解析：字节流 → 编码识别 → 归一化 → 章节切分 */
 object TxtParser {
 
     private const val PUNCT_END = "。！？，、；：,.!?;:"
 
-    data class Parsed(val title: String?, val parts: List<ChapterSplitter.Part>)
+    data class Parsed(val title: String?, val parts: List<ChapterSplitter.Part>,
+        val analysis: ChapterAnalysis? = null, val encoding: CharsetDetector.Result? = null, val textPreview: String = "")
 
-    fun parse(bytes: ByteArray, displayName: String): Parsed {
-        val raw = CharsetDetector.decode(bytes)
+    fun parse(bytes: ByteArray, displayName: String,
+        options: SplitOptions = SplitOptions(cleanWatermark = false),
+        diagnostics: Boolean = false
+    ): Parsed {
+        val encoding = CharsetDetector.inspect(bytes, options.textEncoding)
+        val raw = CharsetDetector.decode(bytes, encoding)
         val text = ChapterSplitter.normalize(raw)
         if (text.isBlank()) return Parsed(null, listOf(ChapterSplitter.Part("空文件", "")))
 
-        val title = detectTitle(text, displayName)
-        var parts = ChapterSplitter.split(text, "正文")
+        val title = detectTitle(text.lineSequence())
+        val analysis = if (diagnostics) ChapterSplitter.analyze(text, "正文", options) else null
+        var parts = analysis?.parts ?: ChapterSplitter.split(text, "正文", options)
 
         // 去掉开头可能重复书名的那一段（很多 TXT 首行就是书名）
         if (parts.isNotEmpty() && title != null) {
@@ -24,17 +32,18 @@ object TxtParser {
                 else listOf(parts.first().copy(content = rest)) + parts.drop(1)
             }
         }
-        return Parsed(title, parts.ifEmpty { listOf(ChapterSplitter.Part("正文", text)) })
+        return Parsed(title, parts.ifEmpty { listOf(ChapterSplitter.Part("正文", text)) }, analysis, encoding, raw.take(180))
     }
 
     /**
      * 从正文首部推断书名：
      * 取前 6 行里第一个「短、不以标点结尾、不含明显广告词」的行。
      */
-    private fun detectTitle(text: String, displayName: String): String? {
+    internal fun detectTitle(lines: Sequence<String>): String? {
         val adWords = listOf("下载", "整理", "www.", "http", ".com", ".net", "txt", "电子书", "校对", "转载", "手打")
-        val head = text.lineSequence().take(6).map { it.trim() }.filter { it.isNotEmpty() }.toList()
+        val head = lines.take(6).map { it.trim() }.filter { it.isNotEmpty() }.toList()
         for (line in head) {
+            if (ChapterSplitter.chapterOrderFromTitle(line) != null || ChapterSplitter.isBookendTitle(line)) break
             if (line.length in 2..28 &&
                 PUNCT_END.indexOf(line.last()) < 0 &&
                 adWords.none { line.contains(it, ignoreCase = true) }

@@ -83,6 +83,22 @@ object ReaderUiChecks {
                 runner.uiAutomation.injectInputEvent(event, true); event.recycle()
             }
         }
+        fun clickReaderControl(label: String) {
+            var lastToggle = SystemClock.elapsedRealtime() - 1200
+            await("Reader control did not become actionable: $label") {
+                var node = find(label)
+                while (node != null && !node.isClickable && node.parent != null) node = node.parent
+                if (node?.refresh() == true && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) true
+                else {
+                    if (SystemClock.elapsedRealtime() - lastToggle >= 1200) {
+                        val area = Rect().also { runner.uiAutomation.rootInActiveWindow.getBoundsInScreen(it) }
+                        tap(area.exactCenterX(), area.exactCenterY())
+                        lastToggle = SystemClock.elapsedRealtime()
+                    }
+                    false
+                }
+            }
+        }
         fun mount(mode: PageMode, chapter: Int = 0, offset: Int = 0) {
             runner.runOnMainSync {
                 activity.setContent { InkTheme(readerTheme = ReaderTheme.MIST) { androidx.compose.material3.Text("prepare-reader") } }
@@ -107,18 +123,15 @@ object ReaderUiChecks {
         }
         passed += "actual reader page rendering and page-turn progress persistence"
         val bounds = Rect().also { runner.uiAutomation.rootInActiveWindow.getBoundsInScreen(it) }
-        tap(bounds.exactCenterX(), bounds.exactCenterY())
-        click(runner.targetContext.getString(R.string.reader_toc))
+        clickReaderControl(runner.targetContext.getString(R.string.reader_toc))
         click("第二章 测试")
         await("TOC selection did not change chapter") { runBlocking { container.repo.book(book)!!.lastChapterIndex == 1 } }
         passed += "reader toolbar and actual table-of-contents chapter selection"
 
-        // The TOC sheet dismisses asynchronously; do not mistake its exiting toolbar nodes
-        // for actionable controls on the newly selected chapter.
-        Thread.sleep(700)
+        // The sheet and toolbar animate independently. A single visibility probe can race
+        // the exiting sheet and accidentally hide an already-open toolbar with a blind tap.
         val listen = runner.targetContext.getString(R.string.reader_read_aloud)
-        if (find(listen) == null) tap(bounds.exactCenterX(), bounds.exactCenterY())
-        click(listen)
+        clickReaderControl(listen)
         await("Missing computer voice panel") { find("电脑语音") != null }
         if (find("选择朗读模型") != null) {
             click("选择朗读模型")
@@ -165,8 +178,7 @@ object ReaderUiChecks {
             find(runner.targetContext.getString(R.string.reader_empty_chapter)) != null &&
                 runBlocking { container.repo.book(book)!!.lastChapterIndex == 2 }
         }
-        tap(bounds.exactCenterX(), bounds.exactCenterY())
-        click(runner.targetContext.getString(R.string.reader_toc))
+        clickReaderControl(runner.targetContext.getString(R.string.reader_toc))
         click("第一章 测试")
         await("Empty chapter trapped toolbar navigation") {
             runBlocking { container.repo.book(book)!!.lastChapterIndex == 0 }

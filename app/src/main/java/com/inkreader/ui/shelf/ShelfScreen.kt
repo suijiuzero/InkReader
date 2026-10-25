@@ -70,6 +70,7 @@ import com.inkreader.data.model.Book
 import com.inkreader.data.model.BookGroup
 import com.inkreader.data.model.ImportMode
 import com.inkreader.data.model.ImportOrder
+import com.inkreader.ui.component.ImportAnalysisControls
 import com.inkreader.ui.component.ImportOrderControls
 import com.inkreader.data.model.ShelfSort
 import com.inkreader.data.model.ShelfView
@@ -1022,14 +1023,21 @@ private fun ImportDialog(
     var customPattern by remember { mutableStateOf("") }
     var cleanWatermark by remember { mutableStateOf(true) }
 
+    var textEncoding by remember(uris) { mutableStateOf("") }
+    var rememberCorrections by remember(uris) { mutableStateOf(true) }
+    var ignoredLines by remember(uris) { mutableStateOf(emptySet<Int>()) }
+
     var preview by remember { mutableStateOf<BookRepository.ImportPreview?>(null) }
     var previewLoading by remember { mutableStateOf(false) }
 
-    val currentOptions = remember(splitMode, cleanWatermark, customPattern) {
+    val currentOptions = remember(splitMode, cleanWatermark, customPattern, textEncoding, ignoredLines, rememberCorrections) {
         SplitOptions(
             mode = splitMode,
             cleanWatermark = cleanWatermark,
-            customPattern = customPattern.trim()
+            customPattern = customPattern.trim(),
+            textEncoding = textEncoding,
+            ignoredHeadingLines = if (uris.size == 1) ignoredLines else emptySet(),
+            rememberCorrections = rememberCorrections
         )
     }
 
@@ -1038,8 +1046,11 @@ private fun ImportDialog(
         previewLoading = true
         preview = null
         kotlinx.coroutines.delay(300)
-        preview = container.repo.previewImport(effectiveUris, mode, currentOptions, fileOrder)
-        previewLoading = false
+        try {
+            preview = container.repo.previewImport(effectiveUris, mode, currentOptions, fileOrder)
+        } finally {
+            previewLoading = false
+        }
     }
 
     InkDialogShell(
@@ -1115,6 +1126,17 @@ private fun ImportDialog(
                 }
             }
         }
+
+        ImportAnalysisControls(
+            preview = preview,
+            singleFile = fileCount == 1,
+            encoding = textEncoding,
+            onEncodingChange = { textEncoding = it; ignoredLines = emptySet() },
+            ignored = ignoredLines,
+            rememberCorrections = rememberCorrections,
+            onRememberChange = { rememberCorrections = it },
+            onToggleHeading = { line -> ignoredLines = if (line in ignoredLines) ignoredLines - line else ignoredLines + line }
+        )
 
         if (fileCount > 1) {
             Spacer(Modifier.height(16.dp))

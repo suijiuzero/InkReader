@@ -74,8 +74,9 @@ object FormatDetector {
         }
 
         // 3. 内容嗅探：只对「看起来是文本」的字节解码，避免把二进制当文本读
-        if (!looksLikeText(bytes)) return DocumentFormat.UNKNOWN
-        val head = CharsetDetector.decode(bytes.copyOf(minOf(bytes.size, 4096)))
+        val sample = bytes.copyOf(minOf(bytes.size, 4096))
+        if (!looksLikeText(sample)) return DocumentFormat.UNKNOWN
+        val head = CharsetDetector.decode(sample)
         val lower = head.lowercase()
         if (HTML_MARKERS.any { lower.contains(it) }) return DocumentFormat.HTML
         if (looksLikeMarkdown(head)) return DocumentFormat.MARKDOWN

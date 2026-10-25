@@ -25,8 +25,8 @@ android {
         applicationId = "com.inkreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 61
-        versionName = "1.11.24"
+        versionCode = 63
+        versionName = "1.13.0"
         testInstrumentationRunner = "com.inkreader.AuditInstrumentation"
         resourceConfigurations += listOf("zh", "en", "ja")
     }
@@ -69,6 +69,8 @@ android {
                 null
         }
     }
+
+    sourceSets.getByName("androidTest").assets.srcDir(rootProject.file("tests/fixtures"))
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

@@ -7,7 +7,7 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-brightgreen.svg)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)
 [![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4.svg)](https://developer.android.com/jetpack/compose)
-[![Version](https://img.shields.io/badge/version-1.11.24-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.13.0-orange.svg)](CHANGELOG.md)
 
 [简体中文](#简体中文) ｜ [English](#english)
 
@@ -18,7 +18,10 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 ### 主要功能
 
 - **六种格式**：TXT、DOCX、Markdown、文字版 PDF、HTML、EPUB。支持常见编码、文档标题结构和部分 Markdown 排版；不做 OCR，不完整复刻原书图片和页面版式。
-- **章节识别**：中日英标题与多种编号、最终章（上／中／下）、序章、番外等；编号缺口只在局部回查，不生成不存在的正文。
+- **编码与预览纠错**：TXT 支持 UTF 系列、GB18030、Big5、Shift-JIS 和 EUC-JP 自动比较；单个 TXT 可切换编码、核对文字、查看识别疑点并取消前 40 个分章点中的任意项，原文字保留。
+- **章节识别**：扩展多语言章标签、Unicode 十进数字、保守的纯数字标题及中途格式切换；合章按完整编号范围查漏，保留原始标题，不生成不存在的正文。
+- **单书纠错记忆**：单 TXT 的前 40 个展示分章点可调整并记忆；重分章可沿用、关闭或清除，标题和附近正文改变或有歧义时跳过，不跨书套用。
+- **TXT 磁盘索引**：单 TXT 预览及独立成书导入按磁盘范围读取正文，完整源字节核验后复用相同方案；自定义规则、多文件合并和其他格式沿用原路径。
 - **按实际选择顺序导入**：文件旁实时编号，底部可调整。无编号散篇可组合「合并为一本书」＋「每个文件作为一章」＋「按选择顺序」。智能排序仍可选。
 - **文件夹首页**：添加多个授权目录，跨目录保留选择；长按首页卡片多选移出入口，源文件不删除。
 - **长按文件批量选择**：从当前文件正向／反向、全列表正向／反向，或指定两个文件选择含两端的范围；按当前搜索和显示顺序处理，跳过子文件夹，已有队列不重排。
@@ -30,7 +33,7 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 
 书架「导入」→ 添加小说文件夹 → 按顺序点选或长按批量选择 → 核对预计次序 → 继续并选择导入／分章方式。选文件页的「*」仅是文件夹首页，与书架首页不同。
 
-单文件超过 200 MiB 会拒绝导入，压缩文档另有解压预算；更小的复杂文档也可能受内存或损坏影响。扫描 PDF 不支持；旧 DOC、MOBI、AZW3 不在当前格式列表中。大型书籍识别和后台全书页数统计需要时间。
+单文件超过 200 MiB、TXT 索引超过 50 万行会拒绝导入，压缩文档另有解压预算；更小的复杂文档也可能受内存或损坏影响。扫描 PDF 不支持；旧 DOC、MOBI、AZW3 不在当前格式列表中。大型书籍识别和后台全书页数统计需要时间，整书重分章仍受内存上限约束。
 
 电脑语音需要 Windows 本地音色、电脑保持唤醒，并与手机互通。自动模式中文／英文用晓晓，日语优先七海；电脑需安装对应音色。只发送当前与下一句至配对电脑，LAN 使用 HTTP、没有 TLS 加密，请在可信网络使用。[电脑端说明](tools/natural-voice/README.md)
 
@@ -48,7 +51,7 @@ adb -s DEVICE_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
 
 `DEVICE_SERIAL` 用 `adb devices` 查询并替换。相同签名的覆盖安装保留数据；不要为了更新先卸载。中文工程路径已配置 `android.overridePathCheck=true`。发布任务必须配置正式签名，不会静默回退 debug 签名。
 
-最近一次完整审计（1.11.23）通过 152 项 JVM、27 项 Android 数据／界面、17 项顺序检查，以及万章、1050 万字符、千文件、并发与持续写入等压力。报告区分模拟器、生成样本与实际手机验证，不保证所有设备和文件均可用。1.11.24 同步使用说明与开发文档，未扩大该审计的验证范围。
+1.13.0 通过 185 项 JVM 回归、最终包两轮全套模拟器检查及第三轮界面复验，共225项有效安卓检查。新增64份冻结标注，开发40／留出24，132个预期标题；旧24份／81标题和154份语料继续核对，原15项识别限制在这些固定样本上归零，3份空内容仍拒绝。另核对约12 MB／400章实际导入、1050万字符和千文件压力；原书库与正文校验值保持一致。具体指标、首次留出结果、早期失败与限制见 [1.13.0验收记录](docs/1.13.0-多语言分章与磁盘导入验收.md)。
 
 ### 文档与结构
 
@@ -70,7 +73,10 @@ Ink Reader reads local books without accounts or ads. Reading, annotations and p
 ### Features and workflow
 
 - TXT, DOCX, Markdown, text-based PDF, HTML and EPUB; common encodings and structured headings, supported Markdown formatting, no OCR or full original-page reproduction.
-- CJK/English chapter recognition, special sections and local number-gap recovery. Missing source content is never invented.
+- TXT encoding ranking for UTF, GB18030, Big5, Shift-JIS and EUC-JP; a single TXT can override the codec, inspect an excerpt and uncheck displayed boundaries without losing the source text.
+- Expanded native chapter labels, Unicode decimal digits, conservative bare numerals and mid-book style changes. Combined chapters use number ranges; source titles remain intact and missing content is never invented.
+- Optional per-book memory for the first 40 displayed TXT boundaries. Resplit can reuse, disable or forget it; exact title/context matches are required, ambiguous or changed text is skipped.
+- Single-TXT previews and separate imports use a disk index and validate complete source bytes before cache reuse. Custom rules, multi-file merging and other formats retain their existing paths. TXT indexes are limited to 500,000 lines; whole-book resplitting still has a memory limit.
 - Live numbered file selection across authorized folders, editable import order, and batch selection forward/backward, all visible files or an inclusive two-file range. Existing selections stay in order; subfolders are excluded.
 - Choose Selection order to avoid filename/chapter reordering. For untitled scattered files, combine Merge into one book, One chapter per file and Selection order.
 - The file picker's * Folder home is separate from the shelf. Holding its cards allows multiple shortcut removal without deleting source files.
@@ -85,7 +91,7 @@ Computer speech sends only the current sentence and next prefetched sentence to 
 
 JDK 17 and Android SDK platform 34 are required. Run the Gradle tasks above, or use `gradlew.bat` on Windows. Debug APK: `app/build/outputs/apk/debug/app-debug.apk`. Use an explicit device serial for installation. Release tasks require a configured release keystore.
 
-The 1.11.23 audit passed 152 JVM checks, 27 Android data/UI checks, 17 import-order checks and generated-document/concurrency/soak workloads. These finite emulator and selected phone checks do not certify every file or device. Version 1.11.24 updates documentation and the built-in guide.
+Version 1.13.0 passes 185 JVM checks and 225 final Android checks, including two complete suite rounds and a third UI round. The new frozen corpus has 40 development and 24 holdout files with 132 expected headings; the older 24-file / 81-heading gold set and 154-file corpus also pass, including the previous 15 recognition probes. Three empty inputs remain rejected. Real 400-chapter TXT import, large-text and thousand-file stress runs preserve expected content, and the original library remains intact. This is authored test data, not third-party blind labelling or proof for every book. See the [audit report](docs/1.13.0-多语言分章与磁盘导入验收.md) for first-holdout results, earlier failures, measurements and limits.
 
 See the [manual](docs/使用说明.md), [changelog](CHANGELOG.md), [contributing guide](CONTRIBUTING.md), [test tools](tools/testing/README.md) and [PC voice setup](tools/natural-voice/README.md). The full repository manual is separate from the localized guides packaged in the APK.
 

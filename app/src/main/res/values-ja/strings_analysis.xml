@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="analysis_show">認識結果と確認事項</string>
+    <string name="analysis_hide">詳細を閉じる</string>
+    <string name="analysis_sampled">プレビュー確認済み %1$d / %2$d 件、読み取り失敗 %3$d 件。未確認ファイルの章数は推定です。</string>
+    <string name="analysis_encoding">文字コード：%1$s</string>
+    <string name="analysis_encoding_uncertain">文字コードが不確実です。下の文章を確認し、文字化けする場合は変更してください。</string>
+    <string name="analysis_choose_encoding">文字コードを選択</string>
+    <string name="analysis_auto_encoding">自動判定</string>
+    <string name="analysis_single_encoding">文字コードと本文は最初のファイルのものです。変更する場合はその TXT を単独で読み込んでください。</string>
+    <string name="analysis_toc">冒頭の目次 %1$d 項目を照合して除外しました。本文の順序は保持します。</string>
+    <string name="analysis_fallback">見出しが不明確な部分、または長すぎる章は文字数で分割します。</string>
+    <string name="analysis_gap">欠落の可能性：%1$s → %2$s。番号 %3$s が見つかりません。空の章は作成しません。</string>
+    <string name="analysis_edit_hint">チェック位置で章を分割します。外すと見出しと本文を前後の内容に含め、文字は削除しません。</string>
+    <string name="analysis_first_file_hint">以下は最初の TXT の分章根拠です。変更する場合は単独で読み込んでください。</string>
+    <string name="analysis_reason_ignored">本文として保持</string>
+    <string name="analysis_reason_recovery">番号の欠落区間で再検出</string>
+    <string name="analysis_reason_local">この巻の見出し形式と一致</string>
+    <string name="analysis_reason_sequence">見出し形式と前後の番号が一致</string>
+    <string name="analysis_reason_shape">見出し形式と配置に一致</string>
+    <string name="analysis_limited">操作を軽快に保つため、最初の 40 個の分割位置のみ表示します。残りは現在の規則で処理します。</string>
+    <string name="analysis_remember">この本の分割調整を保存</string>
+    <string name="analysis_use_memory">保存済みの分割調整を使用（%1$d）</string>
+    <string name="analysis_memory_context">この本のみ。見出しや周辺本文が変わった場合は強制適用しません。</string>
+    <string name="analysis_forget">この本の分割記憶を消去</string>
+</resources>

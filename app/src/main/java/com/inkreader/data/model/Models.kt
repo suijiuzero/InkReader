@@ -75,7 +75,14 @@ data class SplitOptions(
     val mode: SplitMode = SplitMode.SMART,
     val cleanWatermark: Boolean = true,
     val customPattern: String = "",
-    val fixedChunkChars: Int = 12000
+    val fixedChunkChars: Int = 12000,
+    /** Empty means automatic detection. Applied to plain TXT only. */
+    val textEncoding: String = "",
+    /** One-based lines in normalized TXT. The import UI enables this for one file only. */
+    val ignoredHeadingLines: Set<Int> = emptySet(),
+    val forcedHeadingLines: Set<Int> = emptySet(),
+    val rememberCorrections: Boolean = true,
+    val useSavedCorrections: Boolean = true
 )
 
 data class Book(

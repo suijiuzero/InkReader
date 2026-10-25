@@ -1,6 +1,14 @@
 # Ink Reader — User Guide
 
-For version 1.11.24. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
+For version 1.13.0. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
+
+## Expanded recognition and saved corrections
+
+More native chapter labels and Unicode decimal digits are supported. Bare numerals require a consecutive, spaced series with sufficient body text. Mid-book style changes use neighboring numbers; combined chapters such as 1–2 use their full number range. Source titles remain unchanged.
+
+After unchecking a boundary for one TXT, enable Remember this book’s chapter adjustments. Resplit can reuse, disable or forget them. Exact title and nearby text must still match; changed or ambiguous matches are skipped, and other books are unaffected. Only the first 40 displayed boundaries can be edited and remembered.
+
+Single-TXT previews and separate-book imports use a disk-backed index and validate complete source bytes before reusing a cached plan. Custom rules, multi-file merging and other formats keep their existing paths. Files over 200 MiB or TXT indexes over 500,000 lines are rejected; whole-book resplitting still has a memory limit.
 
 ## Quick start
 
@@ -8,6 +16,13 @@ For version 1.11.24. Reading works offline without an account or ads. A paired W
 - Each selected file shows its import position. Expand Expected import order to move, remove or clear files.
 - Continue import, choose separate books or one merged book, and check both file order and chapter splitting.
 - Tap a cover to read. Tap the middle of the page to show or hide the reader bars.
+
+## Encoding and recognition details
+
+In import confirmation, open Recognition details. TXT detection compares UTF, GB18030, Big5, Shift-JIS (Windows-31J) and EUC-JP. If uncertain or garbled, import one TXT at a time, choose a text encoding and check the excerpt. Changing encoding clears boundary edits.
+
+Details show number-gap recovery, volume styles, contents matching, possible missing chapters and size-based splitting. For a single TXT, uncheck any of the first 40 displayed boundaries to keep its heading and text inside surrounding content. Other boundaries keep the current rules. Multi-file details refer to the first file; import it alone to edit. Only the first five files are inspected; remaining counts are estimates.
+
 
 ## Folder home and multiple folders
 
