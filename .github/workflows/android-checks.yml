@@ -26,8 +26,11 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: gradle/actions/setup-gradle@v6
-      - name: Install Android platform
-        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v4
+        with:
+          packages: 'platform-tools platforms;android-34 build-tools;34.0.0'
+          log-accepted-android-sdk-licenses: false
       - name: Verify frozen evaluation inputs
         run: python3 tools/testing/verify_frozen_fixtures.py
       - name: Build, regression and lint
