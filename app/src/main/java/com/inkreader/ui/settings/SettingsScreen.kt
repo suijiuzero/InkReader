@@ -78,6 +78,7 @@ fun SettingsScreen(container: AppContainer, onBack: () -> Unit, onOpenHelp: () -
                     InkIcon(R.drawable.ic_right, contentDescription = null, tint = p.textFaint, size = 18)
                 }
             }
+            LibraryBackupControls(container) { prefs = container.prefs.load() }
             // 设置内容没有底部留白，这里给「使用说明」和屏幕底边（含导航栏）之间留出距离
             Spacer(
                 Modifier.height(

@@ -307,7 +307,7 @@ fun ReaderScreen(
         val bodySize = measuredBodySize
         SideEffect {
             if (bodySize.width > 0 && bodySize.height > 0)
-                session.setPaginationContext(measurer, bodyStyle, bodySize.width, bodySize.height, density) {
+                session.setPaginationContext(measurer, bodyStyle, bodySize.width, bodySize.height, density, direction) {
                     TextMeasurer(resolver, density, direction, 0)
                 }
         }

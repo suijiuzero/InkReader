@@ -32,7 +32,8 @@ fun ImportAnalysisControls(
     ignored: Set<Int>,
     rememberCorrections: Boolean,
     onRememberChange: (Boolean) -> Unit,
-    onToggleHeading: (Int) -> Unit
+    onToggleHeading: (Int) -> Unit,
+    onOpenFull: (() -> Unit)? = null
 ) {
     var expanded by remember { mutableStateOf(false) }
     var encodingMenu by remember { mutableStateOf(false) }
@@ -72,6 +73,7 @@ fun ImportAnalysisControls(
                 color = p.textSecondary, maxLines = 4, overflow = TextOverflow.Ellipsis)
         }
         if (analysis != null) {
+            if (singleFile && onOpenFull != null) InkTextButton(stringResource(R.string.center_title), onClick = onOpenFull)
             if (analysis.skippedTocEntries > 0) Text(stringResource(R.string.analysis_toc, analysis.skippedTocEntries),
                 style = InkType.Caption, color = p.textSecondary)
             if (analysis.usedSizeFallback) Text(stringResource(R.string.analysis_fallback),

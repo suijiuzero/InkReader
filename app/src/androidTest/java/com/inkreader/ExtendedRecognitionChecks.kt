@@ -71,10 +71,10 @@ object ExtendedRecognitionChecks {
             val edited = options.copy(ignoredHeadingLines = setOf(middle))
             val imported = repo.importDocuments(listOf(uri), ImportMode.SEPARATE, null, splitOptions = edited) { _, _ -> }
             val id = imported.bookIds.single()
-            check(repo.chapters(id).size == 2 && repo.savedCorrectionCount(id) == 3)
+            check(repo.chapters(id).size == 2 && repo.savedCorrectionCount(id) == 1)
             val restarted = BookRepository(context)
             try {
-                check(restarted.savedCorrectionCount(id) == 3)
+                check(restarted.savedCorrectionCount(id) == 1)
                 check(restarted.resplitBook(id, options) == 2)
                 check(restarted.chapters(id).map { restarted.chapterText(it) }.joinToString().contains("第2章"))
                 check(restarted.resplitBook(id, options.copy(useSavedCorrections = false)) == 3)
@@ -86,7 +86,7 @@ object ExtendedRecognitionChecks {
             check(repo.chapters(another).size == 3 && repo.savedCorrectionCount(another) == 0)
             repo.deleteBook(another); repo.deleteBook(id)
             check(repo.savedCorrectionCount(id) == 0)
-            JSONObject().put("rememberedAnchors", 3).put("bookIsolation", true)
+            JSONObject().put("rememberedAnchors", 1).put("bookIsolation", true)
         }
         test("preview cache reuses identical bytes and invalidates a changed file at the same URI") {
             val file = File(context.cacheDir, "cache-same-uri.txt").apply { writeText("第1章\n\n缓存原文。") }

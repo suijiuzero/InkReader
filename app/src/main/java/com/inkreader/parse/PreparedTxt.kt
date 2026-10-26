@@ -11,8 +11,10 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
     data class Piece(val start: Int, val end: Int, val literal: String? = null) {
         val length get() = literal?.length ?: end - start
     }
-    data class Section(val title: String, val pieces: List<Piece>, val volume: String = "", val chunked: Boolean = false) {
-        val length get() = pieces.sumOf { it.length }
+    data class Section(val title: String, val pieces: List<Piece>, val volume: String = "", val chunked: Boolean = false,
+        val children: List<Section>? = null, val includeHeadings: Boolean = false) {
+        val length: Int get() = children?.let { entries -> entries.sumOf { it.length + if (includeHeadings && !ChapterSplitter.isFallbackSectionTitle(it.title)) it.title.length + 2 else 0 } +
+            ((entries.size - 1).coerceAtLeast(0)) * 2 } ?: pieces.sumOf { it.length }
     }
     val plan: ChapterPlan = previousPlan ?: if (options.mode in listOf(SplitMode.PER_FILE, SplitMode.FIXED_SIZE))
         ChapterPlan(emptyList(), emptyList(), emptyList(), 0, false, false)
@@ -21,7 +23,7 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
     val sections: List<Section> by lazy {
         val all = existing ?: assemble()
         val first = all.firstOrNull()
-        if (existing != null || first == null || title == null || first.length - title.length >= 60) all
+        if (!options.stripLeadingTitle || existing != null || first == null || title == null || first.length - title.length >= 60) all
         else {
             val content = readPieces(first.pieces, 0, first.length).trim()
             if (!content.startsWith(title)) all
@@ -36,6 +38,29 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
         plan.headings.isEmpty() && options.mode != SplitMode.PER_FILE || sections.any { ChapterSplitter.isFallbackSectionTitle(it.title) }, plan.truncated)
 
     fun reader(section: Section): Reader {
+        if (section.children != null) {
+            val sources = buildList<() -> Reader> {
+                section.children.forEachIndexed { i, child ->
+                    if (i > 0) add { java.io.StringReader("\n\n") }
+                    if (section.includeHeadings && child.title.isNotBlank() && !ChapterSplitter.isFallbackSectionTitle(child.title))
+                        add { java.io.StringReader(child.title + "\n\n") }
+                    add { reader(child) }
+                }
+            }.iterator()
+            return object : Reader() {
+                var active: Reader? = null
+                override fun read(buffer: CharArray, offset: Int, count: Int): Int {
+                    if (count == 0) return 0
+                    while (true) {
+                        ParseCancellation.checkpoint()
+                        if (active == null) { if (!sources.hasNext()) return -1; active = sources.next()() }
+                        val n = active!!.read(buffer, offset, count); if (n >= 0) return n
+                        active!!.close(); active = null
+                    }
+                }
+                override fun close() { active?.close(); active = null }
+            }
+        }
         if (!options.cleanWatermark) return rawReader(section)
         if (section.length <= 120000) {
             val raw = rawReader(section).use { it.readText() }
@@ -92,6 +117,36 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
         override fun close() = Unit
     }
     fun body(section: Section): String = reader(section).use { it.readText() }
+    fun readRange(section: Section, start: Int, end: Int): String {
+        require(start >= 0 && end >= start && end <= section.length && end - start <= 120000)
+        return readPieces(section.pieces, start, end)
+    }
+    /** 合并/追加仍按原语义每个文件判断分章；正文用读取器拼接，不拼整本字符串。 */
+    fun units(fileName: String): List<Section> {
+        val fileTitle = ChapterSplitter.titleFromFileName(fileName)
+        if (options.mode == SplitMode.PER_FILE) return sections.map { it.copy(title = if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(fileTitle) else fileTitle) }
+        if (options.mode != SplitMode.SMART || sections.size >= 2 && sections.mapNotNull { ChapterSplitter.chapterLevelOrderFromTitle(it.title) }.distinct().size >= 2)
+            return sections
+        val only = sections.firstOrNull() ?: return emptyList()
+        val title = if (ChapterSplitter.chapterOrderFromTitle(fileTitle) != null) fileTitle else only.title.ifBlank { fileTitle }
+        return listOf(Section(if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(title) else title,
+            if (sections.size == 1) only.pieces else emptyList(), only.volume,
+            children = if (sections.size > 1) sections else null, includeHeadings = sections.size > 1))
+    }
+    fun normalizedReader(section: Section): Reader {
+        if (section.length <= 120000) return java.io.StringReader(ChapterSplitter.normalize(body(section)))
+        val file = java.io.File.createTempFile("body-", ".index", text.file.parentFile)
+        val index = try { reader(section).use { IndexedText.build(it, file) } } catch (t: Throwable) { file.delete(); throw t }
+        return object : Reader() {
+            var position = 0
+            override fun read(buffer: CharArray, offset: Int, count: Int): Int {
+                if (count == 0) return 0
+                val n = minOf(count, index.length - position); if (n <= 0) return -1
+                index.read(position, position + n).toCharArray(buffer, offset, 0, n); position += n; return n
+            }
+            override fun close() { index.close(); file.delete() }
+        }
+    }
     private fun literal(value: String) = Piece(0, 0, value)
     private fun range(first: Int, end: Int): Piece? = text.trimmedLines(first, end)?.let { Piece(it.first, it.last + 1) }
     private fun joined(parts: List<Piece>, separator: String = "\n\n"): List<Piece> = buildList {
@@ -130,10 +185,16 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
             carry.forEach { ChapterSplitter.extractVolumeTitle(text.read(it.start, it.end))?.let { value -> volume = value } }
             val pieces = ArrayList<Piece>()
             if (position == 0 && head != null && (head.length < 200 || plan.mergeLeadingBody)) pieces += head
-            if (carry.isNotEmpty()) pieces += literal(carry.joinToString("\n") { text.read(it.start, it.end) })
-            range(start + 1, stop)?.let { pieces += it }
+            if (carry.isNotEmpty()) {
+                if (pieces.isNotEmpty()) pieces += literal("\n\n")
+                pieces += joined(carry, "\n")
+            }
+            val prefix = if (carry.isNotEmpty()) pieces.toList() else joined(pieces)
+            pieces.clear()
+            pieces += prefix
+            range(start + 1, stop)?.let { if (pieces.isNotEmpty()) pieces += literal("\n\n"); pieces += it }
             if (pieces.isEmpty()) pieces += literal(rawTitle)
-            val section = Section(if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(rawTitle) else rawTitle, joined(pieces), volume)
+            val section = Section(if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(rawTitle) else rawTitle, pieces, volume)
             if (section.length > 120000) result += chunks(section, 18000, true) else result += section
             carry = peeled.map { Piece(text.starts[it], text.ends[it]) }
         }

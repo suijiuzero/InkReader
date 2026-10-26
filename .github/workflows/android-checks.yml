@@ -1,0 +1,42 @@
+name: Android checks
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      INK_EVAL_PARTITION: all
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v6
+      - name: Install Android platform
+        run: sdkmanager 'platforms;android-34' 'build-tools;34.0.0'
+      - name: Verify frozen evaluation inputs
+        run: python3 tools/testing/verify_frozen_fixtures.py
+      - name: Build, regression and lint
+        run: bash gradlew :app:unitTest :app:assembleDebug :app:assembleDebugAndroidTest :app:lintDebug --no-daemon
+      - name: Keep reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: android-check-reports
+          path: |
+            app/build/reports/
+          retention-days: 14

@@ -82,7 +82,11 @@ data class SplitOptions(
     val ignoredHeadingLines: Set<Int> = emptySet(),
     val forcedHeadingLines: Set<Int> = emptySet(),
     val rememberCorrections: Boolean = true,
-    val useSavedCorrections: Boolean = true
+    val useSavedCorrections: Boolean = true,
+    /** 手动分章点绑定完整源字节；文件变化时拒绝套用旧行号。 */
+    val sourceFingerprint: String = "",
+    /** 重分章的源已经由书库正文重建，不能再把短前言当成重复书名删除。 */
+    val stripLeadingTitle: Boolean = true
 )
 
 data class Book(

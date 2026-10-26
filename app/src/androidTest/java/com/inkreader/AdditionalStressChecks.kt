@@ -114,10 +114,10 @@ object AdditionalStressChecks {
                     check(db.getBook(7)!!.title=="MIGRATION_SENTINEL")
                     check(db.chapterOf(7,11)!!.volume=="")
                     check(db.groups().isEmpty())
-                    check(db.readableDatabase.version==4)
+                    check(db.readableDatabase.version==5)
                     db.close()
                 }
-                JSONObject().put("oldVersion",1).put("newVersion",4).put("reopens",2)
+                JSONObject().put("oldVersion",1).put("newVersion",5).put("reopens",2)
             }
             test("concurrent TXT exports keep independent share files and exclude private annotations") {
                 val title="AUDIT_EXPORT_${UUID.randomUUID()}"

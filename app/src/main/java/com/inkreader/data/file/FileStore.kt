@@ -90,10 +90,10 @@ class FileStore(context: Context) {
     }
 
     fun readRich(txtName: String): String =
-        runCatching { file(richNameOf(txtName)).readText(Charsets.UTF_8) }.getOrDefault("")
+        runCatching { AtomicFile(file(richNameOf(txtName))).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() } }.getOrDefault("")
 
     fun deleteRich(txtName: String) {
-        runCatching { file(richNameOf(txtName)).delete() }
+        runCatching { AtomicFile(file(richNameOf(txtName))).delete() }
     }
 
     /** 正文连同它的样式覆盖一起删掉，别留孤儿文件 */

@@ -36,6 +36,15 @@ class DataSafetyTest {
         mapping.forEach { arr -> assertTrue(arr.asList().zipWithNext().all { (a, b) -> a <= b }) }
     }
 
+    @Test fun crossingHighlightMapsEveryRetainedChapterFragment() {
+        val source = "第一章\n\nFIRST_END\n\n第二章\n\nSECOND_START"
+        val outputs = listOf("FIRST_END", "SECOND_START")
+        val maps = TextRemap.align(source, outputs)
+        assertEquals(listOf(TextRemap.Range(0, 0, 9), TextRemap.Range(1, 0, 12)),
+            TextRemap.ranges(maps, source.indexOf("FIRST_END"), source.length))
+        assertTrue(TextRemap.ranges(maps, source.length, source.length).isEmpty())
+    }
+
     @Test fun invalidMappingFailsBeforeReplacingBook() {
         try {
             TextRemap.align("原正文", listOf("不存在的新正文"))

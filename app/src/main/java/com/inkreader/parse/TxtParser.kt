@@ -24,7 +24,7 @@ object TxtParser {
         var parts = analysis?.parts ?: ChapterSplitter.split(text, "正文", options)
 
         // 去掉开头可能重复书名的那一段（很多 TXT 首行就是书名）
-        if (parts.isNotEmpty() && title != null) {
+        if (options.stripLeadingTitle && parts.isNotEmpty() && title != null) {
             val first = parts.first().content.trim()
             if (first.startsWith(title) && first.length - title.length < 60) {
                 val rest = first.removePrefix(title).trim()

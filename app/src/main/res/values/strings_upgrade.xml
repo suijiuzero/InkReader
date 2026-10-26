@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="center_title">全书分章校对</string>
+    <string name="center_search">搜索标题、章号，或输入 #原文行号</string>
+    <string name="center_hint">勾选作为章首，取消则并入正文。输入 #行号 可查看原文并补分章。</string>
+    <string name="center_doubts">只看疑点与手动调整</string>
+    <string name="center_summary">预计 %1$d 章 · %2$d 项 · 原文 %3$d 行</string>
+    <string name="center_error">读取失败或源文件已改变，请关闭后重新打开校对。</string>
+    <string name="center_previous">上一批</string>
+    <string name="center_next">下一批</string>
+    <string name="center_apply">应用调整</string>
+    <string name="center_limit">单次最多保存一万个手动调整，请分批处理。</string>
+    <string name="backup_title">完整书库备份</string>
+    <string name="backup_description">包含正文、批注、进度、封面、分组、分章记忆和阅读设置。电脑配对与文件夹授权不包含在备份中。</string>
+    <string name="backup_export">创建备份</string>
+    <string name="backup_restore">恢复备份</string>
+    <string name="backup_restore_explanation">校验通过后，书籍和分组作为新内容加入书架，不覆盖原书；阅读设置会恢复为备份中的设置。重复恢复会产生副本。</string>
+    <string name="backup_success">操作完成</string>
+    <string name="backup_failure">操作未完成。请检查文件、存储空间与读取权限；原有书籍保留。</string>
+    <string name="backup_cancelled">操作已取消</string>
+    <string name="undo_book_change">撤销上次分章操作</string>
+    <string name="undo_none">这本书暂无可恢复的分章快照</string>
+    <string name="undo_failed">恢复未完成，当前内容保留，请稍后重试</string>
+    <string name="recovery_existing">请先继续或结束上次未完成的导入。</string>
+    <string name="recovery_target_missing">追加目标已被移除，请结束此任务后重新选择。</string>
+    <string name="recovery_title">继续未完成的导入</string>
+    <string name="recovery_desc">已完成的文件会保留并跳过，从尚未完成的文件继续。若原文件已移动或访问权限失效，会显示失败原因。</string>
+    <string name="recovery_resume">继续导入</string>
+    <string name="recovery_discard">结束此任务</string>
+    <string name="recovery_cancel">暂停导入</string>
+    <string name="recovery_cancelled">导入已暂停；已完成的文件保留，可稍后继续。</string>
+    <string name="operation_cancelled">已请求取消。已完成的操作会保留，未完成的修改已回滚。</string>
+</resources>

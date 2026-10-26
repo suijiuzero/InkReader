@@ -101,6 +101,12 @@ class LibraryStore(
     // 导入进度
     var importing by mutableStateOf(false)
         private set
+    var recoveryAvailable by mutableStateOf(false)
+        private set
+    private var importJob: kotlinx.coroutines.Job? = null
+    fun pauseImport() { importJob?.cancel() }
+    fun resumeImport() { import(emptyList(), ImportMode.SEPARATE, null, resume = true) }
+    fun discardImport() { scope.launch { repo.discardIncompleteImport(); recoveryAvailable = false; refresh() } }
     var importStage by mutableStateOf("")
         private set
     var importFraction by mutableStateOf(0f)
@@ -122,6 +128,7 @@ class LibraryStore(
             loading = true
             books = repo.books(sort)
             groups = repo.groups()
+            recoveryAvailable = repo.hasIncompleteImport()
             syncUiTheme()
             loading = false
         }
@@ -155,9 +162,10 @@ class LibraryStore(
         splitMode: SplitMode = SplitMode.SMART,
         splitOptions: SplitOptions = SplitOptions(mode = splitMode),
         fileOrder: ImportOrder = ImportOrder.AUTO,
+        resume: Boolean = false,
         onDone: (Long?) -> Unit = {}
     ) {
-        if (uris.isEmpty()) return
+        if (importing || uris.isEmpty() && !resume) return
         com.inkreader.ui.component.PickerTrace.log(
             appContext,
             "import.start n=${uris.size} mode=$mode split=${splitOptions.mode} uris=${uris.joinToString { it.scheme + ":" + it.lastPathSegment?.takeLast(24) }}"
@@ -167,26 +175,24 @@ class LibraryStore(
         importReport = emptyList()
         importFraction = 0f
         importStage = appContext.getString(R.string.repo_stage_start_import)
-        scope.launch {
+        importJob = scope.launch {
             // 导入链路上任何一环抛异常（磁盘写失败、SQLite 异常…）都不能让它冒到
             // 这个没有 CoroutineExceptionHandler 的 Main 作用域上（那会直接崩），
             // 也不能把 importing 留在 true 让进度遮罩永久卡死。这里统一兜住并给出可读原因。
+            val progress: (String, Float) -> Unit = { stage, fraction -> importStage = stage; importFraction = fraction }
             val result = runCatching {
-                repo.importDocuments(
-                    uris = uris,
-                    mode = mode,
-                    customTitle = title,
-                    splitMode = splitOptions.mode,
-                    splitOptions = splitOptions,
-                    fileOrder = fileOrder
-                ) { stage, f ->
-                    importStage = stage
-                    importFraction = f
-                }
+                if (resume) repo.resumeImport(progress)
+                else repo.importResumable(uris, mode, title, splitOptions, fileOrder, onProgress = progress)
             }.getOrElse { e ->
                 importing = false
                 importFraction = 1f
                 importStage = ""
+                if (e is kotlinx.coroutines.CancellationException) {
+                    importErrors = emptyList()
+                    toast = appContext.getString(R.string.recovery_cancelled)
+                    recoveryAvailable = true
+                    refresh(); onDone(null); return@launch
+                }
                 importErrors = listOf(e.message ?: appContext.getString(R.string.action_unknown_error))
                 toast = appContext.getString(
                     R.string.repo_import_failed,

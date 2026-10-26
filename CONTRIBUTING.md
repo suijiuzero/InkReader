@@ -99,3 +99,10 @@ chore: 构建/依赖杂项
 ## 报告问题
 
 提 issue 时请带上：Android 版本与机型、App 版本、复现步骤、导入文件格式与来源，以及——如果涉及崩溃——`logcat` 片段。
+
+
+### 冻结样本与自动检查
+
+先运行 `python tools/testing/verify_frozen_fixtures.py`，再运行构建、单元测试及 lint。`tests/fixtures/real-source/` 包含真实来源摘录、预期边界与出处，生成器不调用分章器且拒绝覆盖现有标注。不要为通过测试修改冻结答案；发现标注问题须说明依据及首次留出结果。已见过的留出样本应视为后续回归集。
+
+`.github/workflows/android-checks.yml` 在 PR、推送 main 或手动运行时执行上述检查，报告保留 14 天；它构建 Android 测试 APK，但不等于已执行模拟器验收。设备测试应使用测试 APK 的独立存储，明确设备序列号。故障、压力测试脚本限定 `emulator-5554`，不可改成自动选中连接的手机。

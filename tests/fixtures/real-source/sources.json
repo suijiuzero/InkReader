@@ -1,0 +1,26 @@
+[
+  {
+    "id": "R01",
+    "work": "Alice’s Adventures in Wonderland",
+    "author": "Lewis Carroll",
+    "url": "https://www.gutenberg.org/cache/epub/11/pg11-images.html",
+    "sourceSha256": "7df9c19e9fccac5b3ae9b1f837b247db1c1da93845dfb9e1903dce85013c43d3",
+    "extraction": "Original chapter labels, multiline subtitles and first four complete p elements per chapter; navigation and licence boilerplate excluded; HTML whitespace collapsed."
+  },
+  {
+    "id": "R02",
+    "work": "Die Verwandlung",
+    "author": "Franz Kafka",
+    "url": "https://www.gutenberg.org/cache/epub/22367/pg22367-images.html",
+    "sourceSha256": "ae7cce33428e7923dff996e8626239623ea660edf200dc9b7b71c1fcf496172e",
+    "extraction": "Original chapter labels, multiline subtitles and first four complete p elements per chapter; navigation and licence boilerplate excluded; HTML whitespace collapsed."
+  },
+  {
+    "id": "R03",
+    "work": "阿Q正传",
+    "author": "鲁迅",
+    "url": "https://zh.wikisource.org/zh-hans/%E9%98%BFQ%E6%AD%A3%E4%BC%A0",
+    "sourceSha256": "2c36834d081edfcd53e252a4617cd0d3334d1e5f56f5177830158d197122218b",
+    "extraction": "Original chapter labels, multiline subtitles and first four complete p elements per chapter; navigation and licence boilerplate excluded; HTML whitespace collapsed."
+  }
+]

@@ -19,7 +19,11 @@ import com.inkreader.data.model.SourceType
  */
 class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_NAME, null, DB_VERSION) {
 
+    private fun createImportReceipts(db: SQLiteDatabase) {
+        db.execSQL("CREATE TABLE IF NOT EXISTS import_receipts(key TEXT PRIMARY KEY, book_id INTEGER NOT NULL, chapters TEXT NOT NULL)")
+    }
     override fun onCreate(db: SQLiteDatabase) {
+        createImportReceipts(db)
         db.execSQL(
             """
             CREATE TABLE books(
@@ -104,6 +108,7 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
             )
         }
         if (old < 4) addColumn(db, "chapters", "volume", "TEXT DEFAULT ''")
+        if (old < 5) createImportReceipts(db)
     }
 
     /** 列不存在才加（ALTER 重复执行会抛 duplicate column name，这里先查一次避开） */
@@ -474,6 +479,6 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
 
     companion object {
         private const val DB_NAME = "ink_reader.db"
-        private const val DB_VERSION = 4
+        private const val DB_VERSION = 5
     }
 }

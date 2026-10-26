@@ -31,9 +31,26 @@ class IndexedTxtStore(root: File) {
     private val gate = ReentrantLock()
     private var cached: Entry? = null
     var cacheHits: Int = 0; private set
+    private fun planning(options: SplitOptions) = options.copy(rememberCorrections = false, useSavedCorrections = false, sourceFingerprint = "")
+
+    /** 校对会话内部只读取已验证快照；实际导入仍重新核验完整源字节。 */
+    fun <T> withSnapshot(fingerprint: String, options: SplitOptions, block: (PreparedTxt) -> T): T? {
+        gate.lockInterruptibly()
+        try {
+            val entry = cached?.takeIf { it.fingerprint == fingerprint && it.index.file.isFile &&
+                it.options.textEncoding == options.textEncoding } ?: return null
+            val same = planning(entry.options) == planning(options)
+            return PreparedTxt(entry.index.reopen(), entry.encoding, fingerprint, options,
+                if (same) entry.sections else null, if (same) entry.plan else null).use { document ->
+                val result = block(document)
+                cached = entry.copy(options = options, sections = document.sections, plan = document.plan)
+                result
+            }
+        } finally { gate.unlock() }
+    }
 
     fun <T> withDocument(name: String, options: SplitOptions, open: () -> InputStream, block: (PreparedTxt) -> T): T? {
-        if (!name.endsWith(".txt", true) || options.mode == SplitMode.CUSTOM) return null
+        if (!name.endsWith(".txt", true)) return null
         gate.lockInterruptibly()
         try {
             check(directory.isDirectory || directory.mkdirs())
@@ -56,12 +73,23 @@ class IndexedTxtStore(root: File) {
                 } }
                 if (size == 0L) throw ParseException(ParseErrorCode.EMPTY)
                 val head = sample.toByteArray()
-                if (FormatDetector.detect(head.copyOf(minOf(4096, head.size)), name) != DocumentFormat.TXT) return null
+                if (FormatDetector.detect(head.copyOf(minOf(4096, head.size)), name) != DocumentFormat.TXT) {
+                    if (options.sourceFingerprint.isNotEmpty()) throw ParseException(ParseErrorCode.READ_FAILED)
+                    return null
+                }
                 val fingerprint = digest.digest().joinToString("") { "%02x".format(java.util.Locale.ROOT, it.toInt() and 255) }
-                val key = fingerprint + "|" + name + "|" + options.copy(rememberCorrections = false, useSavedCorrections = false)
-                cached?.takeIf { it.key == key && it.index.file.isFile }?.let { entry ->
+                if (options.sourceFingerprint.isNotEmpty() && options.sourceFingerprint != fingerprint)
+                    throw ParseException(ParseErrorCode.READ_FAILED)
+                val key = fingerprint + "|" + name + "|" + planning(options)
+                cached?.takeIf { it.fingerprint == fingerprint && it.index.file.isFile && it.options.textEncoding == options.textEncoding }?.let { entry ->
                     cacheHits++
-                    return PreparedTxt(entry.index.reopen(), entry.encoding, fingerprint, options, entry.sections, entry.plan).use(block)
+                    val same = planning(entry.options) == planning(options)
+                    return PreparedTxt(entry.index.reopen(), entry.encoding, fingerprint, options,
+                        if (same) entry.sections else null, if (same) entry.plan else null).use { document ->
+                        val result = block(document)
+                        cached = entry.copy(key = key, options = options, sections = document.sections, plan = document.plan)
+                        result
+                    }
                 }
                 val validUtf8 = try {
                     java.io.InputStreamReader(raw.inputStream(), Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)

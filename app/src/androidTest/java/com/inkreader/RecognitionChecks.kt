@@ -154,6 +154,8 @@ object RecognitionChecks {
                 JSONObject().put("workers", 8)
             }
             ExtendedRecognitionChecks.run(runner, context, repo, ::test)
+            UpgradeChecks.run(context, repo, ::test)
+            AuditFollowupChecks.run(context, repo, ::test)
             test("original database invariants hold after recognition checks") {
                 repo.db.readableDatabase.rawQuery("PRAGMA integrity_check", null).use { check(it.moveToFirst() && it.getString(0) == "ok") }
                 repo.books(ShelfSort.ADDED).forEach { book ->

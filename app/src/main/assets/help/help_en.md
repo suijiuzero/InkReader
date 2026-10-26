@@ -1,14 +1,14 @@
 # Ink Reader — User Guide
 
-For version 1.13.0. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
+For version 1.14.1. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
 
 ## Expanded recognition and saved corrections
 
 More native chapter labels and Unicode decimal digits are supported. Bare numerals require a consecutive, spaced series with sufficient body text. Mid-book style changes use neighboring numbers; combined chapters such as 1–2 use their full number range. Source titles remain unchanged.
 
-After unchecking a boundary for one TXT, enable Remember this book’s chapter adjustments. Resplit can reuse, disable or forget them. Exact title and nearby text must still match; changed or ambiguous matches are skipped, and other books are unaffected. Only the first 40 displayed boundaries can be edited and remembered.
+After unchecking a boundary for one TXT, enable Remember this book’s chapter adjustments. Resplit can reuse, disable or forget them. Exact title and nearby text must still match; changed or ambiguous matches are skipped, and other books are unaffected. Whole-book review pages through all boundaries and can remember up to 10,000 explicit changes.
 
-Single-TXT previews and separate-book imports use a disk-backed index and validate complete source bytes before reusing a cached plan. Custom rules, multi-file merging and other formats keep their existing paths. Files over 200 MiB or TXT indexes over 500,000 lines are rejected; whole-book resplitting still has a memory limit.
+TXT preview, separate import, merge, append, custom rules and large-book resplit use disk indexes. Complete source bytes are validated before cache reuse. Files over 200 MiB or indexes over 500,000 lines are rejected. Resplit needs temporary storage and bounds annotation endpoints; non-TXT parsing and very large single chapters can still be memory-limited.
 
 ## Quick start
 
@@ -21,7 +21,7 @@ Single-TXT previews and separate-book imports use a disk-backed index and valida
 
 In import confirmation, open Recognition details. TXT detection compares UTF, GB18030, Big5, Shift-JIS (Windows-31J) and EUC-JP. If uncertain or garbled, import one TXT at a time, choose a text encoding and check the excerpt. Changing encoding clears boundary edits.
 
-Details show number-gap recovery, volume styles, contents matching, possible missing chapters and size-based splitting. For a single TXT, uncheck any of the first 40 displayed boundaries to keep its heading and text inside surrounding content. Other boundaries keep the current rules. Multi-file details refer to the first file; import it alone to edit. Only the first five files are inspected; remaining counts are estimates.
+Details show number-gap recovery, volume styles, contents matching, possible missing chapters and size-based splitting. For a single TXT, the inline view shows 40 items; whole-book review can search and edit all boundaries. Unchecking keeps the heading and text inside surrounding content. Multi-file details refer to the first file; import it alone to edit. Only the first five files are inspected; remaining counts are estimates.
 
 
 ## Folder home and multiple folders
@@ -94,3 +94,25 @@ Reauthorize expired folders. Removing a shortcut keeps existing read grants. For
 Inspect per-file import failures and your shelf before retrying: earlier completed imports can remain after interruption. System backup/device transfer may include books, notes, progress and covers. Uninstalling or clearing app data removes the local library; export important content first.
 
 The full manual and changelog are in the GitHub repository at docs/使用说明.md and CHANGELOG.md. Emulator and selected phone checks do not cover every document, device or background policy.
+
+
+## Whole-book correction and recovery (1.14.0)
+
+A single TXT import and existing-book resplit can open Whole-book chapter review. Search headings/numbers, browse batches or enter #source-line to inspect context and add missed boundaries. Up to 10,000 explicit choices can be remembered. Apply validates the complete source again; reopen review after source changes.
+
+TXT preview, merge, append, custom rules and large-book resplit use disk ranges. Pause an import and resume from the shelf; completed files are kept and skipped. Finishing the task keeps imported content. Moved sources or expired grants show errors. Append and resplit progress also offer cancellation; already committed changes remain.
+
+## Full backup and chapter undo
+
+Settings can create an .inkbackup with text, styles, annotations, progress, covers, groups, recognition memory and reading settings. Save it outside app storage. Restore adds copies and restores reading settings; originals remain, and repeated restore creates duplicates. PC pairing, directory grants and active import jobs are excluded.
+
+Chapter management can undo the latest merge, split or whole-book resplit, restoring the complete pre-operation state including replacement of later edits. One snapshot per book survives restart; failed or cancelled operations preserve the previous snapshot. Text export does not replace full backup.
+
+Search retains exact case-insensitive substring matching and rebuilds damaged caches. Page counts depend on text, styles and layout. Very large single chapters and non-TXT parsing can still be memory-limited. Large-book resplit also requires temporary disk space and has source, line and annotation-endpoint budgets.
+
+Some system file pickers append .zip when saving; restore still accepts the backup.
+
+
+## Audit fixes in 1.14.1
+
+Resuming after an earlier file failed restores the selected source order. Failed append keeps an existing empty book. Highlights and notes crossing a split retain a fragment on both sides, with the original ID kept on the first fragment. Empty-chapter merge keeps bookmarks and progress within bounds. Text, styles and correction memory recover valid backups left by interrupted writes.

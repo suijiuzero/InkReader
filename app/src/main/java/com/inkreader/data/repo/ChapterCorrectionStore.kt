@@ -12,16 +12,19 @@ class ChapterCorrectionStore(context: Context) {
     fun load(bookId: Long): List<ChapterCorrections.Anchor> = runCatching {
         require(bookId > 0)
         val file = File(root, "book_$bookId.json")
-        if (!file.isFile || file.length() > 131072) return emptyList()
-        val json = JSONObject(AtomicFile(file).openRead().bufferedReader().use { it.readText() })
+        val json = JSONObject(AtomicFile(file).openRead().use { input ->
+            // openRead先恢复有效.bak，再按恢复后的文件检查预算。
+            require(file.length() <= 8L * 1024 * 1024)
+            input.bufferedReader().use { it.readText() }
+        })
         require(json.getInt("version") == 1 && json.getLong("book") == bookId)
-        val values = json.getJSONArray("anchors"); require(values.length() <= 40)
+        val values = json.getJSONArray("anchors"); require(values.length() <= 10000)
         (0 until values.length()).map { i -> values.getJSONObject(i).let {
             ChapterCorrections.Anchor(it.getString("title"), it.getString("context"), it.getBoolean("keep"))
         } }
     }.getOrDefault(emptyList())
     fun save(bookId: Long, sourceHash: String, anchors: List<ChapterCorrections.Anchor>) {
-        require(bookId > 0 && anchors.size <= 40)
+        require(bookId > 0 && anchors.size <= 10000)
         check(root.isDirectory || root.mkdirs())
         val values = JSONArray()
         anchors.forEach { values.put(JSONObject().put("title", it.title).put("context", it.context).put("keep", it.keep)) }

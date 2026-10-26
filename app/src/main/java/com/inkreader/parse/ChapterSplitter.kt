@@ -425,6 +425,12 @@ object ChapterSplitter {
     }
 
     fun plan(lines: List<String>, totalChars: Int, options: SplitOptions): ChapterPlan {
+        if (options.mode == SplitMode.CUSTOM && options.customPattern.isNotBlank()) {
+            val regex = buildCustomRegex(options.customPattern.trim())
+            val selected = regex?.let { findTitleLines(lines, listOf(it), contextGated = false, canonical = false) }.orEmpty()
+            return ChapterPlan(selected, selected.take(500).map { HeadingDecision(it + 1, lines[it].trim(), 100,
+                setOf(HeadingReason.TITLE_SHAPE), true) }, emptyList(), 0, false, selected.size > 500, selected)
+        }
         // Canonical title forms and code fences are computed once, shared by all rule passes.
         val memo = HashMap<Int, String>()
         val canonical = object : AbstractList<String>() {
@@ -446,6 +452,13 @@ object ChapterSplitter {
             return ChapterPlan(emptyList(), emptyList(), emptyList(), 0, false, false)
         val recovered = recoverNumberGaps(lines, regional)
         val scored = scoreHeadings(lines, canonical, fenced, recovered).toMutableList()
+        val sequenceChoice = SequencePlanner.resolve(lines, scored)
+        for (i in scored.indices) {
+            val decision = scored[i]
+            if (decision.line - 1 in sequenceChoice.review) scored[i] = decision.copy(
+                accepted = decision.accepted && decision.line - 1 !in sequenceChoice.rejected,
+                reasons = decision.reasons + HeadingReason.SEQUENCE_ALTERNATIVE)
+        }
         for (line in options.forcedHeadingLines.sorted()) {
             val index = line - 1
             if (index !in lines.indices || lines[index].isBlank()) continue
@@ -476,7 +489,8 @@ object ChapterSplitter {
         return ChapterPlan(chosen, decisions, unresolvedGaps(lines, selected).take(100),
             skippedToc.count { canonical[it].trim() !in tocLabels },
             skippedToc.isNotEmpty() || selected.firstOrNull()?.let { it + 1 in options.ignoredHeadingLines } == true,
-            scored.size > 500)
+            scored.size > 500, scored.map { it.line - 1 },
+            scored.filter { !it.accepted || it.score < 74 || HeadingReason.SEQUENCE_ALTERNATIVE in it.reasons }.map { it.line - 1 }.toSet())
     }
 
     private fun lineCharacters(lines: List<String>, index: Int, trim: Boolean = false): Int =
@@ -626,7 +640,7 @@ object ChapterSplitter {
         return result.distinct().sorted()
     }
 
-    private val bareNumber = Regex("^[0-9零〇一二三四五六七八九十百千万萬两兩壹贰貳叁參肆伍陆陸柒捌玖拾佰仟]{1,9}$")
+    private val bareNumber = Regex("^(?:[0-9零〇一二三四五六七八九十百千万萬两兩壹贰貳叁參肆伍陆陸柒捌玖拾佰仟]{1,9}|[IVXLCDM]{1,9}\\.?)$")
 
     /** Bare numerals need a coherent body-backed series, never isolated page numbers. */
     private fun augmentFlexibleHeadings(lines: List<String>, canonical: List<String>, fenced: BooleanArray,
@@ -1455,6 +1469,7 @@ object ChapterSplitter {
             parseNumberToken(token)?.let { return it }
         }
         // Entire numeric headings include Chinese positional and financial numerals.
+        if (Regex("^[IVXLCDM]{1,9}\\.$").matches(t)) parseNumberToken(t.removeSuffix("."))?.let { return it }
         parseNumberToken(t)?.let { return it }
         return null
     }

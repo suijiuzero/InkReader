@@ -127,6 +127,9 @@ fun BookDetailScreen(
     var chapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
     var loading by remember { mutableStateOf(true) }
     var busy by remember { mutableStateOf(false) }
+    var detailTask by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var detailProgress by remember { mutableStateOf<Float?>(null) }
+    var detailStage by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope {
         kotlinx.coroutines.CoroutineExceptionHandler { _, error ->
             busy = false
@@ -340,8 +343,11 @@ fun BookDetailScreen(
 
     fun runAppend(uris: List<Uri>, split: SplitMode, fileOrder: ImportOrder) {
         busy = true
-        scope.launch {
-            val errors = container.repo.appendFilesAsChapters(bookId, uris, split, fileOrder = fileOrder) { _, _ -> }
+        detailProgress = 0f
+        detailTask = scope.launch { try {
+            val result = container.repo.importResumable(uris, com.inkreader.data.model.ImportMode.MERGE, null,
+                SplitOptions(mode = split), fileOrder, target = bookId) { stage, fraction -> detailStage = stage; detailProgress = fraction }
+            val errors = result.errors(ctx)
             val after = container.repo.chapters(bookId).size
             val added = after - chapters.size
             busy = false
@@ -360,7 +366,11 @@ fun BookDetailScreen(
                 },
                 Toast.LENGTH_LONG
             ).show()
-        }
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            reload(); container.library.refresh()
+            Toast.makeText(ctx, ctx.getString(R.string.recovery_cancelled), Toast.LENGTH_LONG).show()
+            throw e
+        } finally { busy = false; detailProgress = null } }
     }
 
     fun runExport(targets: List<Chapter>, includeHeader: Boolean) {
@@ -495,6 +505,17 @@ fun BookDetailScreen(
                             }
                             MenuRow(R.drawable.ic_toc, stringResource(R.string.detail_resplit_book)) {
                                 showMore = false; showResplitDialog = true
+                            }
+                            MenuRow(R.drawable.ic_edit, stringResource(R.string.undo_book_change)) {
+                                showMore = false; busy = true
+                                scope.launch {
+                                    try {
+                                        if (container.repo.undoAvailable(bookId)) {
+                                            container.repo.undoBookChange(bookId); container.library.refresh(); reload()
+                                        } else Toast.makeText(ctx, ctx.getString(R.string.undo_none), Toast.LENGTH_SHORT).show()
+                                    } catch (_: Exception) { Toast.makeText(ctx, ctx.getString(R.string.undo_failed), Toast.LENGTH_LONG).show() }
+                                    finally { busy = false }
+                                }
                             }
                             MenuRow(R.drawable.ic_sort, stringResource(R.string.detail_auto_sort_chapters)) {
                                 showMore = false; showAutoSort = true
@@ -743,6 +764,18 @@ fun BookDetailScreen(
             )
         }
 
+        if (detailProgress != null) {
+            Box(Modifier.fillMaxSize().background(p.scrim).clickable {}, contentAlignment = Alignment.Center) {
+                Column(Modifier.width(280.dp).clip(RoundedCornerShape(18.dp)).background(p.surfaceHigh).padding(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(detailStage, color = p.textPrimary, style = InkType.UiLabel, maxLines = 2)
+                    Spacer(Modifier.height(14.dp))
+                    InkProgress(detailProgress ?: 0f, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(12.dp))
+                    InkTextButton(stringResource(R.string.action_cancel)) { detailTask?.cancel() }
+                }
+            }
+        }
         if (exporting) {
             Box(
                 Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
@@ -1040,6 +1073,10 @@ fun BookDetailScreen(
 
     // 整书重新分章弹窗
     if (showResplitDialog) {
+        var preview by remember { mutableStateOf<com.inkreader.data.repo.BookRepository.ResplitSource?>(null) }
+        var preparing by remember { mutableStateOf(false) }
+        var manualOptions by remember { mutableStateOf(SplitOptions()) }
+        androidx.compose.runtime.DisposableEffect(preview) { val owned = preview; onDispose { owned?.close() } }
         var resplitMode by remember { mutableStateOf(SplitMode.SMART) }
         var customPattern by remember { mutableStateOf("") }
         var cleanWatermark by remember { mutableStateOf(true) }
@@ -1056,9 +1093,10 @@ fun BookDetailScreen(
                         showResplitDialog = false
                     }
                     InkTextButton(stringResource(R.string.detail_resplit_confirm)) {
+                        if (preparing) return@InkTextButton
                         showResplitDialog = false
-                        busy = true
-                        scope.launch {
+                        busy = true; detailProgress = 0f; detailStage = ctx.getString(R.string.detail_resplit_book)
+                        detailTask = scope.launch { try {
                             // 兜住异常：失败要么是「书太大」（仓库返回 -1），要么是仓库抛错，
                             // 两种都不能让 busy 卡住，也不能把异常漏到没有处理器的 Main 作用域里
                             val count = runCatching {
@@ -1067,10 +1105,14 @@ fun BookDetailScreen(
                                     SplitOptions(
                                         mode = resplitMode,
                                         cleanWatermark = cleanWatermark,
-                                        customPattern = customPattern.trim(), useSavedCorrections = useMemory
+                                        customPattern = customPattern.trim(), useSavedCorrections = useMemory,
+                                        ignoredHeadingLines = manualOptions.ignoredHeadingLines,
+                                        forcedHeadingLines = manualOptions.forcedHeadingLines,
+                                        sourceFingerprint = manualOptions.sourceFingerprint
                                     )
-                                )
+                                ) { detailProgress = it }
                             }.getOrElse { e ->
+                                if (e is kotlinx.coroutines.CancellationException) throw e
                                 busy = false
                                 Toast.makeText(
                                     ctx,
@@ -1094,7 +1136,11 @@ fun BookDetailScreen(
                                 },
                                 Toast.LENGTH_SHORT
                             ).show()
-                        }
+                        } catch (e: kotlinx.coroutines.CancellationException) {
+                            reload(); container.library.refresh()
+                            Toast.makeText(ctx, ctx.getString(R.string.operation_cancelled), Toast.LENGTH_LONG).show()
+                            throw e
+                        } finally { busy = false; detailProgress = null } }
                     }
                 }
             }
@@ -1115,6 +1161,17 @@ fun BookDetailScreen(
                     scope.launch { container.repo.clearRecognitionMemory(bookId); savedCount = 0 }
                 }
             }
+            InkTextButton(stringResource(R.string.center_title)) {
+                if (!preparing) { preparing = true
+                    scope.launch {
+                        try { preview = container.repo.prepareResplitSource(bookId, manualOptions.copy(
+                            mode = resplitMode, cleanWatermark = cleanWatermark,
+                            customPattern = customPattern.trim(), useSavedCorrections = useMemory)) }
+                        finally { preparing = false }
+                    }
+                }
+            }
+            if (preparing) androidx.compose.material3.LinearProgressIndicator(Modifier.fillMaxWidth())
             Spacer(Modifier.height(14.dp))
             AppendChoice(
                 checked = resplitMode == SplitMode.SMART,
@@ -1194,7 +1251,11 @@ fun BookDetailScreen(
                 )
             }
         }
-    }
+            preview?.let { source ->
+            com.inkreader.ui.component.RecognitionCenter(container.repo, source.uri, source.options,
+                onDismiss = { preview = null }, onApply = { manualOptions = it; preview = null })
+        }
+}
 
     if (showAutoSort) {
         InkDialogShell(onDismiss = { showAutoSort = false }, title = stringResource(R.string.detail_auto_sort_chapters)) {

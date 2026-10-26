@@ -1,0 +1,4 @@
+id	partition	language	group
+R01	development	en	alice
+R02	development	de	kafka
+R03	holdout	zh	aq

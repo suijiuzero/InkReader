@@ -83,6 +83,15 @@ class MarkShiftsTest {
         assertEquals(500, out[0].endOffset)
     }
 
+    @Test fun crossingSplitKeepsTailWithNoteAndDoesNotDuplicateBookmarks() {
+        val range = mark(1, 480, 700).copy(id = 10, note = "KEEP_NOTE")
+        val bookmark = mark(1, 500, 500)
+        val tail = MarkShifts.splitTails(listOf(range, bookmark), 1, 500, 505, 800).single()
+        assertEquals(0L, tail.id); assertEquals(2, tail.chapterIndex)
+        assertEquals(0, tail.startOffset); assertEquals(195, tail.endOffset); assertEquals("KEEP_NOTE", tail.note)
+        assertEquals(50, MarkShifts.splitTails(listOf(range), 1, 500, 505, 50).single().endOffset)
+    }
+
     /** 没受影响的批注保持同一个对象实例：调用方据此跳过无谓的落库 */
     @Test
     fun unaffectedMarks_keepSameInstance() {

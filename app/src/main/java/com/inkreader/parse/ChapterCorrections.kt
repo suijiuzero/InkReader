@@ -16,6 +16,14 @@ object ChapterCorrections {
         val line = it.line - 1
         if (line !in lines.indices) null else Anchor(lines[line].trim(), context(lines, line), it.accepted)
     }
+    fun captureChoices(lines: List<String>, ignored: Set<Int>, confirmed: Set<Int>): List<Anchor> {
+        require((ignored + confirmed).size <= 10000)
+        return (ignored + confirmed).sorted().mapNotNull { number ->
+            val line = number - 1
+            if (line !in lines.indices || lines[line].trim().isEmpty()) null
+            else Anchor(lines[line].trim(), context(lines, line), number !in ignored)
+        }
+    }
     fun resolve(lines: List<String>, anchors: List<Anchor>): Resolution {
         val titles = anchors.map { it.title }.toSet()
         val matches = HashMap<String, MutableList<Int>>()

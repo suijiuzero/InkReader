@@ -488,9 +488,20 @@ fun ShelfScreen(
 
             // 导入进度
             if (lib.importing) {
-                ImportOverlay(lib.importStage, lib.importFraction)
+                ImportOverlay(lib.importStage, lib.importFraction, lib::pauseImport)
             }
         }
+    }
+
+    var showRecovery by remember { mutableStateOf(true) }
+    LaunchedEffect(lib.recoveryAvailable, lib.importing) { if (lib.recoveryAvailable && !lib.importing) showRecovery = true }
+    if (lib.recoveryAvailable && !lib.importing && showRecovery && !showImportDialog) {
+        InkDialogShell(onDismiss = { showRecovery = false }, title = stringResource(R.string.recovery_title), buttons = {
+            Row(horizontalArrangement = Arrangement.End) {
+                InkTextButton(stringResource(R.string.recovery_discard)) { showRecovery = false; lib.discardImport() }
+                InkTextButton(stringResource(R.string.recovery_resume)) { showRecovery = false; lib.resumeImport() }
+            }
+        }) { Text(stringResource(R.string.recovery_desc), color = p.textSecondary, style = InkType.Caption) }
     }
 
     if (showImportDialog) {
@@ -877,7 +888,7 @@ private fun SelectionBar(
 }
 
 @Composable
-private fun ImportOverlay(stage: String, fraction: Float) {
+private fun ImportOverlay(stage: String, fraction: Float, onPause: () -> Unit) {
     val p = LocalInkPalette.current
     Box(
         Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
@@ -911,6 +922,7 @@ private fun ImportOverlay(stage: String, fraction: Float) {
                 style = InkType.Caption.copy(fontSize = 11.sp),
                 color = p.textFaint
             )
+            InkTextButton(stringResource(R.string.recovery_cancel), onClick = onPause)
         }
     }
 }
@@ -1026,18 +1038,22 @@ private fun ImportDialog(
     var textEncoding by remember(uris) { mutableStateOf("") }
     var rememberCorrections by remember(uris) { mutableStateOf(true) }
     var ignoredLines by remember(uris) { mutableStateOf(emptySet<Int>()) }
+    var forcedLines by remember(uris) { mutableStateOf(emptySet<Int>()) }
+    var sourceFingerprint by remember(uris) { mutableStateOf("") }
+    var correctionCenter by remember { mutableStateOf(false) }
 
     var preview by remember { mutableStateOf<BookRepository.ImportPreview?>(null) }
     var previewLoading by remember { mutableStateOf(false) }
 
-    val currentOptions = remember(splitMode, cleanWatermark, customPattern, textEncoding, ignoredLines, rememberCorrections) {
+    val currentOptions = remember(splitMode, cleanWatermark, customPattern, textEncoding, ignoredLines, forcedLines, sourceFingerprint, rememberCorrections) {
         SplitOptions(
             mode = splitMode,
             cleanWatermark = cleanWatermark,
             customPattern = customPattern.trim(),
             textEncoding = textEncoding,
             ignoredHeadingLines = if (uris.size == 1) ignoredLines else emptySet(),
-            rememberCorrections = rememberCorrections
+            rememberCorrections = rememberCorrections,
+            forcedHeadingLines = if (uris.size == 1) forcedLines else emptySet(), sourceFingerprint = sourceFingerprint
         )
     }
 
@@ -1052,6 +1068,12 @@ private fun ImportDialog(
             previewLoading = false
         }
     }
+
+    if (correctionCenter && uris.size == 1) com.inkreader.ui.component.RecognitionCenter(
+        container.repo, uris.single(), currentOptions, onDismiss = { correctionCenter = false }, onApply = {
+            ignoredLines = it.ignoredHeadingLines; forcedLines = it.forcedHeadingLines
+            sourceFingerprint = it.sourceFingerprint; correctionCenter = false
+        })
 
     InkDialogShell(
         onDismiss = onDismiss,
@@ -1131,11 +1153,12 @@ private fun ImportDialog(
             preview = preview,
             singleFile = fileCount == 1,
             encoding = textEncoding,
-            onEncodingChange = { textEncoding = it; ignoredLines = emptySet() },
+            onEncodingChange = { textEncoding = it; ignoredLines = emptySet(); forcedLines = emptySet(); sourceFingerprint = "" },
             ignored = ignoredLines,
             rememberCorrections = rememberCorrections,
             onRememberChange = { rememberCorrections = it },
-            onToggleHeading = { line -> ignoredLines = if (line in ignoredLines) ignoredLines - line else ignoredLines + line }
+            onToggleHeading = { line -> ignoredLines = if (line in ignoredLines) ignoredLines - line else ignoredLines + line },
+            onOpenFull = if (fileCount == 1 && splitMode !in listOf(SplitMode.CUSTOM, SplitMode.PER_FILE, SplitMode.FIXED_SIZE)) ({ correctionCenter = true }) else null
         )
 
         if (fileCount > 1) {

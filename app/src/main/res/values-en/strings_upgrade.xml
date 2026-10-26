@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="center_title">Review all chapter boundaries</string>
+    <string name="center_search">Heading, chapter number, or #source line</string>
+    <string name="center_hint">Check to start a chapter. Uncheck to keep text in the body. Use #line to add missed headings.</string>
+    <string name="center_doubts">Doubts and manual changes only</string>
+    <string name="center_summary">%1$d chapters · %2$d entries · %3$d source lines</string>
+    <string name="center_error">Could not read the file, or its content changed. Close and reopen this review.</string>
+    <string name="center_previous">Previous</string>
+    <string name="center_next">Next</string>
+    <string name="center_apply">Apply changes</string>
+    <string name="center_limit">Up to 10,000 manual adjustments can be saved per operation.</string>
+    <string name="backup_title">Complete library backup</string>
+    <string name="backup_description">Includes text, annotations, progress, covers, groups, chapter corrections and reading preferences. PC pairing and folder permissions are excluded.</string>
+    <string name="backup_export">Create backup</string>
+    <string name="backup_restore">Restore backup</string>
+    <string name="backup_restore_explanation">After validation, books and groups are added as new copies. Existing books are kept. Reading preferences are restored. Restoring again creates duplicates.</string>
+    <string name="backup_success">Completed</string>
+    <string name="backup_failure">Could not complete the operation. Check the file, available storage and access permissions. Existing books are kept.</string>
+    <string name="backup_cancelled">Cancelled</string>
+    <string name="undo_book_change">Undo last chapter operation</string>
+    <string name="undo_none">No chapter snapshot is available for this book</string>
+    <string name="undo_failed">Could not restore. Current content is kept; try again later.</string>
+    <string name="recovery_existing">Resume or finish the previous import first.</string>
+    <string name="recovery_target_missing">The destination book was removed. Finish this task and choose again.</string>
+    <string name="recovery_title">Resume unfinished import</string>
+    <string name="recovery_desc">Completed files are kept and skipped. Resume remaining files; moved files or expired permissions will show an error.</string>
+    <string name="recovery_resume">Resume import</string>
+    <string name="recovery_discard">Finish this task</string>
+    <string name="recovery_cancel">Pause import</string>
+    <string name="recovery_cancelled">Import paused. Completed files are kept and you can resume later.</string>
+    <string name="operation_cancelled">Cancellation requested. Completed changes are kept; unfinished changes are rolled back.</string>
+</resources>

@@ -63,10 +63,36 @@ class IndexedText private constructor(
         return if (a == b) null else (starts[a] + indents[a]) until ends[b - 1]
     }
     fun reopen() = IndexedText(file, starts, ends, indents, length)
+    fun reader(start: Int = 0, end: Int = length): Reader {
+        require(start in 0..end && end <= length)
+        return object : Reader() {
+            var position = start
+            override fun read(buffer: CharArray, offset: Int, count: Int): Int {
+                if (count == 0) return 0
+                ParseCancellation.checkpoint()
+                val n = minOf(count, end - position); if (n <= 0) return -1
+                this@IndexedText.read(position, position + n).toCharArray(buffer, offset, 0, n); position += n; return n
+            }
+            override fun close() = Unit
+        }
+    }
+    fun trimmedRange(start: Int, end: Int): IntRange? {
+        var a = start; var b = end
+        while (a < b) {
+            ParseCancellation.checkpoint()
+            val head = read(a, minOf(a + 1024, b)); val skip = head.takeWhile { it.isWhitespace() }.length
+            a += skip; if (skip < head.length) break
+        }
+        while (b > a) {
+            val tail = read(maxOf(a, b - 1024), b); val skip = tail.takeLastWhile { it.isWhitespace() }.length
+            b -= skip; if (skip < tail.length) break
+        }
+        return if (a == b) null else a until b
+    }
     override fun close() { pages.clear(); input.close() }
 
     companion object {
-        fun build(reader: Reader, file: File): IndexedText {
+        fun build(reader: Reader, file: File, anchors: NormalizationAnchors? = null, removeWatermarks: Boolean = false): IndexedText {
             var starts = IntArray(1024); var ends = IntArray(1024); var indents = IntArray(1024); var count = 0
             fun line(start: Int, end: Int, indent: Int) {
                 // Primitive indexes are bounded too: pathological one-character lines must not exhaust the heap.
@@ -85,9 +111,16 @@ class IndexedText private constructor(
             }
             fun finish() {
                 if (!active) begin()
-                if (first < 0) { writer.truncate(before); pendingBlank = seen }
+                val watermark = removeWatermarks && first >= 0 && last - first <= 90 &&
+                    ChapterSplitter.cleanBodyWatermarks(writer.slice(first, last)).isEmpty()
+                if (first < 0 || watermark) {
+                    writer.truncate(before)
+                    if (!watermark) pendingBlank = seen
+                    anchors?.finishLine(before, before)
+                }
                 else {
                     writer.truncate(last)
+                    anchors?.finishLine(contentStart, last)
                     if (seen && pendingBlank) line(before + 1, before + 1, 0)
                     line(contentStart, last, first - contentStart)
                     seen = true; pendingBlank = false
@@ -95,11 +128,12 @@ class IndexedText private constructor(
                 active = false
             }
             try {
-                val buffer = CharArray(16384); var previousCr = false
+                val buffer = CharArray(16384); var previousCr = false; var sourcePosition = 0
                 while (true) {
                     ParseCancellation.checkpoint()
                     val n = reader.read(buffer); if (n < 0) break
                     for (i in 0 until n) {
+                        anchors?.record(sourcePosition, writer.position); sourcePosition++
                         var c = buffer[i]
                         if (c == '\n' && previousCr) { previousCr = false; continue }
                         if (c == '\r' || c == '\n') { finish(); previousCr = c == '\r'; continue }
@@ -114,6 +148,7 @@ class IndexedText private constructor(
                 }
                 finish()
                 val length = writer.position
+                anchors?.record(sourcePosition, length); anchors?.finish(length)
                 writer.close()
                 return IndexedText(file, starts.copyOf(count), ends.copyOf(count), indents.copyOf(count), length)
             } catch (t: Throwable) { writer.close(); file.delete(); throw t }
@@ -135,6 +170,22 @@ class IndexedText private constructor(
             else { used = 0; output.setLength(position * 2L); output.seek(position * 2L); flushed = position }
         }
         private fun flush() { output.write(buffer, 0, used); flushed += used / 2; used = 0 }
+        fun slice(start: Int, end: Int): String {
+            require(end - start <= 90)
+            val chars = CharArray(end - start)
+            var position = start
+            if (position < flushed) {
+                val n = minOf(end, flushed) - position; val bytes = ByteArray(n * 2)
+                val previous = output.filePointer; output.seek(position * 2L); output.readFully(bytes); output.seek(previous)
+                for (i in 0 until n) chars[i] = ((bytes[i * 2].toInt() and 255) or ((bytes[i * 2 + 1].toInt() and 255) shl 8)).toChar()
+                position += n
+            }
+            while (position < end) {
+                val offset = (position - flushed) * 2
+                chars[position - start] = ((buffer[offset].toInt() and 255) or ((buffer[offset + 1].toInt() and 255) shl 8)).toChar(); position++
+            }
+            return String(chars)
+        }
         override fun close() { if (!closed) { closed = true; try { flush() } finally { output.close() } } }
     }
 }

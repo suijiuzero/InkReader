@@ -61,6 +61,15 @@ object MarkShifts {
         }
     }
 
+    /** 跨拆点的选区在新章保留尾段，旧段由forSplitAt保留原ID；书签等零长度标记不复制。 */
+    fun splitTails(marks: List<Mark>, currIdx: Int, splitOffset: Int,
+        bodyShiftFromSplit: Int, secondBodyLength: Int): List<Mark> = marks.mapNotNull { mark ->
+        if (mark.chapterIndex != currIdx || mark.startOffset >= splitOffset || mark.endOffset <= bodyShiftFromSplit) null
+        else (mark.endOffset - bodyShiftFromSplit).coerceAtMost(secondBodyLength).takeIf { it > 0 }?.let { end ->
+            mark.copy(id = 0, chapterIndex = currIdx + 1, startOffset = 0, endOffset = end)
+        }
+    }
+
     fun forDelete(marks: List<Mark>, deletedIndex: Int): List<Mark> = marks
         .filter { it.chapterIndex != deletedIndex }
         .map { if (it.chapterIndex > deletedIndex) it.copy(chapterIndex = it.chapterIndex - 1) else it }

@@ -114,4 +114,35 @@ class IndexedTxtTest {
             }
         } finally { dir.deleteRecursively() }
     }
+
+    @Test fun streamedMergeUnitsPreserveLargeBodyAndPerFileModeDoesNotInventAHeading() {
+        val dir = Files.createTempDirectory("ink-units-test").toFile()
+        try {
+            val raw = "长段正文与标点🐉。\n\n".repeat(18000)
+            val store = IndexedTxtStore(dir)
+            for (mode in listOf(SplitMode.SMART, SplitMode.PER_FILE)) store.withDocument("散篇.txt",
+                SplitOptions(mode = mode, cleanWatermark = false), { raw.byteInputStream() }) { doc ->
+                val unit = doc.units("散篇.txt").single()
+                val actual = doc.normalizedReader(unit).use { it.readText() }
+                assertEquals(ChapterSplitter.normalize(raw), actual)
+                if (mode == SplitMode.PER_FILE) assertEquals("散篇", unit.title)
+            }
+        } finally { dir.deleteRecursively() }
+    }
+
+    @Test fun indexedCustomRuleAndChangedOptionsReuseTheNormalizedSnapshotSafely() {
+        val dir = Files.createTempDirectory("ink-custom-test").toFile()
+        try {
+            val raw = "%% 1 起点\n\n完整正文一。\n\n%% 2 归来\n\n完整正文二。"
+            val store = IndexedTxtStore(dir)
+            for (pattern in listOf("%%", "^(?:%%).*", "(invalid")) {
+                val options = SplitOptions(mode = SplitMode.CUSTOM, customPattern = pattern, cleanWatermark = false)
+                val expected = TxtParser.parse(raw.toByteArray(), "custom.txt", options).parts
+                store.withDocument("custom.txt", options, { raw.byteInputStream() }) { doc ->
+                    assertEquals(expected, doc.sections.map { ChapterSplitter.Part(it.title, doc.body(it), it.volume) })
+                } ?: fail("Custom TXT must use the indexed path")
+            }
+            assertEquals(2, store.cacheHits)
+        } finally { dir.deleteRecursively() }
+    }
 }

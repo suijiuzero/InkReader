@@ -25,8 +25,8 @@ android {
         applicationId = "com.inkreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 63
-        versionName = "1.13.0"
+        versionCode = 65
+        versionName = "1.14.1"
         testInstrumentationRunner = "com.inkreader.AuditInstrumentation"
         resourceConfigurations += listOf("zh", "en", "ja")
     }

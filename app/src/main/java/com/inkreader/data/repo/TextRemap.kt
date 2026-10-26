@@ -57,6 +57,15 @@ object TextRemap {
         return lo
     }
 
+    data class Range(val chapter: Int, val start: Int, val end: Int)
+    fun ranges(mappings: List<IntArray>, start: Int, end: Int): List<Range> {
+        if (end <= start) return emptyList()
+        return mappings.mapIndexedNotNull { chapter, map ->
+            val a = lowerBound(map, start); val b = lowerBound(map, end)
+            if (b > a) Range(chapter, a, b) else null
+        }
+    }
+
     fun locate(mappings: List<IntArray>, sourceOffset: Int): Pair<Int, Int> {
         for ((i, mapping) in mappings.withIndex()) {
             if (mapping.isNotEmpty() && sourceOffset <= mapping.last()) {

@@ -141,6 +141,7 @@ class ReaderSession(
     private var pendingWidth = 0
     private var pendingHeight = 0
     private var pendingDensity: Density? = null
+    private var pendingDirection = androidx.compose.ui.unit.LayoutDirection.Ltr
     private var pendingOffset: Int? = null
     private var paginationJob: Job? = null
     private var paginationSerial = 0L
@@ -167,6 +168,7 @@ class ReaderSession(
         private set
     private var pageCountSignature = ""
     private var pageCountJob: kotlinx.coroutines.Job? = null
+    private val pageCountCache = com.inkreader.data.repo.PageCountCache(java.io.File(container.appContext.cacheDir, "page-counts"))
 
     /**
      * 当前页在全书的页码（从 1 开始）。还没统计出来时返回 -1。
@@ -195,7 +197,12 @@ class ReaderSession(
             append(prefs.margin).append('|').append(prefs.font).append('|')
             append(prefs.firstLineIndent).append('|')
             append(pendingWidth).append('x').append(pendingHeight).append('|')
-            append(style.hashCode()).append('|').append(d.density).append('|').append(d.fontScale)
+            // 不使用 TextStyle/字体对象的运行期hash，保证进程重启后仍可复用。
+            append(style.fontSize).append('|').append(style.lineHeight).append('|').append(style.letterSpacing).append('|')
+            append(style.fontWeight?.weight).append('|').append(style.fontStyle).append('|')
+            append(style.textAlign).append('|').append(style.textDirection).append('|').append(pendingDirection).append('|')
+            append(android.os.LocaleList.getDefault().toLanguageTags()).append('|')
+            append(d.density).append('|').append(d.fontScale)
             chapters.forEach { append('|').append(it.id).append(':').append(it.fileName).append(':').append(it.charCount).append(':').append(it.title) }
         }
         if (sig == pageCountSignature) return
@@ -211,10 +218,25 @@ class ReaderSession(
         val styler = inkBlockStyler(style, prefs, d, gap)
         val counter = workerMeasurerFactory?.invoke() ?: m
         pageCountJob = scope.launch(errors) {
-            // 排整本书是纯计算，放到后台线程，别卡住翻页
+            val diskSignature = withContext(Dispatchers.IO) {
+                buildString {
+                    append("pages-v2|").append(android.os.Build.FINGERPRINT).append('|').append(sig)
+                    for (chapter in countingChapters) {
+                        val body = repo.files.file(chapter.fileName)
+                        val rich = repo.files.file(repo.files.richNameOf(chapter.fileName))
+                        append('|').append(body.length()).append(':').append(body.lastModified())
+                        append(':').append(rich.length()).append(':').append(rich.lastModified())
+                    }
+                }
+            }
+            val cached = withContext(Dispatchers.IO) { pageCountCache.load(diskSignature, countingChapters.size) }
+            if (cached != null) { pagesBefore = cached; bookTotalPages = cached.last(); return@launch }
+            // 前台当前章优先；低优先级逐章计数，避免全书统计抢占翻页。
             val counts = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
                 val acc = IntArray(countingChapters.size + 1)
                 for (i in countingChapters.indices) {
+                    kotlinx.coroutines.yield()
+                    kotlinx.coroutines.delay(10)
                     if (!isActive) return@withContext null
                     val text = repo.chapterText(countingChapters[i])
                     val pages = if (text.isBlank()) 1 else Paginator(counter).paginate(
@@ -229,10 +251,12 @@ class ReaderSession(
                         styler = styler,
                         cancellation = kotlin.coroutines.coroutineContext
                     ).size.coerceAtLeast(1)
+                    if (acc[i].toLong() + pages > Int.MAX_VALUE) return@withContext null
                     acc[i + 1] = acc[i] + pages
                 }
                 acc
             } ?: return@launch
+            withContext(Dispatchers.IO) { pageCountCache.save(diskSignature, counts) }
             pagesBefore = counts
             bookTotalPages = counts.last()
         }
@@ -406,16 +430,18 @@ class ReaderSession(
         widthPx: Int,
         heightPx: Int,
         density: Density,
+        direction: androidx.compose.ui.unit.LayoutDirection = androidx.compose.ui.unit.LayoutDirection.Ltr,
         workerFactory: (() -> TextMeasurer)? = null
     ) {
         val changed = this.pendingWidth != widthPx || this.pendingHeight != heightPx ||
-            this.pendingStyle != style || this.measurer !== measurer || this.pendingDensity != density
+            this.pendingStyle != style || this.measurer !== measurer || this.pendingDensity != density || this.pendingDirection != direction
         this.workerMeasurerFactory = workerFactory
         this.measurer = measurer
         this.pendingStyle = style
         this.pendingWidth = widthPx
         this.pendingHeight = heightPx
         this.pendingDensity = density
+        this.pendingDirection = direction
         if (changed) {
             // 排版上下文变了，邻章缓存里的页码全部作废
             invalidateNeighbors()
