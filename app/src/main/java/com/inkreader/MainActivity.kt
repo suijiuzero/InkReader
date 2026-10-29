@@ -25,7 +25,10 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.toMutableStateList
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.LaunchedEffect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -51,7 +54,7 @@ import com.inkreader.ui.theme.InkTheme
 import android.graphics.Color as AndroidColor
 
 /** 界面栈目标 */
-sealed class Dest {
+sealed class Dest : java.io.Serializable {
     data object Shelf : Dest()
     data class Group(val groupId: Long) : Dest()
     data object Search : Dest()
@@ -63,6 +66,12 @@ sealed class Dest {
     data object Help : Dest()
     data class OrderedPicker(val target: Int) : Dest()
 }
+
+/** 每次打开页面都有独立身份；同一本书的多层页面不能共用滚动状态。 */
+private data class NavEntry(
+    val dest: Dest,
+    val id: String = java.util.UUID.randomUUID().toString()
+) : java.io.Serializable
 
 class MainActivity : ComponentActivity() {
 
@@ -324,24 +333,27 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-fun InkRoot() {
-    val container = InkApp.instance.container
+fun InkRoot(container: AppContainer = InkApp.instance.container) {
     val context = LocalContext.current
-    val backStack = remember {
-        mutableStateListOf<Dest>(Dest.Shelf).apply {
+    val pageStates = rememberSaveableStateHolder()
+    val backStack = rememberSaveable(saver = listSaver(
+        save = { entries: androidx.compose.runtime.snapshots.SnapshotStateList<NavEntry> -> entries.toList() },
+        restore = { it.toMutableStateList() }
+    )) {
+        mutableStateListOf(NavEntry(Dest.Shelf)).apply {
             val target = container.prefs.orderedPickerTarget
             if (target == MainActivity.REQ_PICK_APPEND && container.prefs.orderedPickerBookId > 0) {
-                add(Dest.Detail(container.prefs.orderedPickerBookId))
-                add(Dest.OrderedPicker(target))
-            } else if (target == MainActivity.REQ_PICK_SHELF) add(Dest.OrderedPicker(target))
-            else if (container.prefs.pendingAppendBookId > 0) add(Dest.Detail(container.prefs.pendingAppendBookId))
+                add(NavEntry(Dest.Detail(container.prefs.orderedPickerBookId)))
+                add(NavEntry(Dest.OrderedPicker(target)))
+            } else if (target == MainActivity.REQ_PICK_SHELF) add(NavEntry(Dest.OrderedPicker(target)))
+            else if (container.prefs.pendingAppendBookId > 0) add(NavEntry(Dest.Detail(container.prefs.pendingAppendBookId)))
         }
     }
     val ttsState by TtsBus.state.collectAsState()
 
-    fun push(d: Dest) = backStack.add(d)
+    fun push(d: Dest) = backStack.add(NavEntry(d))
     fun pop() {
-        val closing = backStack.lastOrNull()
+        val closing = backStack.lastOrNull()?.dest
         if (closing is Dest.Detail && container.prefs.pendingAppendBookId == closing.bookId) {
             container.prefs.pendingAppendBookId = 0L
         }
@@ -349,7 +361,11 @@ fun InkRoot() {
             container.prefs.orderedPickerTarget = 0
             container.prefs.orderedPickerBookId = 0L
         }
-        if (backStack.size > 1) backStack.removeAt(backStack.lastIndex)
+        if (backStack.size > 1) {
+            val removed = backStack.removeAt(backStack.lastIndex)
+            // 正在退场动画中的页面也标记为不再保存，防止已关闭页面积累状态。
+            pageStates.removeState(removed.id)
+        }
     }
 
     fun pickFiles(target: Int, bookId: Long = 0L) {
@@ -373,13 +389,14 @@ fun InkRoot() {
 
     BackHandler(enabled = backStack.size > 1) { pop() }
 
-    val current = backStack.last()
+    val currentEntry = backStack.last()
+    val current = currentEntry.dest
     val depth = backStack.size
 
     InkTheme(readerTheme = container.library.uiTheme, barRevision = depth) {
         androidx.compose.foundation.layout.Box(Modifier.fillMaxSize()) {
             AnimatedContent(
-                targetState = current to depth,
+                targetState = currentEntry to depth,
                 transitionSpec = {
                     val oldDepth = initialState.second
                     val newDepth = targetState.second
@@ -392,115 +409,118 @@ fun InkRoot() {
                     }
                 },
                 label = "nav"
-            ) { (dest, _) ->
-                when (dest) {
-                    is Dest.Shelf -> ShelfScreen(
-                        container = container,
-                        onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
-                        onOpenDetail = { push(Dest.Detail(it)) },
-                        onOpenMarks = { id, title -> push(Dest.Marks(id, title)) },
-                        onOpenGroup = { push(Dest.Group(it)) },
-                        onOpenSearch = { push(Dest.Search) },
-                        onOpenSettings = { push(Dest.Settings) },
-                        onPickFiles = { pickFiles(MainActivity.REQ_PICK_SHELF) }
-                    )
+            ) { (entry, _) ->
+                pageStates.SaveableStateProvider(entry.id) {
+                    val dest = entry.dest
+                    when (dest) {
+                        is Dest.Shelf -> ShelfScreen(
+                            container = container,
+                            onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
+                            onOpenDetail = { push(Dest.Detail(it)) },
+                            onOpenMarks = { id, title -> push(Dest.Marks(id, title)) },
+                            onOpenGroup = { push(Dest.Group(it)) },
+                            onOpenSearch = { push(Dest.Search) },
+                            onOpenSettings = { push(Dest.Settings) },
+                            onPickFiles = { pickFiles(MainActivity.REQ_PICK_SHELF) }
+                        )
 
-                    is Dest.Settings -> SettingsScreen(
-                        container = container,
-                        onBack = { pop() },
-                        onOpenHelp = { push(Dest.Help) }
-                    )
+                        is Dest.Settings -> SettingsScreen(
+                            container = container,
+                            onBack = { pop() },
+                            onOpenHelp = { push(Dest.Help) }
+                        )
 
-                    is Dest.Help -> HelpScreen(onBack = { pop() })
+                        is Dest.Help -> HelpScreen(onBack = { pop() })
 
-                    is Dest.Search -> SearchScreen(
-                        container = container,
-                        onBack = { pop() },
-                        onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
-                        onOpenDetail = { push(Dest.Detail(it)) }
-                    )
+                        is Dest.Search -> SearchScreen(
+                            container = container,
+                            onBack = { pop() },
+                            onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
+                            onOpenDetail = { push(Dest.Detail(it)) }
+                        )
 
-                    is Dest.Group -> GroupScreen(
-                        container = container,
-                        groupId = dest.groupId,
-                        onBack = { pop() },
-                        onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
-                        onOpenDetail = { push(Dest.Detail(it)) }
-                    )
+                        is Dest.Group -> GroupScreen(
+                            container = container,
+                            groupId = dest.groupId,
+                            onBack = { pop() },
+                            onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
+                            onOpenDetail = { push(Dest.Detail(it)) }
+                        )
 
-                    is Dest.Detail -> BookDetailScreen(
-                        container = container,
-                        bookId = dest.bookId,
-                        onBack = { pop() },
-                        onRead = { chapter, offset -> push(Dest.Reader(dest.bookId, chapter, offset)) },
-                        onEdit = { chapterId, title -> push(Dest.Editor(dest.bookId, chapterId, title)) },
-                        onGoShelf = { popToShelf() },
-                        onPickFiles = { pickFiles(MainActivity.REQ_PICK_APPEND, dest.bookId) }
-                    )
+                        is Dest.Detail -> BookDetailScreen(
+                            container = container,
+                            bookId = dest.bookId,
+                            onBack = { pop() },
+                            onRead = { chapter, offset -> push(Dest.Reader(dest.bookId, chapter, offset)) },
+                            onEdit = { chapterId, title -> push(Dest.Editor(dest.bookId, chapterId, title)) },
+                            onGoShelf = { popToShelf() },
+                            onPickFiles = { pickFiles(MainActivity.REQ_PICK_APPEND, dest.bookId) }
+                        )
 
-                    is Dest.OrderedPicker -> OrderedFilePickerScreen(
-                        onBack = { pop() },
-                        onConfirm = { uris ->
-                            if (uris.isNotEmpty()) {
-                                if (dest.target == MainActivity.REQ_PICK_APPEND) {
-                                    val bookId = container.prefs.orderedPickerBookId
-                                    container.prefs.pendingAppendBookId = bookId
-                                    container.pendingAppendBookId = bookId
-                                    container.pendingAppendOrder = ImportOrder.SELECTION
-                                    container.pendingAppendUris = uris
-                                } else {
-                                    container.prefs.savePendingImport(uris.map { it.toString() }, ImportOrder.SELECTION)
-                                    container.pendingUris = uris
+                        is Dest.OrderedPicker -> OrderedFilePickerScreen(
+                            onBack = { pop() },
+                            onConfirm = { uris ->
+                                if (uris.isNotEmpty()) {
+                                    if (dest.target == MainActivity.REQ_PICK_APPEND) {
+                                        val bookId = container.prefs.orderedPickerBookId
+                                        container.prefs.pendingAppendBookId = bookId
+                                        container.pendingAppendBookId = bookId
+                                        container.pendingAppendOrder = ImportOrder.SELECTION
+                                        container.pendingAppendUris = uris
+                                    } else {
+                                        container.prefs.savePendingImport(uris.map { it.toString() }, ImportOrder.SELECTION)
+                                        container.pendingUris = uris
+                                    }
+                                    pop()
                                 }
+                            },
+                            onSystemPicker = {
+                                val target = dest.target
+                                val bookId = container.prefs.orderedPickerBookId
                                 pop()
+                                if (target == MainActivity.REQ_PICK_APPEND) container.prefs.pendingAppendBookId = bookId
+                                if (target == MainActivity.REQ_PICK_SHELF) {
+                                    container.prefs.pickerLaunchedAt = System.currentTimeMillis()
+                                    container.prefs.pickerRetriedAt = 0L
+                                }
+                                val opened = container.docPickerLauncher?.invoke(target, "*/*", true, arrayOf("*/*")) == true
+                                if (!opened) {
+                                    container.prefs.pickerLaunchedAt = 0L
+                                    if (target == MainActivity.REQ_PICK_APPEND) container.prefs.pendingAppendBookId = 0L
+                                    Toast.makeText(context, context.getString(R.string.shelf_picker_open_failed,
+                                        context.getString(R.string.action_unknown_error)), Toast.LENGTH_LONG).show()
+                                }
                             }
-                        },
-                        onSystemPicker = {
-                            val target = dest.target
-                            val bookId = container.prefs.orderedPickerBookId
-                            pop()
-                            if (target == MainActivity.REQ_PICK_APPEND) container.prefs.pendingAppendBookId = bookId
-                            if (target == MainActivity.REQ_PICK_SHELF) {
-                                container.prefs.pickerLaunchedAt = System.currentTimeMillis()
-                                container.prefs.pickerRetriedAt = 0L
-                            }
-                            val opened = container.docPickerLauncher?.invoke(target, "*/*", true, arrayOf("*/*")) == true
-                            if (!opened) {
-                                container.prefs.pickerLaunchedAt = 0L
-                                if (target == MainActivity.REQ_PICK_APPEND) container.prefs.pendingAppendBookId = 0L
-                                Toast.makeText(context, context.getString(R.string.shelf_picker_open_failed,
-                                    context.getString(R.string.action_unknown_error)), Toast.LENGTH_LONG).show()
-                            }
-                        }
-                    )
+                        )
 
-                    is Dest.Reader -> ReaderScreen(
-                        container = container,
-                        bookId = dest.bookId,
-                        initialChapter = dest.chapterIndex,
-                        initialOffset = dest.offset,
-                        onBack = { pop() },
-                        onOpenMarks = { id, title -> push(Dest.Marks(id, title)) },
-                        onOpenEditor = { chapterId, title -> push(Dest.Editor(dest.bookId, chapterId, title)) },
-                        onOpenDetail = { push(Dest.Detail(it)) },
-                        onGoShelf = { popToShelf() }
-                    )
+                        is Dest.Reader -> ReaderScreen(
+                            container = container,
+                            bookId = dest.bookId,
+                            initialChapter = dest.chapterIndex,
+                            initialOffset = dest.offset,
+                            onBack = { pop() },
+                            onOpenMarks = { id, title -> push(Dest.Marks(id, title)) },
+                            onOpenEditor = { chapterId, title -> push(Dest.Editor(dest.bookId, chapterId, title)) },
+                            onOpenDetail = { push(Dest.Detail(it)) },
+                            onGoShelf = { popToShelf() }
+                        )
 
-                    is Dest.Editor -> EditorScreen(
-                        container = container,
-                        bookId = dest.bookId,
-                        chapterId = dest.chapterId,
-                        initialTitle = dest.title,
-                        onBack = { pop() }
-                    )
+                        is Dest.Editor -> EditorScreen(
+                            container = container,
+                            bookId = dest.bookId,
+                            chapterId = dest.chapterId,
+                            initialTitle = dest.title,
+                            onBack = { pop() }
+                        )
 
-                    is Dest.Marks -> MarksScreen(
-                        container = container,
-                        bookId = dest.bookId,
-                        bookTitle = dest.bookTitle,
-                        onBack = { pop() },
-                        onJump = { chapter, offset -> push(Dest.Reader(dest.bookId, chapter, offset)) }
-                    )
+                        is Dest.Marks -> MarksScreen(
+                            container = container,
+                            bookId = dest.bookId,
+                            bookTitle = dest.bookTitle,
+                            onBack = { pop() },
+                            onJump = { chapter, offset -> push(Dest.Reader(dest.bookId, chapter, offset)) }
+                        )
+                    }
                 }
             }
 

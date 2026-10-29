@@ -25,8 +25,8 @@ android {
         applicationId = "com.inkreader"
         minSdk = 24
         targetSdk = 34
-        versionCode = 65
-        versionName = "1.14.1"
+        versionCode = 68
+        versionName = "1.15.1"
         testInstrumentationRunner = "com.inkreader.AuditInstrumentation"
         resourceConfigurations += listOf("zh", "en", "ja")
     }
@@ -71,6 +71,8 @@ android {
     }
 
     sourceSets.getByName("androidTest").assets.srcDir(rootProject.file("tests/fixtures"))
+    sourceSets.getByName("test").java.srcDir("src/sharedTest/kotlin")
+    sourceSets.getByName("androidTest").java.srcDir("src/sharedTest/kotlin")
 
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17

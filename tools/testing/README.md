@@ -1,5 +1,25 @@
 # 模拟器测试工具
 
+## 1.15.1 中文重点来源
+
+第三批 [real-source-v3](../../tests/fixtures/real-source-v3/README.md) 增加 32 份作品／选集书源、96 例，其中 24 份中文。JVM 使用 `INK_SOURCE_V3_PARTITION=development/holdout/all`；CI 配置 all。运行前校验全部 381 个冻结文件。
+
+Android 可单独使用 `-e sourceV3 true` 执行全部第三批预览／磁盘导入检查；也已纳入 recognition 组。无编号篇名的 capability 案例单列 FN，不当作识别成功；正文块保存仍须通过。只允许在实际分章接缝处出现空白差异，内部空格、字符、顺序和次数仍严格核对。
+
+## 1.15.0 日常体验与第二批真实书源
+
+`INK_SOURCE_V2_PARTITION=development/holdout/all` 控制 JVM 第二批来源评估；与旧评估的 `INK_EVAL_PARTITION` 分开。来源与冻结格式见 [real-source-v2](../../tests/fixtures/real-source-v2/README.md)。CI 对两批分区都使用 all。
+
+安装同一次构建的主包及测试包后，可分别执行：
+
+```powershell
+adb -s emulator-5554 shell am instrument -w -r -e dailyLogic true com.inkreader.test/com.inkreader.AuditInstrumentation
+adb -s emulator-5554 shell am instrument -w -r -e sourceV2 true com.inkreader.test/com.inkreader.AuditInstrumentation
+adb -s emulator-5554 shell am instrument -w -r -e navigation true com.inkreader.test/com.inkreader.AuditInstrumentation
+```
+
+dailyLogic 复现写锁占用时页面退出丢进度、高频写入及可选日志的容量／隐私／导出／清空；sourceV2 校验全部 24 例的实际导入，两个能力限制单列；navigation 验证坐标恢复、换词回顶及真实绘制记录。device 组补充字号、横竖屏和后台恢复的阅读锚点检查。均限定专用模拟器和独立测试书库，不替代多日实机使用。
+
 这些脚本用于可控的开发模拟器，不是安装到手机后的自动操作程序。ADB 目标固定为 **emulator-5554**，不会自动选择列表中的手机；请确认该编号对应你准备好的测试模拟器。
 
 ## 环境与构建
@@ -17,6 +37,14 @@ adb -s emulator-5554 install -r app/build/outputs/apk/androidTest/debug/app-debu
 Unix 使用 ./gradlew。两个包必须来自同一次兼容构建和相同签名；不要通过卸载主包来解决签名冲突，以免丢失已有数据。
 
 ## 可独立执行的隔离检查
+
+返回位置专项检查（先安装本版主包和检查包）：
+
+```powershell
+adb -s emulator-5554 shell am instrument -w -r -e navigation true com.inkreader.test/com.inkreader.AuditInstrumentation
+```
+
+该组在临时书库打开真实导航页面，对比返回前后的条目文字和屏幕坐标，覆盖书架网格／列表、设置／说明、搜索、分组及保存状态的序列化恢复。结束后切回原书架，不复用原书库作为样本。它会操作模拟器界面，执行时不要同时手动操作模拟器。必须看到 `PASS` 与 `INSTRUMENTATION_CODE: -1` 才算通过，ADB 进程返回 0 本身不代表检查成功。
 
 ```powershell
 python tools/testing/run_full_audit.py device

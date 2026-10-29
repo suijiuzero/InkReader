@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="usage_title">本机体验记录</string>
+    <string name="usage_description">默认关闭。开启后仅在本机保存最近的加载、分页、布局及绘制耗时，最多 200 条。不记录书名、正文、搜索词或配对信息，不自动上传。遇到卡顿时可手动导出记录协助排查。</string>
+    <string name="usage_export">导出记录</string>
+    <string name="usage_clear">清空记录</string>
+    <string name="usage_exported">记录已导出，可自行选择是否分享。</string>
+    <string name="usage_cleared">本机记录已清空。</string>
+    <string name="usage_failed">操作未完成，请稍后重试。</string>
+</resources>

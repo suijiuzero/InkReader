@@ -23,3 +23,5 @@ tests/fixtures/recognition-eval/*.txt -text -whitespace
 tests/fixtures/recognition-eval/*.gold -text -whitespace
 tests/fixtures/recognition-eval/manifest.tsv -text -whitespace
 tests/fixtures/real-source/* -text -whitespace
+tests/fixtures/real-source-v2/* -text -whitespace
+tests/fixtures/real-source-v3/* -text -whitespace

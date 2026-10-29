@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
@@ -24,14 +25,17 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -40,6 +44,8 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
@@ -74,10 +80,21 @@ fun SearchScreen(
 ) {
     val lib = container.library
     val p = LocalInkPalette.current
-    var query by remember { mutableStateOf("") }
+    var query by rememberSaveable { mutableStateOf("") }
+    var focusedOnce by rememberSaveable { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
+    val focusManager = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    val resultsState = rememberLazyGridState()
 
     val key = query.trim()
+    var previousKey by rememberSaveable { mutableStateOf(key) }
+    androidx.compose.runtime.LaunchedEffect(key) {
+        if (previousKey != key) {
+            previousKey = key
+            resultsState.scrollToItem(0)
+        }
+    }
     val results = remember(key, lib.books) {
         if (key.isEmpty()) {
             emptyList()
@@ -90,13 +107,16 @@ fun SearchScreen(
     }
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
-        runCatching { focus.requestFocus() }
+        if (!focusedOnce) {
+            runCatching { focus.requestFocus() }
+            focusedOnce = true
+        }
     }
 
     val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
 
-    Column(Modifier.fillMaxSize().background(p.background)) {
+    Column(Modifier.fillMaxSize().background(p.background).imePadding()) {
         // 顶栏：返回 + 搜索框
         Row(
             Modifier
@@ -134,6 +154,7 @@ fun SearchScreen(
                         ),
                         cursorBrush = SolidColor(p.accent),
                         keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { keyboard?.hide(); focusManager.clearFocus() }),
                         modifier = Modifier.fillMaxWidth().focusRequester(focus)
                     )
                 }
@@ -171,6 +192,7 @@ fun SearchScreen(
                     modifier = Modifier.padding(start = 18.dp, top = 2.dp, bottom = 4.dp)
                 )
                 LazyVerticalGrid(
+                    state = resultsState,
                     columns = GridCells.Adaptive(minSize = 92.dp),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = bottomPad + 24.dp),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -180,8 +202,11 @@ fun SearchScreen(
                     items(results, key = { it.id }) { b ->
                         SearchResultCard(
                             book = b,
-                            onClick = { onOpenBook(b.id, b.lastChapterIndex, b.lastCharOffset) },
-                            onLongClick = { onOpenDetail(b.id) }
+                            onClick = {
+                                keyboard?.hide(); focusManager.clearFocus()
+                                onOpenBook(b.id, b.lastChapterIndex, b.lastCharOffset)
+                            },
+                            onLongClick = { keyboard?.hide(); focusManager.clearFocus(); onOpenDetail(b.id) }
                         )
                     }
                 }

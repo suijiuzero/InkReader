@@ -169,6 +169,64 @@ object ReaderUiChecks {
         val restored = runBlocking { container.repo.book(book)!!.lastCharOffset }
         check(kotlin.math.abs(restored - saved) < 100) { "Scroll restore drift: $saved -> $restored" }
         passed += "actual touch scrolling and paragraph-offset restoration"
+        fun currentSession(): ReaderSession {
+            var found: ReaderSession? = null
+            runner.runOnMainSync {
+                val visited = java.util.IdentityHashMap<Any, Boolean>()
+                fun locate(value: Any?, depth: Int): ReaderSession? {
+                    if (value is ReaderSession) return value
+                    if (value == null || depth > 6 || visited.put(value, true) != null) return null
+                    if (value is androidx.compose.runtime.State<*>) return locate(value.value, depth + 1)
+                    if (value !is Function<*> && !value.javaClass.name.startsWith("kotlin.jvm.internal.Ref")) return null
+                    for (field in value.javaClass.declaredFields) {
+                        if (java.lang.reflect.Modifier.isStatic(field.modifiers)) continue
+                        val child = runCatching { field.isAccessible = true; field.get(value) }.getOrNull()
+                        locate(child, depth + 1)?.let { return it }
+                    }
+                    return null
+                }
+                found = locate(container.readerKeyHandler, 0)
+            }
+            return found ?: error("Missing live reader session in test callback graph")
+        }
+        fun offset(): Int {
+            val live = currentSession()
+            var value = 0
+            runner.runOnMainSync { value = live.currentOffset() }
+            return value
+        }
+        val layoutAnchor = offset()
+        val live = currentSession()
+        runner.runOnMainSync { live.updatePrefs({ it.copy(fontSize = it.fontSize + 5f) }, persist = false) }
+        Thread.sleep(1200)
+        await("Font resize drifted away from the reading anchor") { kotlin.math.abs(offset() - layoutAnchor) < 120 }
+        passed += "scroll font resize keeps the original text anchor"
+        val originalOrientation = activity.requestedOrientation
+        try {
+            runner.runOnMainSync { activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE }
+            await("Landscape layout not applied") {
+                val box = Rect().also { runner.uiAutomation.rootInActiveWindow.getBoundsInScreen(it) }
+                box.width() > box.height()
+            }
+            Thread.sleep(1200)
+            check(kotlin.math.abs(offset() - layoutAnchor) < 180) { "Landscape changed reading anchor: $layoutAnchor -> ${offset()}" }
+            runner.runOnMainSync { activity.requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_PORTRAIT }
+            await("Portrait layout not restored") {
+                val box = Rect().also { runner.uiAutomation.rootInActiveWindow.getBoundsInScreen(it) }
+                box.width() < box.height()
+            }
+            Thread.sleep(1200)
+            check(kotlin.math.abs(offset() - layoutAnchor) < 180) { "Portrait changed reading anchor" }
+            passed += "landscape and portrait reflow retain the reading anchor"
+        } finally { runner.runOnMainSync { activity.requestedOrientation = originalOrientation } }
+        val backgroundAnchor = offset()
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(runner.uiAutomation.executeShellCommand("input keyevent 3")).use { it.readBytes() }
+        Thread.sleep(500)
+        android.os.ParcelFileDescriptor.AutoCloseInputStream(runner.uiAutomation.executeShellCommand(
+            "am start --user 0 -f 0x10000000 -n ${runner.targetContext.packageName}/.MainActivity")).use { it.readBytes() }
+        Thread.sleep(800)
+        check(kotlin.math.abs(offset() - backgroundAnchor) < 120) { "Background/resume changed reading anchor" }
+        passed += "background and foreground preserve the live reading position"
         val hits = runBlocking { container.repo.searchInBook(book, "测试锚点") }
         check(hits.any { it.chapterIndex == 0 } && hits.any { it.chapterIndex == 1 })
         passed += "whole-book search returns anchors in both chapters"

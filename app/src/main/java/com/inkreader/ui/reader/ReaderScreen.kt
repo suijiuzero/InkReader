@@ -185,7 +185,7 @@ fun ReaderScreen(
 
     // 音量键翻页：阅读器在前台、且工具栏是收起状态时才接管
     // 呼出顶栏/底栏说明用户正在「操作」，这时音量键应该照常调音量
-    val chromeNow = rememberUpdatedState(chrome)
+    val chromeNow = rememberUpdatedState(chrome || showToc || showSettings || showSearch || showTts || selection != null)
     DisposableEffect(session) {
         container.readerKeyHandler = { code ->
             if (!session.prefs.volumeKeyTurn || chromeNow.value) {
@@ -272,6 +272,7 @@ fun ReaderScreen(
 
     // 屏幕亮度
     val activity = ctx as? Activity
+    ReaderDiagnostics(activity, container.diagnostics)
     LaunchedEffect(session.prefs.brightness, activity) {
         val w = activity?.window ?: return@LaunchedEffect
         val b = session.prefs.brightness
@@ -1462,8 +1463,9 @@ private fun ScrollingBody(
     val p = LocalInkPalette.current
     val density = LocalDensity.current
     val listState = rememberLazyListState()
-    val layouts = remember { mutableStateMapOf<Pair<Int, Int>, TextLayoutResult>() }
-    val textTops = remember { mutableStateMapOf<Pair<Int, Int>, Float>() }
+    val layoutKey = remember(style, density, paraGapDp, session.prefs.firstLineIndent) { Any() }
+    val layouts = remember(layoutKey) { mutableStateMapOf<Pair<Int, Int>, TextLayoutResult>() }
+    val textTops = remember(layoutKey) { mutableStateMapOf<Pair<Int, Int>, Float>() }
     val flow = session.flowBlocks
 
     if (flow.isEmpty()) {
@@ -1474,7 +1476,7 @@ private fun ScrollingBody(
     }
 
     // 段内可见行映射回原文字符位置，避免长段落始终只保存段首。
-    LaunchedEffect(listState, session.chapterIndex) {
+    LaunchedEffect(listState, session.chapterIndex, layoutKey) {
         snapshotFlow {
             val idx = listState.firstVisibleItemIndex
             val item = session.flowBlocks.getOrNull(idx)

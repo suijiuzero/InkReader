@@ -155,6 +155,12 @@ object RecognitionChecks {
             }
             ExtendedRecognitionChecks.run(runner, context, repo, ::test)
             UpgradeChecks.run(context, repo, ::test)
+            test("96 Chinese-focused real source cases preserve frozen blocks across preview and import") {
+                SourceV2Checks.run(runner, context, repo, "real-source-v3").also { check(it.getInt("failed") == 0) { it.toString(2) } }
+            }
+            test("24 frozen source cases preserve full paragraphs and agree across preview and disk import") {
+                SourceV2Checks.run(runner, context, repo).also { check(it.getInt("failed") == 0) { it.toString(2) } }
+            }
             AuditFollowupChecks.run(context, repo, ::test)
             test("original database invariants hold after recognition checks") {
                 repo.db.readableDatabase.rawQuery("PRAGMA integrity_check", null).use { check(it.moveToFirst() && it.getString(0) == "ok") }

@@ -30,8 +30,12 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -161,6 +165,9 @@ fun ShelfScreen(
     val p = LocalInkPalette.current
     val ctx = LocalContext.current
     val selected = remember { mutableStateListOf<Long>() }
+    // 两种视图各自记住位置，切换视图或打开子页面都不会丢失。
+    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
 
     var pendingUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
     var pendingFileOrder by remember { mutableStateOf(ImportOrder.AUTO) }
@@ -414,6 +421,7 @@ fun ShelfScreen(
                 )
 
                 lib.view == ShelfView.GRID -> BookGrid(
+                    state = gridState,
                     books = lib.ungrouped,
                     selected = selected,
                     onOpen = { b -> onOpenBook(b.id, b.lastChapterIndex, b.lastCharOffset) },
@@ -427,6 +435,7 @@ fun ShelfScreen(
                 )
 
                 else -> BookList(
+                    state = listState,
                     books = lib.ungrouped,
                     selected = selected,
                     onOpen = { b -> onOpenBook(b.id, b.lastChapterIndex, b.lastCharOffset) },
@@ -621,6 +630,7 @@ private fun FloatingAction(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BookGrid(
+    state: LazyGridState,
     books: List<Book>,
     selected: List<Long>,
     onOpen: (Book) -> Unit,
@@ -633,6 +643,7 @@ private fun BookGrid(
     val p = LocalInkPalette.current
     val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyVerticalGrid(
+        state = state,
         columns = GridCells.Adaptive(minSize = 92.dp),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = bottomPad + 96.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -707,6 +718,7 @@ private fun BookGrid(
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun BookList(
+    state: LazyListState,
     books: List<Book>,
     selected: List<Long>,
     onOpen: (Book) -> Unit,
@@ -719,6 +731,7 @@ private fun BookList(
     val p = LocalInkPalette.current
     val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     LazyColumn(
+        state = state,
         contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 6.dp, bottom = bottomPad + 96.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()

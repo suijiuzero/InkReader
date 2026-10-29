@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="usage_title">Local experience log</string>
+    <string name="usage_description">Off by default. Keeps up to 200 local measurements of loading, pagination, layout and rendering. No book titles, text, search terms or pairing details are recorded or automatically uploaded. Export the log manually to help investigate slowdowns.</string>
+    <string name="usage_export">Export log</string>
+    <string name="usage_clear">Clear log</string>
+    <string name="usage_exported">Log exported. You can choose whether to share it.</string>
+    <string name="usage_cleared">Local log cleared.</string>
+    <string name="usage_failed">Operation did not finish. Please try again.</string>
+</resources>

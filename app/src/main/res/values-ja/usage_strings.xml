@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="usage_title">端末内の使用記録</string>
+    <string name="usage_description">初期状態ではオフです。読み込み・ページ分割・レイアウト・描画の計測値を端末内に最大200件保存します。本の題名、本文、検索語、接続情報は記録せず、自動送信もしません。動作が遅いときに手動で書き出せます。</string>
+    <string name="usage_export">記録を書き出す</string>
+    <string name="usage_clear">記録を消去</string>
+    <string name="usage_exported">記録を書き出しました。共有するかは自分で選べます。</string>
+    <string name="usage_cleared">端末内の記録を消去しました。</string>
+    <string name="usage_failed">操作が完了しませんでした。もう一度お試しください。</string>
+</resources>

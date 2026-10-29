@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="sharedpref" path="ink_diagnostics.xml" />
         <exclude domain="sharedpref" path="computer_voice.xml" />
         <include domain="database" path="." />
         <include domain="sharedpref" path="." />
@@ -9,6 +10,7 @@
         <include domain="file" path="recognition-notes/" />
     </cloud-backup>
     <device-transfer>
+        <exclude domain="sharedpref" path="ink_diagnostics.xml" />
         <exclude domain="sharedpref" path="computer_voice.xml" />
         <include domain="database" path="." />
         <include domain="sharedpref" path="." />

@@ -19,6 +19,8 @@ jobs:
     timeout-minutes: 30
     env:
       INK_EVAL_PARTITION: all
+      INK_SOURCE_V2_PARTITION: all
+      INK_SOURCE_V3_PARTITION: all
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-java@v6

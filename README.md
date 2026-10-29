@@ -7,7 +7,7 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-brightgreen.svg)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)
 [![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4.svg)](https://developer.android.com/jetpack/compose)
-[![Version](https://img.shields.io/badge/version-1.14.1-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.15.1-orange.svg)](CHANGELOG.md)
 
 [简体中文](#简体中文) ｜ [English](#english)
 
@@ -17,6 +17,8 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 
 ### 主要功能
 
+- **中文重点来源评估**：第三批增加 32 份作品／选集书源，其中 24 份中文、96 个案例；独立标注 237 个标题和 707 个正文块，来源及边界见 [样本说明](tests/fixtures/real-source-v3/README.md)。
+- **本机体验记录**：设置中可选开启，默认关闭；最多保留 200 条数值耗时，可导出、清空，不记录书名、正文、搜索词或配对信息，不自动上传。
 - **六种格式**：TXT、DOCX、Markdown、文字版 PDF、HTML、EPUB。支持常见编码、文档标题结构和部分 Markdown 排版；不做 OCR，不完整复刻原书图片和页面版式。
 - **编码与预览纠错**：TXT 支持 UTF 系列、GB18030、Big5、Shift-JIS 和 EUC-JP 自动比较；单个 TXT 可切换编码、核对文字、查看识别疑点；全书校对可分页搜索标题、跳转原文行并增删分章点，原文字保留。
 - **章节识别**：扩展多语言章标签、Unicode 十进数字、保守的纯数字标题及中途格式切换；合章按完整编号范围查漏，保留原始标题，不生成不存在的正文。
@@ -54,6 +56,10 @@ adb -s DEVICE_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
 
 `DEVICE_SERIAL` 用 `adb devices` 查询并替换。相同签名的覆盖安装保留数据；不要为了更新先卸载。中文工程路径已配置 `android.overridePathCheck=true`。发布任务必须配置正式签名，不会静默回退 debug 签名。
 
+1.15.0 加强进度保存和字号／布局位置恢复，新增可选本机耗时记录，扩展西文章标题。第二批独立于解析输出的真实来源样本为 8 部作品、7 种语言、24 个案例，来源、冻结指纹及能力限制见 [样本说明](tests/fixtures/real-source-v2/README.md)。
+
+1.14.2 修复返回书架、设置及其他列表页时丢失滚动位置；搜索返回保留关键词，网格／列表分别记住位置。200 项 JVM 与 9 项模拟器导航检查通过，专项核对条目坐标、两种返回操作、关闭后重开搜索和保存状态的序列化恢复。
+
 1.14.1 复审修复失败重试顺序、跨章批注截断、空章节合并越界、原子备份恢复和已有空书被误删等问题，并补充任务锁与重排参数保护。200 项 JVM、最终包两轮 228 项安卓检查通过；实际界面复验前项失败后继续的选择顺序。原 396 本书、1089 章、1101 个正文／样式文件和三组设置与测试前一致。详见 [1.14.1复审验证](docs/1.14.1-复审修复与验证.md)；全书校对、备份、恢复及性能工作的初始测量见 [1.14.0记录](docs/1.14.0-全书校正与可靠性升级.md)。GitHub 自动检查覆盖冻结样本、构建、回归及静态检查，远端状态以对应提交的 Actions 为准。
 
 
@@ -78,6 +84,7 @@ Ink Reader reads local books without accounts or ads. Reading, annotations and p
 
 ### Features and workflow
 
+- Version 1.15.0 coalesces reading-progress writes, protects text anchors during reflow, and offers an optional bounded local timing log. It is off by default, excludes book titles/text/queries/pairing data, and never uploads automatically. A second frozen corpus covers 8 real works, 7 languages and 24 cases; arbitrary unnumbered headings remain a separately measured capability limit.
 - TXT, DOCX, Markdown, text-based PDF, HTML and EPUB; common encodings and structured headings, supported Markdown formatting, no OCR or full original-page reproduction.
 - TXT encoding ranking for UTF, GB18030, Big5, Shift-JIS and EUC-JP; a single TXT can override the codec, inspect an excerpt and uncheck displayed boundaries without losing the source text.
 - Expanded native chapter labels, Unicode decimal digits, conservative bare numerals and mid-book style changes. Combined chapters use number ranges; source titles remain intact and missing content is never invented.
@@ -99,6 +106,8 @@ Computer speech sends only the current sentence and next prefetched sentence to 
 ### Build and documentation
 
 JDK 17 and Android SDK platform 34 are required. Run the Gradle tasks above, or use `gradlew.bat` on Windows. Debug APK: `app/build/outputs/apk/debug/app-debug.apk`. Use an explicit device serial for installation. Release tasks require a configured release keystore.
+
+Version 1.14.2 preserves scroll positions when returning to the shelf, Settings and other list pages. Search retains its query on return, and grid/list views remember separate positions. Nine emulator navigation checks verify item bounds, both back actions, fresh search and serialized state restoration; 200 JVM checks also pass.
 
 Version 1.14.1 fixes retry ordering, crossing annotation loss, empty-chapter offsets, AtomicFile recovery and unintended deletion of an existing empty book. It passes 200 JVM checks and 228 Android checks in two final-package rounds, plus an actual file-picker failure/retry scenario. The original library, file hashes and preferences remain unchanged. See the [1.14.1 audit](docs/1.14.1-复审修复与验证.md) and [initial 1.14.0 measurements](docs/1.14.0-全书校正与可靠性升级.md), including the remaining software-rendering frame-time limit. GitHub checks frozen inputs, regression, APK builds and lint after push; consult the commit’s Actions for its remote result.
 

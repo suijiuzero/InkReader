@@ -27,6 +27,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -107,7 +108,7 @@ fun MarksScreen(
     var marks by remember { mutableStateOf<List<Mark>>(emptyList()) }
     var chapterTitles by remember { mutableStateOf<Map<Int, String>>(emptyMap()) }
     var loading by remember { mutableStateOf(true) }
-    var filter by remember { mutableStateOf(MarkFilter.ALL) }
+    var filter by rememberSaveable { mutableStateOf(MarkFilter.ALL) }
 
     fun reload() {
         scope.launch {

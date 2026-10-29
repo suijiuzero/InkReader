@@ -1,0 +1,90 @@
+[
+  {
+    "group": "pride",
+    "title": "Pride and Prejudice",
+    "author": "Jane Austen",
+    "url": "https://www.gutenberg.org/cache/epub/1342/pg1342-images.html",
+    "sourceSha256": "387ab4b733788098f3f462e0b3287d32e8a7bf768f2d54dcf7e4145f85a83051",
+    "partition": "development",
+    "headingCount": 6,
+    "paragraphCount": 36,
+    "extraction": "First 6 chapter elements (9 for Japanese), up to first 6 complete paragraphs each; navigation, page numbers, image captions and ruby readings excluded; HTML whitespace collapsed; no parser output used."
+  },
+  {
+    "group": "candide",
+    "title": "Candide",
+    "author": "Voltaire",
+    "url": "https://www.gutenberg.org/files/4650/4650-h/4650-h.htm",
+    "sourceSha256": "c576f89f8cf2538ac17818da07634b66dc3592eb614826283c26246335ae7fdb",
+    "partition": "development",
+    "headingCount": 6,
+    "paragraphCount": 31,
+    "extraction": "First 6 chapter elements (9 for Japanese), up to first 6 complete paragraphs each; navigation, page numbers, image captions and ruby readings excluded; HTML whitespace collapsed; no parser output used."
+  },
+  {
+    "group": "quijote",
+    "title": "Don Quijote",
+    "author": "Miguel de Cervantes Saavedra",
+    "url": "https://www.gutenberg.org/cache/epub/2000/pg2000-images.html",
+    "sourceSha256": "b6331140480595f302f7d9839f2f58e746ce71fd8bd3aba5435fdc77862aca29",
+    "partition": "development",
+    "headingCount": 6,
+    "paragraphCount": 36,
+    "extraction": "First 6 chapter elements (9 for Japanese), up to first 6 complete paragraphs each; navigation, page numbers, image captions and ruby readings excluded; HTML whitespace collapsed; no parser output used."
+  },
+  {
+    "group": "xiyou",
+    "title": "西遊記",
+    "author": "吳承恩",
+    "url": "https://www.gutenberg.org/cache/epub/23962/pg23962-images.html",
+    "sourceSha256": "60bbf9e507298c337e493d5d6b30db2e1e2c9580f337a843c2a57ae82d541ac3",
+    "partition": "development",
+    "headingCount": 6,
+    "paragraphCount": 36,
+    "extraction": "First 6 chapter elements (9 for Japanese), up to first 6 complete paragraphs each; navigation, page numbers, image captions and ruby readings excluded; HTML whitespace collapsed; no parser output used."
+  },
+  {
+    "group": "dracula",
+    "title": "Dracula",
+    "author": "Bram Stoker",
+    "url": "https://www.gutenberg.org/cache/epub/345/pg345-images.html",
+    "sourceSha256": "4f329d89d8531b86c9fcd19731cb612e1f335488707d10974c95fb53fc317840",
+    "partition": "holdout",
+    "headingCount": 6,
+    "paragraphCount": 36,
+    "extraction": "First 6 chapter elements (9 for Japanese), up to first 6 complete paragraphs each; navigation, page numbers, image captions and ruby readings excluded; HTML whitespace collapsed; no parser output used."
+  },
+  {
+    "group": "kokoro",
+    "title": "こころ",
+    "author": "夏目漱石",
+    "url": "https://www.aozora.gr.jp/cards/000148/files/773_14560.html",
+    "sourceSha256": "2f993b95343af9ca631d6fc8f050371d0d6df3423a4541669dee89430257b871",
+    "partition": "holdout",
+    "headingCount": 9,
+    "paragraphCount": 54,
+    "extraction": "First 6 chapter elements (9 for Japanese), up to first 6 complete paragraphs each; navigation, page numbers, image captions and ruby readings excluded; HTML whitespace collapsed; no parser output used."
+  },
+  {
+    "group": "pinocchio",
+    "title": "Le avventure di Pinocchio",
+    "author": "Carlo Collodi",
+    "url": "https://www.gutenberg.org/cache/epub/52484/pg52484-images.html",
+    "sourceSha256": "b028f752992f0fc7962180929cc4195a136d4b1ca2780414584762c84058a8b7",
+    "partition": "holdout",
+    "headingCount": 6,
+    "paragraphCount": 36,
+    "extraction": "First 6 chapter elements (9 for Japanese), up to first 6 complete paragraphs each; navigation, page numbers, image captions and ruby readings excluded; HTML whitespace collapsed; no parser output used."
+  },
+  {
+    "group": "heidi",
+    "title": "Heidis Lehr- und Wanderjahre",
+    "author": "Johanna Spyri",
+    "url": "https://www.gutenberg.org/files/7500/7500-h/7500-h.htm",
+    "sourceSha256": "b1e2e3ab3a4ed22fab1e9ffd5f991b98765d6b399fc4d558ed5e60578188c88a",
+    "partition": "holdout",
+    "headingCount": 6,
+    "paragraphCount": 36,
+    "extraction": "First 6 chapter elements (9 for Japanese), up to first 6 complete paragraphs each; navigation, page numbers, image captions and ruby readings excluded; HTML whitespace collapsed; no parser output used."
+  }
+]

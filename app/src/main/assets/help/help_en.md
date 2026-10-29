@@ -1,6 +1,8 @@
 # Ink Reader — User Guide
 
-For version 1.14.1. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
+For version 1.15.1. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
+
+Returning from a book or a child page restores the previous scroll position, including Settings after opening this guide. Grid and list views remember separate positions. Returning to search keeps the query and result position; closing search and opening it again starts fresh.
 
 ## Expanded recognition and saved corrections
 
@@ -116,3 +118,7 @@ Some system file pickers append .zip when saving; restore still accepts the back
 ## Audit fixes in 1.14.1
 
 Resuming after an earlier file failed restores the selected source order. Failed append keeps an existing empty book. Highlights and notes crossing a split retain a fragment on both sides, with the original ID kept on the first fragment. Empty-chapter merge keeps bookmarks and progress within bounds. Text, styles and correction memory recover valid backups left by interrupted writes.
+
+## Local experience log
+
+Settings offers an optional local log, off by default. It keeps up to 200 loading, pagination, layout and rendering measurements without book titles, text, queries or pairing details. Nothing is uploaded automatically. Export JSON or clear it manually. System cache cleanup may remove the log; frame summaries are limited measurements.

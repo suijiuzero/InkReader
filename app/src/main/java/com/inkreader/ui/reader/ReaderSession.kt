@@ -324,6 +324,7 @@ class ReaderSession(
         paginationJob?.cancel()
         val generation = ++chapterGeneration
         chapterLoadJob = scope.launch(errors) {
+            val startedAt = android.os.SystemClock.elapsedRealtime()
             val ch = chs[index]
             val loadLayout = layoutGeneration
 
@@ -378,6 +379,8 @@ class ReaderSession(
             rebuildPager()
             rebuildFlow()
             loadNeighbors()
+            container.diagnostics.record(com.inkreader.data.diagnostics.UsageDiagnostics.Event.CHAPTER_READY,
+                mapOf("durationMs" to (android.os.SystemClock.elapsedRealtime() - startedAt), "characters" to text.length, "blocks" to blks.size))
             saveProgress()
         }
     }
@@ -405,6 +408,7 @@ class ReaderSession(
         val worker = workerMeasurerFactory?.invoke() ?: original
         pendingOffset = keepOffset
         paginationJob = scope.launch(errors) {
+            val startedAt = android.os.SystemClock.elapsedRealtime()
             val result = withContext(Dispatchers.Default) {
                 Paginator(worker).paginate(inputBlocks, style, w, h, gap, d,
                     firstLineIndentSp = if (requestedPrefs.firstLineIndent) requestedPrefs.fontSize * 2 else 0f,
@@ -414,12 +418,19 @@ class ReaderSession(
             if (!isActive || serial != paginationSerial || chapter != chapterGeneration ||
                 layout != layoutGeneration || inputBlocks !== blocks) return@launch
             pages = result
-            pageIndex = Paginator.pageForOffset(result, pendingOffset ?: keepOffset)
+            val restoredOffset = pendingOffset ?: keepOffset
+            pageIndex = Paginator.pageForOffset(result, restoredOffset)
                 .coerceIn(0, (result.size - 1).coerceAtLeast(0))
             pendingOffset = null
+            if (prefs.pageMode == PageMode.SCROLL) {
+                scrollOffset = restoredOffset
+                jumpRequest = restoredOffset
+            }
             rebuildPager()
             rebuildFlow()
             loadNeighbors()
+            container.diagnostics.record(com.inkreader.data.diagnostics.UsageDiagnostics.Event.PAGINATION_READY,
+                mapOf("durationMs" to (android.os.SystemClock.elapsedRealtime() - startedAt), "pages" to result.size, "characters" to chapterText.length))
             saveProgress()
         }
     }
@@ -435,6 +446,7 @@ class ReaderSession(
     ) {
         val changed = this.pendingWidth != widthPx || this.pendingHeight != heightPx ||
             this.pendingStyle != style || this.measurer !== measurer || this.pendingDensity != density || this.pendingDirection != direction
+        val anchor = currentOffset()
         this.workerMeasurerFactory = workerFactory
         this.measurer = measurer
         this.pendingStyle = style
@@ -445,7 +457,11 @@ class ReaderSession(
         if (changed) {
             // 排版上下文变了，邻章缓存里的页码全部作废
             invalidateNeighbors()
-            repaginate(keepOffset = currentOffset())
+            if (prefs.pageMode == PageMode.SCROLL) { scrollOffset = anchor; jumpRequest = anchor }
+            container.diagnostics.record(com.inkreader.data.diagnostics.UsageDiagnostics.Event.LAYOUT_CHANGED,
+                mapOf("widthPx" to widthPx, "heightPx" to heightPx, "fontSp" to prefs.fontSize,
+                    "density" to density.density, "fontScale" to density.fontScale))
+            repaginate(keepOffset = anchor)
         }
         startPageCount()
     }
@@ -872,17 +888,28 @@ class ReaderSession(
         return acc
     }
 
+    private data class ProgressPosition(val chapter: Int, val offset: Int, val progress: Float)
+    private data class ProgressRequest(val position: ProgressPosition, val token: Long)
+    private val progressWriter = CoalescingWriter<ProgressRequest>(container.scope,
+        onError = { error ->
+            container.diagnostics.record(com.inkreader.data.diagnostics.UsageDiagnostics.Event.SAVE_FAILURE)
+            Toast.makeText(container.appContext,
+                error.localizedMessage ?: container.appContext.getString(R.string.action_unknown_error),
+                Toast.LENGTH_LONG).show()
+        }
+    ) { request ->
+        val (idx, off, progress) = request.position
+        repo.updateProgress(bookId, idx, off, progress, request.token)
+        if (idx == chapterIndex && off == currentOffset()) {
+            book = book?.copy(lastChapterIndex = idx, lastCharOffset = off, progress = progress)
+        }
+    }
+
     fun saveProgress() {
         if (book == null || chapters.isEmpty()) return
-        val idx = chapterIndex
-        val off = currentOffset()
-        val p = bookProgress()
+        val position = ProgressPosition(chapterIndex, currentOffset(), bookProgress())
         val token = repo.newProgressToken(bookId)
-        scope.launch(errors) {
-            withContext(Dispatchers.IO) { repo.updateProgress(bookId, idx, off, p, token) }
-            if (idx == chapterIndex && off == currentOffset())
-                book = book?.copy(lastChapterIndex = idx, lastCharOffset = off, progress = p)
-        }
+        progressWriter.submit(ProgressRequest(position, token))
     }
 
     // ==================== 偏好 ====================
@@ -898,7 +925,7 @@ class ReaderSession(
         // 偏好全局一套：改完当场落盘，其他书与书架外观一起跟着变
         if (persist) container.prefs.save(next)
         if (themeChanged) container.library.syncUiTheme()
-        if (modeChanged) {
+        if (modeChanged || next.pageMode == PageMode.SCROLL) {
             scrollOffset = anchor
             jumpRequest = anchor
         }
@@ -924,6 +951,7 @@ class ReaderSession(
         scope.launch(errors) {
             repo.toggleBookmark(bookId, chapterIndex, offset)
             marks = repo.marks(bookId)
+            saveProgress()
         }
     }
 

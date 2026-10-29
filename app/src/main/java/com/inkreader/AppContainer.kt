@@ -32,6 +32,7 @@ class AppContainer(context: Context) {
     val repo = BookRepository(appContext)
     val prefs = PrefsStore(appContext)
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    val diagnostics = com.inkreader.data.diagnostics.UsageDiagnostics(appContext, scope)
     val library = LibraryStore(repo, prefs, scope, appContext)
 
     init {

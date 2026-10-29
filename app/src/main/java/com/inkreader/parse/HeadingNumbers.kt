@@ -12,7 +12,8 @@ object HeadingNumbers {
         val end = text.indexOf(close, 1)
         return if (end > 1) text.substring(1, end) to text.substring(end) else null
     }
-    private val western = Regex("^(?iu:cap[ií]tulo|cap[ií]tol|chapitre|kapitel|глава|розділ|rozdział|chương|bab|bölüm|الفصل|ألفصل|अध्याय|บทที่)\\s*[:：.]?\\s*(?=\\d)")
+    private val western = Regex("^(?iu:cap[ií]tulo|capitolo|cap[ií]tol|chapitre|kapitel|глава|розділ|rozdział|chương|bab|bölüm|الفصل|ألفصل|अध्याय|บทที่)(?=\\s|[:：.]|[0-9])\\s*[:：.]?\\s*([0-9]{1,9}|\\p{L}{1,20})(?=\\s|[:：.,、—–-]|$)")
+    private val strictRoman = Regex("(?i)M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})")
     private val korean = Regex("^제?\\s*([0-9]{1,9})\\s*장(?=\\s|[:：.]|$)")
     private val cnRange = Regex("^(?:第\\s*)?([0-9]{1,9})\\s*[-–—~～至到]\\s*([0-9]{1,9})\\s*([章回话話])(?=\\s|[:：、.]|$)")
     private val enRange = Regex("^(?i:chapter|chap|ch|episode|ep)\\.?\\s*([0-9]{1,9})\\s*[-–—~～至到]\\s*([0-9]{1,9})(?=\\s|[:：、.]|$)")
@@ -32,7 +33,20 @@ object HeadingNumbers {
 
     private fun labels(raw: String): String {
         var text = digits(raw.trim()).replace("\u200E", "").replace("\u200F", "")
-        text = western.replaceFirst(text, "Chapter ")
+        western.find(text)?.let { match ->
+            val token = match.groupValues[1]
+            val label = match.value.substring(0, match.groups[1]!!.range.first - match.range.first)
+                .trim().trimEnd('.', ':', '：').lowercase(java.util.Locale.ROOT)
+            val number = when {
+                token.all { it.isDigit() } -> token
+                token.isNotEmpty() && strictRoman.matches(token) -> token
+                label == "chapitre" && token.lowercase(java.util.Locale.ROOT) in setOf("premier", "première") -> "1"
+                label in setOf("capítulo", "capitulo") && token.lowercase(java.util.Locale.ROOT) in setOf("primero", "primer", "primera") -> "1"
+                label == "capitolo" && token.lowercase(java.util.Locale.ROOT) in setOf("primo", "prima") -> "1"
+                else -> null
+            }
+            if (number != null) text = text.replaceRange(match.range, "Chapter $number")
+        }
         korean.find(text)?.let { text = text.replaceRange(it.range, "Chapter ${it.groupValues[1]}") }
         return text
     }

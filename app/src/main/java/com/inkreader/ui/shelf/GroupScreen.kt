@@ -24,8 +24,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -90,6 +92,8 @@ fun GroupScreen(
     val group = lib.groups.firstOrNull { it.id == groupId }
     val books = lib.booksOf(groupId)
     val selected = remember { mutableStateListOf<Long>() }
+    val gridState = rememberLazyGridState()
+    val listState = rememberLazyListState()
 
     var showMenu by remember { mutableStateOf(false) }
     var editing by remember { mutableStateOf(false) }
@@ -176,6 +180,7 @@ fun GroupScreen(
             // 注意用 weight(1f) 而不是 fillMaxSize：底部还要放「编辑分组」的操作条，
             // 用 fillMaxSize 会把操作条挤出屏幕（之前就是这个 bug）。
             LazyVerticalGrid(
+                state = gridState,
                 columns = GridCells.Fixed(3),
                 contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 6.dp, bottom = 20.dp),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -203,6 +208,7 @@ fun GroupScreen(
             }
         } else {
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(start = 18.dp, end = 18.dp, top = 6.dp, bottom = 20.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.fillMaxWidth().weight(1f)

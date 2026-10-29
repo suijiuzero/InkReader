@@ -71,6 +71,29 @@ class AuditInstrumentation : Instrumentation() {
                 SQLiteDatabase.openDatabase(getDatabasePath(name).path, factory, SQLiteDatabase.CREATE_IF_NECESSARY, errorHandler)
         }
         try {
+            if (auditArguments?.getString("sourceV2") == "true" || auditArguments?.getString("sourceV3") == "true") {
+                val report = runBlocking {
+                    val repository = BookRepository(isolated)
+                    try { SourceV2Checks.run(this@AuditInstrumentation, isolated, repository,
+                        if (auditArguments?.getString("sourceV3") == "true") "real-source-v3" else "real-source-v2") }
+                    finally { repository.db.close() }
+                }
+                results.putString("stream", report.toString(2))
+                finish(if (report.getInt("failed") == 0) -1 else 0, results)
+                return
+            }
+            if (auditArguments?.getString("dailyLogic") == "true") {
+                val report = runBlocking { DailyUsageChecks.run(this@AuditInstrumentation, isolated) }
+                results.putString("stream", report.toString(2))
+                finish(if (report.getInt("failed") == 0) -1 else 0, results)
+                return
+            }
+            if (auditArguments?.getString("navigation") == "true") {
+                passed += NavigationChecks.run(this, isolated)
+                results.putString("stream", "PASS ${passed.size} navigation checks\n" + passed.joinToString("\n"))
+                finish(-1, results)
+                return
+            }
             if (auditArguments?.getString("recognition") == "true") {
                 val report = runBlocking { RecognitionChecks.run(this@AuditInstrumentation, isolated) }
                 results.putString("stream", report.toString(2))
@@ -400,10 +423,11 @@ class AuditInstrumentation : Instrumentation() {
                             }
                         }
                     }
-                    val deadline = SystemClock.elapsedRealtime() + 5000
+                    val deadline = SystemClock.elapsedRealtime() + 10000
                     val newText = if (systemBack) "system-back-saved-immediately" else "toolbar-back-saved-immediately"
                     var edited = false
                     while (!edited && SystemClock.elapsedRealtime() < deadline) {
+                        if (android.os.Build.VERSION.SDK_INT >= 33) uiAutomation.clearCache()
                         val editable = nodes(uiAutomation.rootInActiveWindow).lastOrNull {
                             it.isEditable && it.isEnabled && it.text?.toString() == expectedBody && it.refresh()
                         }
@@ -412,7 +436,10 @@ class AuditInstrumentation : Instrumentation() {
                         }) == true
                         if (!edited) Thread.sleep(30)
                     }
-                    check(edited) { "editor body input action did not reach the current page" }
+                    check(edited) { "editor body input action did not reach the current page; expectedLength=${expectedBody.length}; nodes=" +
+                        nodes(uiAutomation.rootInActiveWindow).joinToString(" | ") {
+                            "${it.className}:editable=${it.isEditable},enabled=${it.isEnabled},length=${it.text?.length},match=${it.text?.toString() == expectedBody}"
+                        } }
                     if (systemBack) {
                         runOnMainSync { activity.onBackPressedDispatcher.onBackPressed() }
                     } else {
