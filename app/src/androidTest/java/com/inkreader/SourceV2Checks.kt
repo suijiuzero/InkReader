@@ -14,7 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object SourceV2Checks {
-    suspend fun run(runner: Instrumentation, context: Context, repo: BookRepository, root: String = "real-source-v2"): JSONObject {
+    suspend fun run(runner: Instrumentation, context: Context, repo: BookRepository, root: String = "real-source-v2", unnumbered: Boolean = false): JSONObject {
         val assets = runner.context.assets
         val hashes = JSONObject(assets.open("$root/frozen-sha256.json").bufferedReader().use { it.readText() })
         val rows = assets.open("$root/manifest.tsv").bufferedReader().use { it.readLines() }.drop(1).filter { it.isNotBlank() }
@@ -33,10 +33,10 @@ object SourceV2Checks {
                 }
                 val source = bytes("$id.txt")
                 val gold = SourceGold.read(String(bytes("$id.gold"), Charsets.UTF_8), String(source, Charsets.UTF_8))
-                val expected = ChapterSplitter.analyze(ChapterSplitter.normalize(String(source, Charsets.UTF_8)), options = SplitOptions(cleanWatermark = false))
+                val options = SplitOptions(cleanWatermark = false, detectUnnumberedTitles = unnumbered)
+                val expected = ChapterSplitter.analyze(ChapterSplitter.normalize(String(source, Charsets.UTF_8)), options = options)
                 val score = SourceGold.score(expected, gold, root.endsWith("-v3"))
                 val file = File(context.cacheDir, "$id.txt").apply { writeBytes(source) }
-                val options = SplitOptions(cleanWatermark = false)
                 val preview = repo.previewImport(listOf(Uri.fromFile(file)), ImportMode.SEPARATE, options, ImportOrder.SELECTION)
                 val result = repo.importDocuments(listOf(Uri.fromFile(file)), ImportMode.SEPARATE, null,
                     splitOptions = options, fileOrder = ImportOrder.SELECTION) { _, _ -> }
@@ -52,7 +52,18 @@ object SourceV2Checks {
                 val aggregate = cohorts.optJSONObject(key) ?: JSONObject().put("cases", 0).put("TP", 0).put("FP", 0).put("FN", 0).put("bodyErrors", 0).also { cohorts.put(key, it) }
                 for ((name, n) in listOf("cases" to 1, "TP" to score.tp, "FP" to score.fp, "FN" to score.fn, "bodyErrors" to actualBodyErrors)) aggregate.put(name, aggregate.getInt(name) + n)
                 check(actualBodyErrors == 0 && score.bodyErrors == 0) { "Full source paragraphs lost, reordered or duplicated" }
-                if (contract == "required") { check(score.exact) { "Boundary recognition differs from frozen labels: $score" }; passed++; report.put("status", "PASS") }
+                if (unnumbered && contract == "capability") {
+                    repo.prepareResplitSource(imported.single(), options).use { prepared ->
+                        val resplitPreview = repo.previewImport(listOf(prepared.uri), ImportMode.SEPARATE, prepared.options, ImportOrder.SELECTION)
+                        check(resplitPreview.estimatedChapters == chapters.size) { "Resplit preview differs" }
+                    }
+                    check(repo.resplitBook(imported.single(), options) == chapters.size) { "Resplit count differs" }
+                    val updated = repo.chapters(imported.single())
+                    check(updated.map { it.title } == chapters.map { it.title }) { "Resplit titles differ" }
+                    check(SourceGold.blockErrors(updated.map { repo.files.read(it.fileName) }, gold) == 0) { "Resplit changed body blocks" }
+                    report.put("resplit", "PASS")
+                }
+                if (contract == "required" || unnumbered) { check(score.exact) { "Boundary recognition differs from frozen labels: $score" }; passed++; report.put("status", "PASS") }
                 else { capabilities++; report.put("status", if (score.exact) "CAPABILITY_MATCH" else "CAPABILITY_LIMIT") }
             } catch (error: Throwable) { failed++; report.put("status", "FAIL").put("error", error.stackTraceToString()) }
             finally { imported.forEach { repo.deleteBook(it) } }

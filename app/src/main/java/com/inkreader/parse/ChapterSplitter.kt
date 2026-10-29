@@ -447,11 +447,15 @@ object ChapterSplitter {
         val regionalCandidates = augmentFlexibleHeadings(lines, canonical, fenced,
             regionalTitleLines(lines, canonical, fenced, global, options.mode), options.mode)
         val skippedToc = leadingTocLines(lines, canonical, fenced)
-        val regional = regionalCandidates.filterNot { it in skippedToc }
+        val natural = if (options.detectUnnumberedTitles && regionalCandidates.isEmpty() &&
+            options.mode in setOf(SplitMode.SMART, SplitMode.IN_FILE)) UnnumberedTitles.find(lines, fenced, options.reconstructedFirstTitle).toHashSet() else emptySet()
+        val regional = (regionalCandidates + natural).filterNot { it in skippedToc }.distinct().sorted()
         if (regional.isEmpty() && options.forcedHeadingLines.isEmpty())
             return ChapterPlan(emptyList(), emptyList(), emptyList(), 0, false, false)
         val recovered = recoverNumberGaps(lines, regional)
         val scored = scoreHeadings(lines, canonical, fenced, recovered).toMutableList()
+        for (i in scored.indices) if (scored[i].line - 1 in natural) scored[i] = scored[i].copy(
+            score = 74, reasons = scored[i].reasons + HeadingReason.UNNUMBERED_TITLE)
         val sequenceChoice = SequencePlanner.resolve(lines, scored)
         for (i in scored.indices) {
             val decision = scored[i]
@@ -490,7 +494,8 @@ object ChapterSplitter {
             skippedToc.count { canonical[it].trim() !in tocLabels },
             skippedToc.isNotEmpty() || selected.firstOrNull()?.let { it + 1 in options.ignoredHeadingLines } == true,
             scored.size > 500, scored.map { it.line - 1 },
-            scored.filter { !it.accepted || it.score < 74 || HeadingReason.SEQUENCE_ALTERNATIVE in it.reasons }.map { it.line - 1 }.toSet())
+            scored.filter { !it.accepted || it.score < 74 || HeadingReason.SEQUENCE_ALTERNATIVE in it.reasons ||
+                HeadingReason.UNNUMBERED_TITLE in it.reasons }.map { it.line - 1 }.toSet())
     }
 
     private fun lineCharacters(lines: List<String>, index: Int, trim: Boolean = false): Int =

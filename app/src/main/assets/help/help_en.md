@@ -1,8 +1,13 @@
 # Ink Reader — User Guide
 
-For version 1.15.1. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
+For version 1.15.2. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
 
 Returning from a book or a child page restores the previous scroll position, including Settings after opening this guide. Grid and list views remember separate positions. Returning to search keeps the query and result position; closing search and opening it again starts fresh.
+
+## Unnumbered Chinese titles (TXT, optional)
+
+Enable “Detect unnumbered Chinese titles” in smart import or resplitting for Chinese story and essay collections. It uses short isolated headings, blank lines, body length and group evidence. It is off by default; existing numbered headings take priority, and mixed arbitrary titles are not inferred. Review the preview or full-book correction view before confirming; inferred titles have a separate reason and can be removed or added manually. Single stories, very short bodies, poems, foreign-language-only titles and headings without blank lines may be missed. Ordinary prose can also resemble a heading, so this is a layout inference rather than a semantic guarantee.
+
 
 ## Expanded recognition and saved corrections
 

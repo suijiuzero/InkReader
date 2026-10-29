@@ -56,4 +56,7 @@
 
     <!-- Auto-generated cover: fallback char when the title is empty -->
     <string name="cover_fallback_char">B</string>
+    <string name="analysis_unnumbered_title">Detect unnumbered Chinese titles</string>
+    <string name="analysis_unnumbered_hint">For Chinese story and essay collections: uses isolated short titles, blank lines and body length. Off by default; numbered chapters take priority. Preview and correct inferred titles before importing.</string>
+    <string name="analysis_reason_unnumbered">Unnumbered title (inferred from layout; please review)</string>
 </resources>

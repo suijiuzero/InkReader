@@ -53,4 +53,7 @@
 
     <!-- 自動生成表紙：書名が空のときの代替文字 -->
     <string name="cover_fallback_char">本</string>
+    <string name="analysis_unnumbered_title">番号のない中国語篇名を認識</string>
+    <string name="analysis_unnumbered_hint">中国語の短編集・随筆集向け。独立した短い見出し、空行、本文の長さから推測します。初期状態はオフで、番号付きの章を優先します。プレビューで確認・修正してください。</string>
+    <string name="analysis_reason_unnumbered">番号なしの篇名（レイアウトから推測・要確認）</string>
 </resources>

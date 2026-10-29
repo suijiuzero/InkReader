@@ -7,7 +7,7 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 [![Android](https://img.shields.io/badge/Android-7.0%2B%20(API%2024)-brightgreen.svg)](https://developer.android.com/)
 [![Kotlin](https://img.shields.io/badge/Kotlin-2.0-purple.svg)](https://kotlinlang.org/)
 [![Compose](https://img.shields.io/badge/UI-Jetpack%20Compose-4285F4.svg)](https://developer.android.com/jetpack/compose)
-[![Version](https://img.shields.io/badge/version-1.15.1-orange.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.15.2-orange.svg)](CHANGELOG.md)
 
 [简体中文](#简体中文) ｜ [English](#english)
 
@@ -21,6 +21,7 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 - **本机体验记录**：设置中可选开启，默认关闭；最多保留 200 条数值耗时，可导出、清空，不记录书名、正文、搜索词或配对信息，不自动上传。
 - **六种格式**：TXT、DOCX、Markdown、文字版 PDF、HTML、EPUB。支持常见编码、文档标题结构和部分 Markdown 排版；不做 OCR，不完整复刻原书图片和页面版式。
 - **编码与预览纠错**：TXT 支持 UTF 系列、GB18030、Big5、Shift-JIS 和 EUC-JP 自动比较；单个 TXT 可切换编码、核对文字、查看识别疑点；全书校对可分页搜索标题、跳转原文行并增删分章点，原文字保留。
+- **无编号篇名（可选）**：TXT 导入或重新分章的智能模式可开启「识别无编号篇名」，按短标题、留白和正文长度识别中文短篇／散文集；默认关闭，有编号章节优先，推测结果请先预览校正。
 - **章节识别**：扩展多语言章标签、Unicode 十进数字、保守的纯数字标题及中途格式切换；合章按完整编号范围查漏，保留原始标题，不生成不存在的正文。
 - **单书纠错记忆**：单 TXT 的手动调整可记忆（最多一万处）；重分章可沿用、关闭或清除，标题和附近正文改变或有歧义时跳过，不跨书套用。
 - **TXT 磁盘处理**：预览、独立成书、多文件合并、追加及大书重分章共用磁盘索引；支持自定义规则，完整源字节核验后复用快照。其他格式沿用对应解析器。
@@ -119,3 +120,5 @@ See the [manual](docs/使用说明.md), [changelog](CHANGELOG.md), [contributing
 ## License
 
 [Apache-2.0](LICENSE). Third-party components retain their respective licenses.
+
+1.15.2 adds opt-in detection of unnumbered Chinese story/essay titles for TXT in smart splitting mode. Review inferred headings before import or resplitting; arbitrary prose cannot always be distinguished from a title. See [verification notes](docs/1.15.2-无编号篇名识别.md).

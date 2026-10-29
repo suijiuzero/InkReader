@@ -55,4 +55,7 @@
 
     <!-- 自动生成封面：书名缺失时的兜底字 -->
     <string name="cover_fallback_char">书</string>
+    <string name="analysis_unnumbered_title">识别无编号篇名</string>
+    <string name="analysis_unnumbered_hint">适用于中文小说集、散文集：结合独立短标题、留白与正文长度识别。默认关闭；有编号章节优先，请先预览并校正误识别。</string>
+    <string name="analysis_reason_unnumbered">无编号篇名（根据排版推测，请核对）</string>
 </resources>

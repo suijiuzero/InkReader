@@ -86,7 +86,11 @@ data class SplitOptions(
     /** 手动分章点绑定完整源字节；文件变化时拒绝套用旧行号。 */
     val sourceFingerprint: String = "",
     /** 重分章的源已经由书库正文重建，不能再把短前言当成重复书名删除。 */
-    val stripLeadingTitle: Boolean = true
+    val stripLeadingTitle: Boolean = true,
+    /** Opt-in evidence-based inference for unnumbered Chinese collection titles. */
+    val detectUnnumberedTitles: Boolean = false,
+    /** Existing first chapter metadata, supplied only while reconstructing a book for resplitting. */
+    val reconstructedFirstTitle: String = ""
 )
 
 data class Book(

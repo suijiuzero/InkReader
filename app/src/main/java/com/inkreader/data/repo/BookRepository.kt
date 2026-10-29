@@ -103,7 +103,8 @@ class BookRepository(context: Context) {
         try { return bookWrite(bookId) { runInterruptible {
         val source = BookSource.create(File(appContext.cacheDir, "resplit-source"), bookId, db.chaptersOf(bookId), files).also { created = it }
         try {
-            var selected = options.copy(stripLeadingTitle = false, textEncoding = "UTF-8", sourceFingerprint = source.fingerprint)
+            var selected = options.copy(stripLeadingTitle = false, textEncoding = "UTF-8", sourceFingerprint = source.fingerprint,
+                reconstructedFirstTitle = db.chaptersOf(bookId).firstOrNull()?.title.orEmpty())
             if (options.useSavedCorrections) indexedTxt.withDocument(source.file.name, selected, { source.file.inputStream() }) { document ->
                 val memory = ChapterCorrections.resolve(document.text.lines, corrections.load(bookId))
                 selected = selected.copy(
@@ -1299,6 +1300,7 @@ class BookRepository(context: Context) {
         val normalized = ChapterSplitter.normalize(fullText)
         val memory = if (options.useSavedCorrections) ChapterCorrections.resolve(normalized.split('\n'), corrections.load(bookId)) else null
         val effectiveOptions = options.copy(
+            reconstructedFirstTitle = oldChapters.first().title,
             ignoredHeadingLines = (memory?.ignored.orEmpty() - options.forcedHeadingLines) + options.ignoredHeadingLines,
             forcedHeadingLines = (memory?.confirmed.orEmpty() - options.ignoredHeadingLines) + options.forcedHeadingLines)
         val newParts = ChapterSplitter.split(normalized, book.title, effectiveOptions)

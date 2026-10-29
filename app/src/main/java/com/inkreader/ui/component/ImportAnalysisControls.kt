@@ -108,6 +108,7 @@ fun ImportAnalysisControls(
                             val reason = when {
                                 HeadingReason.USER_IGNORED in decision.reasons -> R.string.analysis_reason_ignored
                                 HeadingReason.NUMBER_RECOVERY in decision.reasons -> R.string.analysis_reason_recovery
+                                HeadingReason.UNNUMBERED_TITLE in decision.reasons -> R.string.analysis_reason_unnumbered
                                 HeadingReason.LOCAL_STYLE in decision.reasons -> R.string.analysis_reason_local
                                 HeadingReason.NUMBER_SEQUENCE in decision.reasons -> R.string.analysis_reason_sequence
                                 else -> R.string.analysis_reason_shape
@@ -120,5 +121,19 @@ fun ImportAnalysisControls(
                     style = InkType.Caption, color = p.textSecondary)
             }
         }
+    }
+}
+
+@Composable
+fun UnnumberedTitleControls(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val p = LocalInkPalette.current
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch,
+            onValueChange = onCheckedChange), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.analysis_unnumbered_title), modifier = Modifier.weight(1f),
+                style = InkType.UiLabel, color = p.textPrimary)
+            Switch(checked = checked, onCheckedChange = null)
+        }
+        Text(stringResource(R.string.analysis_unnumbered_hint), style = InkType.Caption, color = p.textSecondary)
     }
 }

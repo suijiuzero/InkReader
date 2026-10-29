@@ -50,6 +50,7 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
             source.file.reader(Charsets.UTF_8).use { IndexedText.build(it, temp(), firstMap) }.use { original ->
                 val memory = if (options.useSavedCorrections) ChapterCorrections.resolve(original.lines, corrections.load(book.id)) else null
                 val effective = options.copy(stripLeadingTitle = false,
+                    reconstructedFirstTitle = chapters.firstOrNull()?.title.orEmpty(),
                     ignoredHeadingLines = (memory?.ignored.orEmpty() - options.forcedHeadingLines) + options.ignoredHeadingLines,
                     forcedHeadingLines = (memory?.confirmed.orEmpty() - options.ignoredHeadingLines) + options.forcedHeadingLines)
                 val document = PreparedTxt(original, CharsetDetector.Result(Charsets.UTF_8, 0), source.fingerprint, effective)
