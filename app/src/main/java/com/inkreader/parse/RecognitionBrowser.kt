@@ -2,7 +2,8 @@ package com.inkreader.parse
 
 /** 全书校对按页返回标题与短上下文，不把整本正文交给界面。 */
 object RecognitionBrowser {
-    data class Row(val line: Int, val title: String, val context: String, val selected: Boolean, val editable: Boolean)
+    data class Row(val line: Int, val title: String, val context: String, val selected: Boolean, val editable: Boolean,
+        val modelSuggestion: Boolean = false)
     data class Page(val fingerprint: String, val rows: List<Row>, val total: Int, val page: Int,
         val chapters: Int, val sourceLines: Int, val sourceView: Boolean)
 
@@ -32,7 +33,7 @@ object RecognitionBrowser {
             val length = (lines as? SizedLines)?.characters(i, true) ?: title.length
             val near = ((i - 1).coerceAtLeast(0)..minOf(lines.lastIndex, i + 3)).filter { it != i && lines[it].isNotBlank() }
                 .take(2).joinToString("\n") { lines[it].trim().take(140) }
-            Row(i + 1, title, near, i in selected, title.isNotEmpty() && length <= 200)
+            Row(i + 1, title, near, i in selected, title.isNotEmpty() && length <= 200, i in document.plan.modelLines)
         }
         return Page(document.fingerprint, rows, candidates.size, if (sourceView) 0 else safePage,
             document.sections.size, lines.size, sourceView)

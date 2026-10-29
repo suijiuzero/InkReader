@@ -1,7 +1,7 @@
 package com.inkreader.parse
 
 /** Scores are rule evidence, not calibrated probabilities. Lines refer to normalized source TXT. */
-enum class HeadingReason { TITLE_SHAPE, ISOLATED_LINE, NUMBER_SEQUENCE, LOCAL_STYLE, NUMBER_RECOVERY, USER_IGNORED, USER_CONFIRMED, SEQUENCE_ALTERNATIVE, UNNUMBERED_TITLE }
+enum class HeadingReason { TITLE_SHAPE, ISOLATED_LINE, NUMBER_SEQUENCE, LOCAL_STYLE, NUMBER_RECOVERY, USER_IGNORED, USER_CONFIRMED, SEQUENCE_ALTERNATIVE, UNNUMBERED_TITLE, MODEL_SUGGESTION }
 
 data class HeadingDecision(
     val line: Int,
@@ -31,5 +31,6 @@ data class ChapterPlan(
     val mergeLeadingBody: Boolean,
     val truncated: Boolean,
     val reviewLines: List<Int> = emptyList(),
-    val doubtLines: Set<Int> = emptySet()
+    val doubtLines: Set<Int> = emptySet(),
+    val modelLines: Set<Int> = emptySet()
 )

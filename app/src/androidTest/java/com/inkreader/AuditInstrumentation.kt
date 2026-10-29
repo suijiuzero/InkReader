@@ -76,7 +76,8 @@ class AuditInstrumentation : Instrumentation() {
                     val repository = BookRepository(isolated)
                     try { SourceV2Checks.run(this@AuditInstrumentation, isolated, repository,
                         if (auditArguments?.getString("sourceV3") == "true") "real-source-v3" else "real-source-v2",
-                        unnumbered = auditArguments?.getString("unnumbered") == "true") }
+                        unnumbered = auditArguments?.getString("unnumbered") == "true",
+                        model = auditArguments?.getString("model") == "true") }
                     finally { repository.db.close() }
                 }
                 results.putString("stream", report.toString(2))

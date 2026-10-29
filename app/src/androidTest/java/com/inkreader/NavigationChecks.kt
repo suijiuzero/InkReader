@@ -223,6 +223,56 @@ object NavigationChecks {
             same(savedSettings, context.getString(R.string.help_title))
             back(); same(savedShelf, "Nav book")
             passed += "serialized navigation stack restores settings and shelf scroll after composition recreation"
+            val modelFile = java.io.File(context.cacheDir, "model-ui.txt").apply {
+                writeBytes(runner.context.assets.open("real-source-v3/C19A.txt").use { it.readBytes() })
+            }
+            val modelUri = android.net.Uri.fromFile(modelFile)
+            val source = modelFile.readText()
+            val gold = com.inkreader.parse.SourceGold.read(runner.context.assets.open("real-source-v3/C19A.gold").bufferedReader().use { it.readText() }, source)
+            val normalized = com.inkreader.parse.SourceGold.normalizeContract(source)
+            val options = com.inkreader.data.model.SplitOptions(cleanWatermark = false, modelSuggestions = true)
+            val plan = com.inkreader.parse.ChapterSplitter.plan(normalized.lines(), normalized.length, options)
+            val suggestedLine = plan.modelLines.first { it + 1 in gold.lines }
+            val suggestedTitle = normalized.lines()[suggestedLine].trim()
+            val modelBook = runBlocking {
+                container.repo.importDocuments(listOf(modelUri), com.inkreader.data.model.ImportMode.SEPARATE,
+                    customTitle = null,
+                    splitOptions = options.copy(modelSuggestions = false)) { _, _ -> }.bookIds.single()
+            }
+            runner.runOnMainSync { activity.setContent {
+                com.inkreader.ui.theme.InkTheme {
+                    com.inkreader.ui.bookdetail.BookDetailScreen(container, modelBook, {}, { _, _ -> }, { _, _ -> })
+                }
+            } }
+            await("Model detail not loaded") { find(context.getString(R.string.detail_chapter_management)) != null }
+            click(context.getString(R.string.action_more)); click(context.getString(R.string.detail_resplit_book))
+            val modelLabel = context.getString(R.string.analysis_model_title)
+            repeat(10) { if (find(modelLabel) == null) scroll() }
+            fun modelSwitch(): AccessibilityNodeInfo? {
+                var node = find(modelLabel)
+                while (node != null && !node.isCheckable) node = node.parent
+                return node
+            }
+            check(modelSwitch()?.isChecked == false) { "Model assistance must default off" }
+            click(modelLabel)
+            check(modelSwitch()?.isChecked == true) { "Model switch did not enable" }
+            passed += "real resplit dialog exposes a default-off model switch"
+            repeat(10) {
+                if (find(context.getString(R.string.center_title)) == null) {
+                    check(visible().first { it.isScrollable }.performAction(AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD))
+                    settle()
+                }
+            }
+            click(context.getString(R.string.center_title))
+            val rowLabel = "${suggestedLine + 1} · $suggestedTitle"
+            await("Model suggestion absent from correction UI") { find(rowLabel) != null }
+            check(runBlocking { container.repo.chapters(modelBook) }.none { it.title == suggestedTitle })
+            click(rowLabel); click(context.getString(R.string.center_apply))
+            click(context.getString(R.string.detail_resplit_confirm))
+            await("Confirmed model suggestion was not used") {
+                runBlocking { container.repo.chapters(modelBook) }.any { it.title == suggestedTitle }
+            }
+            passed += "model suggestion remains unchecked until user confirms it in the actual review UI"
             return passed
         } finally {
             runner.runOnMainSync { container.diagnostics.changeEnabled(false) }

@@ -81,6 +81,7 @@ fun RecognitionCenter(repo: BookRepository, uri: Uri, initial: SplitOptions,
                                 Text("${row.line} · ${row.title}", color = p.textPrimary, maxLines = 2,
                                     overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                             }
+                            if (row.modelSuggestion && !row.selected) Text(stringResource(R.string.analysis_model_pending), color = p.accent, style = InkType.Caption)
                             if (row.context.isNotBlank()) Text(row.context, color = p.textSecondary, style = InkType.Caption,
                                 maxLines = 3, overflow = TextOverflow.Ellipsis)
                         }

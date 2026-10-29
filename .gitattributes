@@ -25,3 +25,4 @@ tests/fixtures/recognition-eval/manifest.tsv -text -whitespace
 tests/fixtures/real-source/* -text -whitespace
 tests/fixtures/real-source-v2/* -text -whitespace
 tests/fixtures/real-source-v3/* -text -whitespace
+tests/fixtures/heading-training-extra/* -text -whitespace

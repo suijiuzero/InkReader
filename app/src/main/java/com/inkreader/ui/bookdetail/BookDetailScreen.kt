@@ -1081,6 +1081,7 @@ fun BookDetailScreen(
         var customPattern by remember { mutableStateOf("") }
         var cleanWatermark by remember { mutableStateOf(true) }
         var unnumberedTitles by remember { mutableStateOf(false) }
+        var modelSuggestions by remember { mutableStateOf(false) }
         var useMemory by remember { mutableStateOf(true) }
         var savedCount by remember { mutableStateOf(0) }
         LaunchedEffect(bookId) { savedCount = container.repo.savedCorrectionCount(bookId) }
@@ -1106,7 +1107,7 @@ fun BookDetailScreen(
                                     SplitOptions(
                                         mode = resplitMode,
                                         cleanWatermark = cleanWatermark,
-                                        detectUnnumberedTitles = unnumberedTitles,
+                                        detectUnnumberedTitles = unnumberedTitles, modelSuggestions = modelSuggestions,
                                         customPattern = customPattern.trim(), useSavedCorrections = useMemory,
                                         ignoredHeadingLines = manualOptions.ignoredHeadingLines,
                                         forcedHeadingLines = manualOptions.forcedHeadingLines,
@@ -1167,7 +1168,7 @@ fun BookDetailScreen(
                 if (!preparing) { preparing = true
                     scope.launch {
                         try { preview = container.repo.prepareResplitSource(bookId, manualOptions.copy(
-                            mode = resplitMode, cleanWatermark = cleanWatermark, detectUnnumberedTitles = unnumberedTitles,
+                            mode = resplitMode, cleanWatermark = cleanWatermark, detectUnnumberedTitles = unnumberedTitles, modelSuggestions = modelSuggestions,
                             customPattern = customPattern.trim(), useSavedCorrections = useMemory)) }
                         finally { preparing = false }
                     }
@@ -1216,6 +1217,7 @@ fun BookDetailScreen(
 
             if (resplitMode == SplitMode.SMART) {
                 com.inkreader.ui.component.UnnumberedTitleControls(unnumberedTitles) { unnumberedTitles = it }
+                com.inkreader.ui.component.ModelSuggestionControls(modelSuggestions) { modelSuggestions = it }
             }
             Spacer(Modifier.height(12.dp))
             Row(

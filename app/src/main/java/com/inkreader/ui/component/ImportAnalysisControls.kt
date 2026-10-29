@@ -74,6 +74,8 @@ fun ImportAnalysisControls(
         }
         if (analysis != null) {
             if (singleFile && onOpenFull != null) InkTextButton(stringResource(R.string.center_title), onClick = onOpenFull)
+            if (analysis.decisions.any { HeadingReason.MODEL_SUGGESTION in it.reasons && !it.accepted })
+                Text(stringResource(R.string.analysis_model_review), style = InkType.Caption, color = p.accent)
             if (analysis.skippedTocEntries > 0) Text(stringResource(R.string.analysis_toc, analysis.skippedTocEntries),
                 style = InkType.Caption, color = p.textSecondary)
             if (analysis.usedSizeFallback) Text(stringResource(R.string.analysis_fallback),
@@ -135,5 +137,19 @@ fun UnnumberedTitleControls(checked: Boolean, onCheckedChange: (Boolean) -> Unit
             Switch(checked = checked, onCheckedChange = null)
         }
         Text(stringResource(R.string.analysis_unnumbered_hint), style = InkType.Caption, color = p.textSecondary)
+    }
+}
+
+@Composable
+fun ModelSuggestionControls(checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+    val p = LocalInkPalette.current
+    Column(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+        Row(Modifier.fillMaxWidth().toggleable(value = checked, role = Role.Switch,
+            onValueChange = onCheckedChange), verticalAlignment = Alignment.CenterVertically) {
+            Text(stringResource(R.string.analysis_model_title), modifier = Modifier.weight(1f),
+                style = InkType.UiLabel, color = p.textPrimary)
+            Switch(checked = checked, onCheckedChange = null)
+        }
+        Text(stringResource(R.string.analysis_model_hint), style = InkType.Caption, color = p.textSecondary)
     }
 }

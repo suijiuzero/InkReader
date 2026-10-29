@@ -56,4 +56,8 @@
     <string name="analysis_unnumbered_title">番号のない中国語篇名を認識</string>
     <string name="analysis_unnumbered_hint">中国語の短編集・随筆集向け。独立した短い見出し、空行、本文の長さから推測します。初期状態はオフで、番号付きの章を優先します。プレビューで確認・修正してください。</string>
     <string name="analysis_reason_unnumbered">番号なしの篇名（レイアウトから推測・要確認）</string>
+    <string name="analysis_model_title">墨閲モデルの補助（実験）</string>
+    <string name="analysis_model_hint">独自に訓練した見出し分類器を端末内で実行します。追加の提案は全書校正の疑点一覧に表示し、選択して確認した場合のみ分割します。初期状態はオフ、1ファイル最大200件。本文の送信や私有書籍の自動学習は行いません。</string>
+    <string name="analysis_model_pending">モデルの提案・確認するまで分割しません</string>
+    <string name="analysis_model_review">モデルの提案があります。全書校正で確認して選択してください。</string>
 </resources>

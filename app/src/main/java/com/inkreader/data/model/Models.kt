@@ -90,7 +90,9 @@ data class SplitOptions(
     /** Opt-in evidence-based inference for unnumbered Chinese collection titles. */
     val detectUnnumberedTitles: Boolean = false,
     /** Existing first chapter metadata, supplied only while reconstructing a book for resplitting. */
-    val reconstructedFirstTitle: String = ""
+    val reconstructedFirstTitle: String = "",
+    /** Trained on-device model suggests extra boundaries for explicit review; never auto-cuts. */
+    val modelSuggestions: Boolean = false
 )
 
 data class Book(

@@ -14,7 +14,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 
 object SourceV2Checks {
-    suspend fun run(runner: Instrumentation, context: Context, repo: BookRepository, root: String = "real-source-v2", unnumbered: Boolean = false): JSONObject {
+    suspend fun run(runner: Instrumentation, context: Context, repo: BookRepository, root: String = "real-source-v2", unnumbered: Boolean = false, model: Boolean = false): JSONObject {
         val assets = runner.context.assets
         val hashes = JSONObject(assets.open("$root/frozen-sha256.json").bufferedReader().use { it.readText() })
         val rows = assets.open("$root/manifest.tsv").bufferedReader().use { it.readLines() }.drop(1).filter { it.isNotBlank() }
@@ -33,10 +33,24 @@ object SourceV2Checks {
                 }
                 val source = bytes("$id.txt")
                 val gold = SourceGold.read(String(bytes("$id.gold"), Charsets.UTF_8), String(source, Charsets.UTF_8))
-                val options = SplitOptions(cleanWatermark = false, detectUnnumberedTitles = unnumbered)
+                val options = SplitOptions(cleanWatermark = false, detectUnnumberedTitles = unnumbered, modelSuggestions = model)
                 val expected = ChapterSplitter.analyze(ChapterSplitter.normalize(String(source, Charsets.UTF_8)), options = options)
                 val score = SourceGold.score(expected, gold, root.endsWith("-v3"))
                 val file = File(context.cacheDir, "$id.txt").apply { writeBytes(source) }
+                if (model) {
+                    val text = ChapterSplitter.normalize(String(source, Charsets.UTF_8))
+                    val plan = ChapterSplitter.plan(text.lines(), text.length, options)
+                    check(plan.headings == ChapterSplitter.plan(text.lines(), text.length, options.copy(modelSuggestions = false)).headings) { "Model silently changed split boundaries" }
+                    val suggestion = plan.modelLines.firstOrNull()
+                    if (suggestion != null) {
+                        val review = repo.recognitionPage(Uri.fromFile(file), options, "#${suggestion + 1}", 0, true)
+                        check(review.rows.first().modelSuggestion && !review.rows.first().selected) { "Model suggestion missing or auto-selected" }
+                        val confirmed = repo.previewImport(listOf(Uri.fromFile(file)), ImportMode.SEPARATE,
+                            options.copy(forcedHeadingLines = setOf(suggestion + 1)), ImportOrder.SELECTION)
+                        check(confirmed.analysis?.decisions?.any { it.line == suggestion + 1 && it.accepted } == true) { "Explicit confirmation was not applied" }
+                    }
+                    report.put("modelSuggestions", plan.modelLines.size)
+                }
                 val preview = repo.previewImport(listOf(Uri.fromFile(file)), ImportMode.SEPARATE, options, ImportOrder.SELECTION)
                 val result = repo.importDocuments(listOf(Uri.fromFile(file)), ImportMode.SEPARATE, null,
                     splitOptions = options, fileOrder = ImportOrder.SELECTION) { _, _ -> }

@@ -59,4 +59,8 @@
     <string name="analysis_unnumbered_title">Detect unnumbered Chinese titles</string>
     <string name="analysis_unnumbered_hint">For Chinese story and essay collections: uses isolated short titles, blank lines and body length. Off by default; numbered chapters take priority. Preview and correct inferred titles before importing.</string>
     <string name="analysis_reason_unnumbered">Unnumbered title (inferred from layout; please review)</string>
+    <string name="analysis_model_title">Ink Reader model assistance (experimental)</string>
+    <string name="analysis_model_hint">Runs our trained title classifier on this device. Extra suggestions appear in full-book review and require explicit confirmation before splitting. Off by default; up to 200 per file. No text upload or automatic training on private books.</string>
+    <string name="analysis_model_pending">Model suggestion · confirm before splitting</string>
+    <string name="analysis_model_review">Model suggestions found. Open full-book review to inspect and confirm them.</string>
 </resources>

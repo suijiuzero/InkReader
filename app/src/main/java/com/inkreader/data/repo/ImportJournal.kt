@@ -52,6 +52,7 @@ class ImportJournal(private val context: Context, private val repo: BookReposito
         .put("ignored", JSONArray(options.ignoredHeadingLines.toList())).put("forced", JSONArray(options.forcedHeadingLines.toList()))
         .put("remember", options.rememberCorrections).put("memory", options.useSavedCorrections).put("fingerprint", options.sourceFingerprint)
         .put("unnumbered", options.detectUnnumberedTitles)
+        .put("modelSuggestions", options.modelSuggestions)
     private fun decode(json: JSONObject): SplitOptions {
         fun lines(name: String): Set<Int> = json.getJSONArray(name).let { array ->
             require(array.length() <= 10000); (0 until array.length()).map { array.getInt(it).also { line -> require(line > 0) } }.toSet()
@@ -60,7 +61,8 @@ class ImportJournal(private val context: Context, private val repo: BookReposito
             customPattern = json.getString("pattern"), fixedChunkChars = json.getInt("chunk"), textEncoding = json.getString("encoding"),
             ignoredHeadingLines = lines("ignored"), forcedHeadingLines = lines("forced"),
             rememberCorrections = json.getBoolean("remember"), useSavedCorrections = json.getBoolean("memory"),
-            sourceFingerprint = json.getString("fingerprint"), detectUnnumberedTitles = json.optBoolean("unnumbered", false))
+            sourceFingerprint = json.getString("fingerprint"), detectUnnumberedTitles = json.optBoolean("unnumbered", false),
+            modelSuggestions = json.optBoolean("modelSuggestions", false))
         require(options.ignoredHeadingLines.size + options.forcedHeadingLines.size <= 10000)
         return options
     }

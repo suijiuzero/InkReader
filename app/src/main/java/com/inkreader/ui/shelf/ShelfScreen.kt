@@ -1048,6 +1048,7 @@ private fun ImportDialog(
     var customPattern by remember { mutableStateOf("") }
     var cleanWatermark by remember { mutableStateOf(true) }
     var unnumberedTitles by remember { mutableStateOf(false) }
+    var modelSuggestions by remember { mutableStateOf(false) }
 
     var textEncoding by remember(uris) { mutableStateOf("") }
     var rememberCorrections by remember(uris) { mutableStateOf(true) }
@@ -1059,11 +1060,11 @@ private fun ImportDialog(
     var preview by remember { mutableStateOf<BookRepository.ImportPreview?>(null) }
     var previewLoading by remember { mutableStateOf(false) }
 
-    val currentOptions = remember(splitMode, cleanWatermark, unnumberedTitles, customPattern, textEncoding, ignoredLines, forcedLines, sourceFingerprint, rememberCorrections) {
+    val currentOptions = remember(splitMode, cleanWatermark, unnumberedTitles, modelSuggestions, customPattern, textEncoding, ignoredLines, forcedLines, sourceFingerprint, rememberCorrections) {
         SplitOptions(
             mode = splitMode,
             cleanWatermark = cleanWatermark,
-            detectUnnumberedTitles = unnumberedTitles,
+            detectUnnumberedTitles = unnumberedTitles, modelSuggestions = modelSuggestions,
             customPattern = customPattern.trim(),
             textEncoding = textEncoding,
             ignoredHeadingLines = if (uris.size == 1) ignoredLines else emptySet(),
@@ -1266,6 +1267,7 @@ private fun ImportDialog(
 
         if (splitMode == SplitMode.SMART || splitMode == SplitMode.IN_FILE) {
             com.inkreader.ui.component.UnnumberedTitleControls(unnumberedTitles) { unnumberedTitles = it }
+            if (fileCount == 1) com.inkreader.ui.component.ModelSuggestionControls(modelSuggestions) { modelSuggestions = it }
         }
 
         Spacer(Modifier.height(14.dp))

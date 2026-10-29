@@ -450,12 +450,19 @@ object ChapterSplitter {
         val natural = if (options.detectUnnumberedTitles && regionalCandidates.isEmpty() &&
             options.mode in setOf(SplitMode.SMART, SplitMode.IN_FILE)) UnnumberedTitles.find(lines, fenced, options.reconstructedFirstTitle).toHashSet() else emptySet()
         val regional = (regionalCandidates + natural).filterNot { it in skippedToc }.distinct().sorted()
-        if (regional.isEmpty() && options.forcedHeadingLines.isEmpty())
+        val suggestions = if (options.modelSuggestions && options.mode in setOf(SplitMode.SMART, SplitMode.IN_FILE))
+            HeadingModel.suggest(lines, fenced, (regional + skippedToc).toHashSet()) else emptyList()
+        if (regional.isEmpty() && options.forcedHeadingLines.isEmpty() && suggestions.isEmpty())
             return ChapterPlan(emptyList(), emptyList(), emptyList(), 0, false, false)
         val recovered = recoverNumberGaps(lines, regional)
         val scored = scoreHeadings(lines, canonical, fenced, recovered).toMutableList()
         for (i in scored.indices) if (scored[i].line - 1 in natural) scored[i] = scored[i].copy(
             score = 74, reasons = scored[i].reasons + HeadingReason.UNNUMBERED_TITLE)
+        val existing = scored.map { it.line - 1 }.toHashSet()
+        suggestions.filterNot { it.index in existing }.forEach {
+            scored += HeadingDecision(it.index + 1, lines[it.index].trim(), (it.score * 100).toInt(),
+                setOf(HeadingReason.MODEL_SUGGESTION), false)
+        }
         val sequenceChoice = SequencePlanner.resolve(lines, scored)
         for (i in scored.indices) {
             val decision = scored[i]
@@ -482,7 +489,7 @@ object ChapterSplitter {
             scored.take(500).forEach { decision ->
                 val idx = decision.line - 1
                 val reasons = decision.reasons.toMutableSet()
-                if (idx !in regionalSet) reasons += HeadingReason.NUMBER_RECOVERY
+                if (idx !in regionalSet && HeadingReason.MODEL_SUGGESTION !in reasons) reasons += HeadingReason.NUMBER_RECOVERY
                 if (idx in regionalSet && idx !in globalSet) reasons += HeadingReason.LOCAL_STYLE
                 if (decision.line in options.ignoredHeadingLines) reasons += HeadingReason.USER_IGNORED
                 decisions += decision.copy(reasons = reasons,
@@ -495,7 +502,8 @@ object ChapterSplitter {
             skippedToc.isNotEmpty() || selected.firstOrNull()?.let { it + 1 in options.ignoredHeadingLines } == true,
             scored.size > 500, scored.map { it.line - 1 },
             scored.filter { !it.accepted || it.score < 74 || HeadingReason.SEQUENCE_ALTERNATIVE in it.reasons ||
-                HeadingReason.UNNUMBERED_TITLE in it.reasons }.map { it.line - 1 }.toSet())
+                HeadingReason.UNNUMBERED_TITLE in it.reasons }.map { it.line - 1 }.toSet(),
+            scored.filter { HeadingReason.MODEL_SUGGESTION in it.reasons }.map { it.line - 1 }.toSet())
     }
 
     private fun lineCharacters(lines: List<String>, index: Int, trim: Boolean = false): Int =

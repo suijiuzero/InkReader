@@ -1,8 +1,15 @@
 # Ink Reader — User Guide
 
-For version 1.15.2. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
+For version 1.16.0. Reading works offline without an account or ads. A paired Windows computer on your trusted LAN can optionally provide speech.
 
 Returning from a book or a child page restores the previous scroll position, including Settings after opening this guide. Grid and list views remember separate positions. Returning to search keeps the query and result position; closing search and opening it again starts fresh.
+
+## Our own heading model (experimental)
+
+Enable Ink Reader model assistance for smart import or resplitting of a single TXT. This classifier is trained from project labels and runs locally. It does not upload book text or automatically train on private books.
+
+Extra suggestions do not split the book automatically. Open full-book review, inspect the unchecked model suggestions in context, select the boundaries you accept, apply changes, and then confirm import/resplitting. Up to 200 suggestions per file; batch import does not expose this switch. False positives and misses remain possible; scores are not calibrated accuracy probabilities.
+
 
 ## Unnumbered Chinese titles (TXT, optional)
 

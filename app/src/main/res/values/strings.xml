@@ -58,4 +58,8 @@
     <string name="analysis_unnumbered_title">识别无编号篇名</string>
     <string name="analysis_unnumbered_hint">适用于中文小说集、散文集：结合独立短标题、留白与正文长度识别。默认关闭；有编号章节优先，请先预览并校正误识别。</string>
     <string name="analysis_reason_unnumbered">无编号篇名（根据排版推测，请核对）</string>
+    <string name="analysis_model_title">墨阅模型辅助（实验）</string>
+    <string name="analysis_model_hint">本机运行我们训练的标题分类器，额外建议放入全书校对的疑点列表，勾选确认后才分章。默认关闭，每份文件最多建议 200 处；不会上传正文或自动学习私人书籍。</string>
+    <string name="analysis_model_pending">墨阅模型建议 · 待确认，不会自动切章</string>
+    <string name="analysis_model_review">发现模型建议，请进入「全书校对」查看疑点并勾选确认。</string>
 </resources>
