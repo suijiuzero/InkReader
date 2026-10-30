@@ -180,7 +180,6 @@ class BookRepository(context: Context) {
                 cancellation.ensureActive()
                 val fileName = files.newFileName(); staged += fileName
                 val count = document.reader(section).use { files.write(fileName, it) }
-                if (count == 0) throw ParseException(ParseErrorCode.NO_CONTENT)
                 chars += count
                 val heading = if (options.mode == SplitMode.PER_FILE) ChapterSplitter.titleFromFileName(name) else section.title
                 check(db.insertChapter(Chapter(bookId = id, indexInBook = i, title = heading, fileName = fileName,
@@ -192,6 +191,7 @@ class BookRepository(context: Context) {
             }
             cancellation.ensureActive()
             check(document.sections.isNotEmpty())
+            if (chars == 0) throw ParseException(ParseErrorCode.NO_CONTENT)
             db.updateBookStats(id, document.sections.size, chars)
             recordImportReceipt(receipt, id)
             id to document.sections.size
@@ -218,7 +218,6 @@ class BookRepository(context: Context) {
                 cancellation.ensureActive()
                 val file = files.newFileName(); staged += file
                 val count = document.normalizedReader(section).use { files.write(file, it) }
-                if (count == 0) throw ParseException(ParseErrorCode.NO_CONTENT)
                 totalChars += count; if (totalChars > Int.MAX_VALUE) throw ParseException(ParseErrorCode.TOO_LARGE)
                 val id = db.insertChapter(Chapter(bookId = bookId, indexInBook = firstIndex + i, title = section.title,
                     fileName = file, charCount = count, sourceName = name, volume = section.volume))
@@ -229,6 +228,7 @@ class BookRepository(context: Context) {
                 }
             }
             cancellation.ensureActive(); check(units.isNotEmpty())
+            if (totalChars == book.totalChars.toLong()) throw ParseException(ParseErrorCode.NO_CONTENT)
             refreshStats(bookId)
             recordImportReceipt(receipt, bookId, inserted.map { it.first })
         } } catch (t: Throwable) { staged.forEach { files.deleteChapter(it) }; throw t }

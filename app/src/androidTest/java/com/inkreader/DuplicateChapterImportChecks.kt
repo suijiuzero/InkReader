@@ -11,7 +11,7 @@ import java.io.File
 object DuplicateChapterImportChecks {
     suspend fun run(context: Context): JSONObject {
         val repo = BookRepository(context)
-        val prose = "This complete paragraph must remain after duplicate-heading cleanup. ".repeat(15)
+        val prose = "This complete paragraph must remain after duplicate-heading cleanup. ".repeat(15).trim()
         val source = "第五十八章 出发\n\n$prose\n\n第59章 到达\n\n正文\n\n第59章 到达\n\n$prose\n\n第60章 归来\n\n$prose"
         val file = File(context.cacheDir, "duplicate-content-marker.txt").apply { writeText(source) }
         val options = SplitOptions(cleanWatermark = false)
@@ -34,7 +34,15 @@ object DuplicateChapterImportChecks {
             check(empty.failed.isEmpty())
             val empties = repo.chapters(empty.bookIds.single())
             check(empties.size == 2 && repo.chapterText(empties.first()).isEmpty() && repo.chapterText(empties.last()) == prose)
-            return JSONObject().put("passed", 3).put("emptyChapterDoesNotInventBody", true).put("freshImport", true).put("existingBookResplit", true).put("allProsePreserved", true)
+            val merged = repo.importResumable(listOf(Uri.fromFile(file)), ImportMode.MERGE, "Empty chapter merge", options.copy(cleanWatermark = true), ImportOrder.SELECTION) { _, _ -> }
+            check(merged.failed.isEmpty())
+            val mergedChapters = repo.chapters(merged.bookIds.single())
+            check(mergedChapters.size == 2 && repo.chapterText(mergedChapters.first()).isEmpty())
+            val before = repo.books(ShelfSort.ADDED).size
+            file.writeText("第14章 空章\n\n第15章 空章")
+            val blank = repo.importResumable(listOf(Uri.fromFile(file)), ImportMode.SEPARATE, null, options.copy(cleanWatermark = true), ImportOrder.SELECTION) { _, _ -> }
+            check(blank.failed.isNotEmpty() && repo.books(ShelfSort.ADDED).size == before)
+            return JSONObject().put("passed", 5).put("emptyMergeWorks", true).put("allEmptySourceRollsBack", true).put("emptyChapterDoesNotInventBody", true).put("freshImport", true).put("existingBookResplit", true).put("allProsePreserved", true)
         } finally { repo.db.close() }
     }
 }
