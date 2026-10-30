@@ -6,7 +6,9 @@ import java.util.zip.ZipInputStream
 
 /** Count every inflated entry, including media that is discarded; never return a partial document. */
 internal object DocxArchive {
-    private val selected = setOf("word/document.xml", "word/document2.xml", "word/styles.xml", "docProps/core.xml")
+    private val selected = setOf("word/document.xml", "word/document2.xml", "word/styles.xml", "docProps/core.xml",
+        "word/_rels/document.xml.rels", "word/_rels/document2.xml.rels")
+    private val mediaExtensions = setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
 
     fun read(input: InputStream, maxEntry: Long = 64L * 1024 * 1024, maxRetained: Long = 128L * 1024 * 1024,
              maxInflated: Long = 256L * 1024 * 1024, maxEntries: Int = 10000): Map<String, ByteArray> {
@@ -17,12 +19,15 @@ internal object DocxArchive {
         val buffer = ByteArray(32768)
         ZipInputStream(input.buffered()).use { zip ->
             while (true) {
+                ParseCancellation.checkpoint()
                 val entry = zip.nextEntry ?: break
                 check(++entries <= maxEntries) { "Word 条目过多" }
-                val keep = !entry.isDirectory && entry.name in selected
+                val keep = !entry.isDirectory && (entry.name in selected ||
+                    entry.name.startsWith("word/media/") && entry.name.substringAfterLast('.').lowercase(java.util.Locale.ROOT) in mediaExtensions)
                 val data = if (keep) ByteArrayOutputStream() else null
                 var size = 0L
                 while (true) {
+                    ParseCancellation.checkpoint()
                     val count = zip.read(buffer)
                     if (count < 0) break
                     inflated += count

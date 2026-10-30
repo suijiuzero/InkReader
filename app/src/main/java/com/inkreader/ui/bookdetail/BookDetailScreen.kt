@@ -75,6 +75,7 @@ import com.inkreader.AppContainer
 import com.inkreader.MainActivity
 import com.inkreader.R
 import com.inkreader.data.export.BookExporter
+import com.inkreader.data.export.ExportFormat
 import com.inkreader.data.model.Book
 import com.inkreader.data.model.Chapter
 import com.inkreader.data.model.SplitMode
@@ -163,7 +164,10 @@ fun BookDetailScreen(
     var exporting by remember { mutableStateOf(false) }
     var exportProgress by remember { mutableStateOf(0f) }
     var showChapterPicker by remember { mutableStateOf(false) }
-    var pendingExport by remember { mutableStateOf<Pair<List<Chapter>, Boolean>?>(null) }
+    var pendingExport by remember { mutableStateOf<Triple<List<Chapter>, Boolean, ExportFormat>?>(null) }
+    var exportChoice by remember { mutableStateOf<Pair<List<Chapter>, Boolean>?>(null) }
+    var exportFormat by remember { mutableStateOf(ExportFormat.TXT) }
+    var exportTask by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
 
     fun reload() {
         scope.launch {
@@ -373,21 +377,23 @@ fun BookDetailScreen(
         } finally { busy = false; detailProgress = null } }
     }
 
-    fun runExport(targets: List<Chapter>, includeHeader: Boolean) {
+    fun runExport(targets: List<Chapter>, includeHeader: Boolean, format: ExportFormat) {
         val b = book ?: return
         if (targets.isEmpty()) return
         exporting = true
+        exportFormat = format
         exportProgress = 0f
-        scope.launch {
+        exportTask = scope.launch {
             val outcome = runCatching {
-                BookExporter.export(
-                    context = ctx,
-                    book = b,
-                    chapters = targets,
-                    includeHeader = includeHeader,
-                    readChapter = { ch -> container.repo.chapterText(ch) },
-                    onProgress = { f -> scope.launch { exportProgress = f } }
-                )
+                val snapshot = container.repo.createExportSnapshot(b.id, targets.map { it.id })
+                try {
+                    BookExporter.export(
+                        context = ctx, book = snapshot.book, chapters = snapshot.chapters,
+                        includeHeader = includeHeader, readChapter = { snapshot.text(it) },
+                        format = format, readRich = { snapshot.rich(it) }, imageFile = snapshot::image,
+                        onProgress = { f -> scope.launch { exportProgress = f } }
+                    )
+                } finally { kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable + kotlinx.coroutines.Dispatchers.IO) { snapshot.close() } }
             }
             exporting = false
             exportProgress = 1f
@@ -401,11 +407,12 @@ fun BookDetailScreen(
                     Toast.makeText(ctx, tip, Toast.LENGTH_LONG).show()
                     runCatching {
                         ctx.startActivity(
-                            Intent.createChooser(r.shareIntent, ctx.getString(R.string.detail_share_txt))
+                            Intent.createChooser(r.shareIntent, ctx.getString(R.string.export_share_file))
                         )
                     }
                 }
                 .onFailure { e ->
+                    if (e is kotlinx.coroutines.CancellationException) return@onFailure
                     Toast.makeText(
                         ctx,
                         ctx.getString(
@@ -423,19 +430,23 @@ fun BookDetailScreen(
     ) { _ ->
         val pending = pendingExport
         pendingExport = null
-        if (pending != null) runExport(pending.first, pending.second)
+        if (pending != null) runExport(pending.first, pending.second, pending.third)
     }
 
-    fun startExport(targets: List<Chapter>, includeHeader: Boolean) {
+    fun startChosenExport(targets: List<Chapter>, includeHeader: Boolean, format: ExportFormat) {
         val needPerm = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q &&
             ContextCompat.checkSelfPermission(ctx, Manifest.permission.WRITE_EXTERNAL_STORAGE) !=
             PackageManager.PERMISSION_GRANTED
         if (needPerm) {
-            pendingExport = targets to includeHeader
+            pendingExport = Triple(targets, includeHeader, format)
             permLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         } else {
-            runExport(targets, includeHeader)
+            runExport(targets, includeHeader, format)
         }
+    }
+
+    fun startExport(targets: List<Chapter>, includeHeader: Boolean) {
+        if (targets.isNotEmpty() && !exporting) exportChoice = targets to includeHeader
     }
 
     val bottomPad = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
@@ -471,7 +482,7 @@ fun BookDetailScreen(
                             containerColor = p.surfaceHigh,
                             tonalElevation = 0.dp
                         ) {
-                            MenuRow(R.drawable.ic_share, stringResource(R.string.detail_export_whole_txt)) {
+                            MenuRow(R.drawable.ic_share, stringResource(R.string.export_whole_file)) {
                                 showMore = false
                                 startExport(chapters, includeHeader = true)
                             }
@@ -790,7 +801,7 @@ fun BookDetailScreen(
                         .padding(22.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    SectionLabel(stringResource(R.string.detail_exporting_txt))
+                    SectionLabel(stringResource(R.string.export_generating_format, exportFormat.name))
                     Spacer(Modifier.height(14.dp))
                     Text(
                         text = stringResource(R.string.detail_export_share_hint),
@@ -805,6 +816,24 @@ fun BookDetailScreen(
                         style = InkType.Caption.copy(fontSize = 11.sp),
                         color = p.textFaint
                     )
+                    Spacer(Modifier.height(12.dp))
+                    InkTextButton(stringResource(R.string.action_cancel)) { exportTask?.cancel() }
+                }
+            }
+        }
+    }
+
+    exportChoice?.let { choice ->
+        InkDialogShell(onDismiss = { exportChoice = null }, title = stringResource(R.string.export_choose_format)) {
+            Text(stringResource(R.string.export_content_hint), style = InkType.Caption, color = p.textSecondary)
+            Spacer(Modifier.height(12.dp))
+            ExportFormat.entries.forEach { format ->
+                Column(Modifier.fillMaxWidth().padding(vertical = 4.dp).clip(RoundedCornerShape(12.dp))
+                    .background(p.surfaceHigh).border(1.dp, p.divider, RoundedCornerShape(12.dp))
+                    .clickable { exportChoice = null; startChosenExport(choice.first, choice.second, format) }.padding(14.dp)) {
+                    Text(format.name, style = InkType.UiLabel, color = p.textPrimary)
+                    Spacer(Modifier.height(4.dp))
+                    Text(stringResource(format.hint), style = InkType.Caption, color = p.textSecondary)
                 }
             }
         }
@@ -1410,7 +1439,7 @@ private fun ChapterCard(
                 tonalElevation = 0.dp
             ) {
                 MenuRow(R.drawable.ic_book, stringResource(R.string.detail_read_this_chapter)) { menu = false; onOpen() }
-                MenuRow(R.drawable.ic_share, stringResource(R.string.detail_export_this_chapter_txt)) { menu = false; onExport() }
+                MenuRow(R.drawable.ic_share, stringResource(R.string.export_chapter_file)) { menu = false; onExport() }
                 MenuRow(R.drawable.ic_edit, stringResource(R.string.detail_edit_content)) { menu = false; onEditContent() }
                 MenuRow(R.drawable.ic_text_size, stringResource(R.string.action_rename)) { menu = false; onRename() }
                 if (!isFirst) {

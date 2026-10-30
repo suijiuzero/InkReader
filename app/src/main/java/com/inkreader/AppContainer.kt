@@ -102,6 +102,10 @@ class LibraryStore(
     // 导入进度
     var importing by mutableStateOf(false)
         private set
+    var importInBackground by mutableStateOf(false)
+        private set
+    fun backgroundImport() { if (importing) importInBackground = true }
+    fun showImportProgress() { importInBackground = false }
     var recoveryAvailable by mutableStateOf(false)
         private set
     private var importJob: kotlinx.coroutines.Job? = null
@@ -171,6 +175,7 @@ class LibraryStore(
             appContext,
             "import.start n=${uris.size} mode=$mode split=${splitOptions.mode} uris=${uris.joinToString { it.scheme + ":" + it.lastPathSegment?.takeLast(24) }}"
         )
+        importInBackground = false
         importing = true
         importErrors = emptyList()
         importReport = emptyList()
@@ -186,6 +191,7 @@ class LibraryStore(
                 else repo.importResumable(uris, mode, title, splitOptions, fileOrder, onProgress = progress)
             }.getOrElse { e ->
                 importing = false
+                importInBackground = false
                 importFraction = 1f
                 importStage = ""
                 if (e is kotlinx.coroutines.CancellationException) {
@@ -204,6 +210,7 @@ class LibraryStore(
                 return@launch
             }
             importing = false
+            importInBackground = false
             importFraction = 1f
             importStage = ""
             val errors = result.errors(appContext)

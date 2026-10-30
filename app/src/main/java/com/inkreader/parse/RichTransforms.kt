@@ -7,17 +7,43 @@ object RichTransforms {
     private fun canonical(text: String, blocks: List<RichBlock>, spans: List<InlineStyle>, links: List<LinkSpan>): RichChapter? {
         if (text.isEmpty()) return null
         val result = ArrayList<RichBlock>()
-        var start = 0
+        val images = ArrayList<RichBlock>()
+        var nextImage = text.indexOf('\uFFFC')
+        for (block in blocks.filter { it.kind == RichKind.IMAGE }.sortedBy { it.start }) {
+            if (DocumentImages.reference(block.marker) == null) continue
+            while (nextImage >= 0 && nextImage < block.start) nextImage = text.indexOf('\uFFFC', nextImage + 1)
+            if (nextImage < 0) break
+            if (nextImage < block.end.coerceAtMost(text.length)) {
+                images += block.copy(start = nextImage, end = nextImage + 1)
+                nextImage = text.indexOf('\uFFFC', nextImage + 1)
+            }
+        }
+        val textBlocks = blocks.filter { it.kind != RichKind.IMAGE }.sortedBy { it.start }
+        var textBlock = 0
+        var start = 0; var imageIndex = 0
         while (start < text.length) {
             val end = text.indexOf("\n\n", start).let { if (it < 0) text.length else it }
-            val old = blocks.firstOrNull { it.start < end && it.end > start }
-            result += old?.copy(start = start, end = end) ?: RichBlock(RichKind.BODY, 0, "", start, end)
+            while (textBlock < textBlocks.size && textBlocks[textBlock].end <= start) textBlock++
+            val old = textBlocks.getOrNull(textBlock)?.takeIf { it.start < end && it.end > start }
+            var cursor = start
+            while (imageIndex < images.size && images[imageIndex].start < end) {
+                val image = images[imageIndex++]
+                if (image.start < start) continue
+                if (cursor < image.start) result += old?.copy(start = cursor, end = image.start)
+                    ?: RichBlock(RichKind.BODY, 0, "", cursor, image.start)
+                result += image; cursor = image.end
+            }
+            if (cursor < end || cursor == start) result += old?.copy(start = cursor, end = end)
+                ?: RichBlock(RichKind.BODY, 0, "", cursor, end)
             start = end + 2
         }
         // 尾部两个换行也需要一个零长块，以保持块区间与正文的对应。
         if (text.endsWith("\n\n")) result += RichBlock(RichKind.BODY, 0, "", text.length, text.length)
         return RichChapter(text.length, result, spans, links)
     }
+
+    fun reconcile(text: String, rich: RichChapter?): RichChapter? =
+        if (rich?.blocks?.any { it.kind == RichKind.IMAGE } == true) canonical(text, rich.blocks, rich.spans, rich.links) else rich
 
     fun slice(rich: RichChapter?, text: String, start: Int, end: Int): RichChapter? {
         if (rich == null) return null

@@ -14,6 +14,10 @@ import com.inkreader.R
 import com.inkreader.data.model.Book
 import com.inkreader.data.model.Chapter
 import com.inkreader.parse.ChapterSplitter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import com.inkreader.parse.RichChapter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.BufferedOutputStream
@@ -86,11 +90,23 @@ object BookExporter {
         chapters: List<Chapter>,
         includeHeader: Boolean,
         readChapter: suspend (Chapter) -> String,
+        format: ExportFormat = ExportFormat.TXT,
+        readRich: suspend (Chapter) -> RichChapter? = { null },
+        imageFile: (String) -> File = { error("Missing illustration") },
+        saveToDownloads: Boolean = true,
         onProgress: (Float) -> Unit = {}
     ): ExportResult = withContext(Dispatchers.IO) {
         require(chapters.isNotEmpty()) { context.getString(R.string.export_no_chapters) }
 
-        val fileName = buildFileName(context, book, chapters, includeHeader)
+        val job = currentCoroutineContext()
+        job.ensureActive()
+        var lastProgress = 0L
+        val progress: (Float) -> Unit = { f ->
+            job.ensureActive()
+            val now = android.os.SystemClock.elapsedRealtime()
+            if (f == 0f || f == 1f || now - lastProgress > 100) { lastProgress = now; onProgress(f * .95f) }
+        }
+        val fileName = buildFileName(context, book, chapters, includeHeader).removeSuffix(EXT_TXT) + "." + format.extension
 
         // (b) 分享副本：先清掉上次导出的残留，避免 cache 无限增长
         val exportDir = File(context.cacheDir, EXPORT_DIR)
@@ -103,7 +119,19 @@ object BookExporter {
         check(sessionDir.mkdirs())
         val shareFile = File(sessionDir, fileName)
         try {
-            writeTxt(context, shareFile, book, chapters, includeHeader, readChapter, onProgress)
+            progress(0f)
+            if (format == ExportFormat.TXT) writeTxt(context, shareFile, book, chapters, includeHeader,
+                { ch ->
+                    val body = readChapter(ch)
+                    val rich = readRich(ch)?.takeIf { it.len == body.length }
+                    val positions = rich?.blocks.orEmpty().filter { it.kind == com.inkreader.parse.RichKind.IMAGE &&
+                        it.end == it.start + 1 && it.start in body.indices && body[it.start] == '\uFFFC' }.map { it.start }.toSet()
+                    if (positions.isEmpty()) body else buildString {
+                        body.forEachIndexed { i, c -> if (i in positions) append("〔图片〕") else append(c) }
+                    }
+                }, progress)
+            else ReadingFormats.write(format, shareFile, book, chapters, readChapter, readRich, imageFile, progress)
+            job.ensureActive()
         } catch (t: Throwable) {
             shareFile.delete()
             sessionDir.delete()
@@ -115,7 +143,7 @@ object BookExporter {
             context, context.packageName + AUTHORITY_SUFFIX, shareFile
         )
         val shareIntent = Intent(Intent.ACTION_SEND).apply {
-            type = MIME_TXT
+            type = format.mime
             putExtra(Intent.EXTRA_STREAM, shareUri)
             putExtra(Intent.EXTRA_SUBJECT, fileName)
             putExtra(Intent.EXTRA_TITLE, fileName)
@@ -125,10 +153,11 @@ object BookExporter {
 
         // (a) 系统下载目录：整段失败都只降级为 downloadOk=false，不抛异常
         val downloadPath = try {
-            copyToDownloads(context, shareFile, fileName)
-        } catch (e: Exception) {
-            null
-        }
+            job.ensureActive()
+            if (saveToDownloads) copyToDownloads(context, shareFile, fileName, format.mime) { job.ensureActive() } else null
+        } catch (e: CancellationException) {
+            sessionDir.deleteRecursively(); throw e
+        } catch (e: Exception) { null }
 
         onProgress(1f)
         ExportResult(
@@ -207,6 +236,7 @@ object BookExporter {
                         else -> 2
                     }
                 )
+                currentCoroutineContext().ensureActive()
                 out.writeLine(chapterTitle(context, chapter, i))
                 out.blankLines(1)
                 out.writeText(ChapterSplitter.normalize(readChapter(chapter)))
@@ -225,24 +255,25 @@ object BookExporter {
      * 注意 MediaStore 遇到同名文件会自动改名，返回的路径只作提示用。
      */
     @Suppress("DEPRECATION")
-    private fun copyToDownloads(context: Context, src: File, fileName: String): String? {
+    private fun copyToDownloads(context: Context, src: File, fileName: String, mime: String, checkActive: () -> Unit): String? {
         val dir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
         val displayPath = File(dir, fileName).absolutePath
 
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            if (writeViaMediaStore(context, src, fileName)) displayPath else null
+            if (writeViaMediaStore(context, src, fileName, mime, checkActive)) displayPath else null
         } else {
             // API ≤ 28 需要外部存储可写（还要有 WRITE_EXTERNAL_STORAGE 运行时权限）
             if (Environment.getExternalStorageState() != Environment.MEDIA_MOUNTED) return null
             if (!dir.exists() && !dir.mkdirs()) return null
             var dest = File(dir, fileName)
             var suffix = 1
-            while (dest.exists()) dest = File(dir, "${fileName.removeSuffix(EXT_TXT)} (${suffix++})$EXT_TXT")
+            while (dest.exists()) dest = File(dir, "${fileName.substringBeforeLast('.')} (${suffix++}).${fileName.substringAfterLast('.')}")
             try {
                 src.inputStream().use { input ->
-                    FileOutputStream(dest).use { output -> copy(input, output) }
+                    FileOutputStream(dest).use { output -> copy(input, output, checkActive) }
                 }
                 dest.absolutePath
+            } catch (e: CancellationException) { dest.delete(); throw e
             } catch (e: Exception) {
                 dest.delete()
                 null
@@ -252,10 +283,10 @@ object BookExporter {
 
     /** API ≥ 29 走 MediaStore.Downloads，写前 IS_PENDING=1、写后置 0 */
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun writeViaMediaStore(context: Context, src: File, fileName: String): Boolean {
+    private fun writeViaMediaStore(context: Context, src: File, fileName: String, mime: String, checkActive: () -> Unit): Boolean {
         val values = ContentValues().apply {
             put(MediaStore.Downloads.DISPLAY_NAME, fileName)
-            put(MediaStore.Downloads.MIME_TYPE, MIME_TXT)
+            put(MediaStore.Downloads.MIME_TYPE, mime)
             put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS)
             put(MediaStore.Downloads.IS_PENDING, 1)
         }
@@ -265,11 +296,12 @@ object BookExporter {
             val output = resolver.openOutputStream(uri)
                 ?: throw IOException(context.getString(R.string.export_downloads_unwritable))
             output.use { out ->
-                src.inputStream().use { input -> copy(input, out) }
+                src.inputStream().use { input -> copy(input, out, checkActive) }
             }
             val done = ContentValues().apply { put(MediaStore.Downloads.IS_PENDING, 0) }
             resolver.update(uri, done, null, null)
             return true
+        } catch (e: CancellationException) { runCatching { resolver.delete(uri, null, null) }; throw e
         } catch (e: Exception) {
             // 失败时清掉 pending 记录，别在下载目录里留半个空文件
             runCatching { resolver.delete(uri, null, null) }
@@ -277,9 +309,10 @@ object BookExporter {
         }
     }
 
-    private fun copy(input: InputStream, output: OutputStream) {
+    private fun copy(input: InputStream, output: OutputStream, checkActive: () -> Unit) {
         val buffer = ByteArray(COPY_BUFFER)
         while (true) {
+            checkActive()
             val read = input.read(buffer)
             if (read < 0) break
             output.write(buffer, 0, read)

@@ -14,7 +14,8 @@ class HtmlDocumentParser : DocumentParser {
         val html = HtmlTextExtractor.decodeHtml(bytes)
         if (html.isBlank()) throw ParseException(ParseErrorCode.EMPTY, format)
 
-        val extracted = HtmlTextExtractor.extract(html)
+        val media = EmbeddedImages()
+        val extracted = HtmlTextExtractor.extract(html) { media.dataUri(it) }
         val paragraphs = extracted.paragraphs
         if (paragraphs.isEmpty()) throw ParseException(ParseErrorCode.NO_CONTENT, format)
 
@@ -23,6 +24,7 @@ class HtmlDocumentParser : DocumentParser {
             ?: ChapterSplitter.titleFromFileName(displayName)
 
         val parts = ChapterAssembler.assemble(paragraphs)
-        return ParsedDoc(title, extracted.author.orEmpty(), parts, format)
+        return ParsedDoc(title, extracted.author.orEmpty(), parts, format,
+            sourceParts = paragraphs.map { it.text }, images = media.images)
     }
 }

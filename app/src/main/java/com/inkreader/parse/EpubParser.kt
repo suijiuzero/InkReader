@@ -53,20 +53,25 @@ class EpubParser : DocumentParser {
             .toSet()
 
         val parts = ArrayList<ChapterSplitter.Part>()
+        val sourceBodies = ArrayList<String>()
+        val media = EmbeddedImages()
 
         fun addFrom(item: ManifestItem) {
             val href = resolve(baseDir, item.href)
             val raw = lookup(entries, href) ?: throw ParseException(ParseErrorCode.CORRUPTED, format, "缺少正文 $href")
             val html = HtmlTextExtractor.decodeHtml(raw)
-            val ex = HtmlTextExtractor.extract(html)
+            val ex = HtmlTextExtractor.extract(html) { reference -> media.fromArchive(reference, href.substringBeforeLast('/', ""), entries) }
             if (ex.paragraphs.isEmpty()) return
             val content = ex.paragraphs.joinToString("\n\n") { it.text }.trim()
             if (content.isEmpty()) return
+            sourceBodies += content
             val heading = ex.paragraphs.firstOrNull { it.level >= 0 }?.text?.trim()
             val title = heading?.takeIf { it.isNotEmpty() && it.length <= 40 }
                 ?: ex.title?.takeIf { it.isNotBlank() && it.length <= 40 }
                 ?: "第 ${parts.size + 1} 章"
-            parts += ChapterSplitter.Part(title, content)
+            val body = if (ex.paragraphs.size > 1 && ex.paragraphs.first().level >= 0 && ex.paragraphs.first().text.trim() == title)
+                ex.paragraphs.drop(1).joinToString("\n\n") { it.text }.trim() else content
+            parts += ChapterSplitter.Part(title, body.ifEmpty { content })
         }
 
         for (idref in opf.spine) {
@@ -86,7 +91,7 @@ class EpubParser : DocumentParser {
 
         val title = opf.title?.takeIf { it.isNotBlank() }
             ?: ChapterSplitter.titleFromFileName(displayName)
-        return ParsedDoc(title, opf.author.orEmpty(), parts, format)
+        return ParsedDoc(title, opf.author.orEmpty(), parts, format, sourceParts = sourceBodies, images = media.images)
     }
 
     private fun isContentType(mediaType: String, href: String): Boolean {

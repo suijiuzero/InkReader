@@ -271,26 +271,24 @@ object ChapterSplitter {
         return kept.joinToString("\n").replace(Regex("\n{3,}"), "\n\n").trim()
     }
 
+    private val watermarkUrl = Regex("(?i)(?:https?://|www\\.|\\b[a-z0-9_-]+\\.(?:com|net|org|cc|la|tw|xyz|top|vip)\\b)")
+    private val watermarkKeywords = listOf(
+        "最新章节", "手机阅读", "本站域名", "一秒记住", "无弹窗", "小说网",
+        "手打吧", "txt下载", "电子书下载", "求月票", "求订阅", "求收藏", "加更规则"
+    )
+
     private fun isWatermarkLine(trimmed: String): Boolean {
-        if (upperTitle.matches(trimmed) || strong.any { it.matches(trimmed) }) return false
-        val hasUrl = Regex("(?i)(?:https?://|www\\.|\\b[a-z0-9_-]+\\.(?:com|net|org|cc|la|tw|xyz|top|vip)\\b)")
-            .containsMatchIn(trimmed)
-        val adKeywords = listOf(
-            "最新章节", "手机阅读", "本站域名", "一秒记住", "无弹窗", "小说网",
-            "手打吧", "txt下载", "电子书下载", "求月票", "求订阅", "求收藏", "加更规则"
-        )
-        if (hasUrl && (trimmed.startsWith("手机阅读请访问") || trimmed.startsWith("最新章节请访问") ||
-                trimmed.startsWith("请记住本站域名"))) return true
-        val wrappedByDecor = (trimmed.startsWith("===") && trimmed.endsWith("===")) ||
+        // Most short lines are ordinary prose. Reuse the compiled pattern, and only
+        // run the title protection rules when the line could actually be removed.
+        val hasUrl = watermarkUrl.containsMatchIn(trimmed)
+        val wrapped = (trimmed.startsWith("===") && trimmed.endsWith("===")) ||
             (trimmed.startsWith("---") && trimmed.endsWith("---")) ||
             (trimmed.startsWith("***") && trimmed.endsWith("***"))
-        if (wrappedByDecor && (hasUrl || adKeywords.any { trimmed.contains(it, ignoreCase = true) })) {
-            return true
-        }
-        if (trimmed.length <= 45 && adKeywords.count { trimmed.contains(it, ignoreCase = true) } >= 2) {
-            return true
-        }
-        return false
+        val keywords = watermarkKeywords.count { trimmed.contains(it, ignoreCase = true) }
+        val candidate = hasUrl && (trimmed.startsWith("手机阅读请访问") || trimmed.startsWith("最新章节请访问") ||
+            trimmed.startsWith("请记住本站域名")) || wrapped && (hasUrl || keywords > 0) ||
+            trimmed.length <= 45 && keywords >= 2
+        return candidate && !upperTitle.matches(trimmed) && strong.none { it.matches(trimmed) }
     }
 
     /** 判断一行是否为「第X卷 / 第X部 / Volume X」上级分卷标题，是则返回规范化卷名 */
@@ -421,7 +419,7 @@ object ChapterSplitter {
             trace?.fallback = true
             return splitBySize(if (options.cleanWatermark) cleanBodyWatermarks(text) else text, fallbackTitle)
         }
-        return assembleParts(lines, text, plan.headings, fallbackTitle, options.cleanWatermark, trace, plan.mergeLeadingBody)
+        return assembleParts(lines, text, plan.headings, fallbackTitle, options.cleanWatermark, trace, plan.mergeLeadingBody, plan.omittedHeadingLines)
     }
 
     fun plan(lines: List<String>, totalChars: Int, options: SplitOptions): ChapterPlan {
@@ -432,14 +430,25 @@ object ChapterSplitter {
                 setOf(HeadingReason.TITLE_SHAPE), true) }, emptyList(), 0, false, selected.size > 500, selected)
         }
         // Canonical title forms and code fences are computed once, shared by all rule passes.
+        // Short-line books revisit the same disk-backed lines in several passes.
+        // Keep a bounded per-plan cache, including negative candidates. Its budget
+        // accounts for String objects too; it never materializes the whole book.
         val memo = HashMap<Int, String>()
+        val cached = if (lines is SizedLines) arrayOfNulls<String>(lines.size) else null
+        var cacheBytes = 0
         val canonical = object : AbstractList<String>() {
             override val size get() = lines.size
             override fun get(index: Int): String {
                 if (index and 511 == 0) ParseCancellation.checkpoint()
+                cached?.get(index)?.let { return it }
                 val trimmed = lines[index].trim()
-                if (!mayBeHeading(trimmed)) return trimmed
-                return memo.getOrPut(index) { headingText(trimmed) }
+                val value = if (!mayBeHeading(trimmed)) trimmed else memo.getOrPut(index) { headingText(trimmed) }
+                val cost = if (value.isEmpty()) 0 else 48 + value.length * 2
+                if (cached != null && cacheBytes + cost <= 12 * 1024 * 1024) {
+                    cached[index] = value
+                    cacheBytes += cost
+                }
+                return value
             }
         }
         val fenced = fencedLines(lines)
@@ -497,13 +506,25 @@ object ChapterSplitter {
             }
         }
         val chosen = selected.filterNot { it + 1 in options.ignoredHeadingLines }
-        return ChapterPlan(chosen, decisions, unresolvedGaps(lines, selected).take(100),
+        val duplicates = DuplicateChapterHeadings.resolve(lines, chosen, options, skippedToc +
+            scored.filter { HeadingReason.MODEL_SUGGESTION in it.reasons }.map { it.line - 1 },
+            scored.filterNot { HeadingReason.MODEL_SUGGESTION in it.reasons }.map { it.line - 1 }.toSet())
+        val kept = duplicates.headings.toHashSet()
+        val resolvedDecisions = decisions.map { decision ->
+            if (decision.line - 1 in duplicates.omitted) decision.copy(accepted = false)
+            else if (decision.line - 1 in kept) decision.copy(accepted = true) else decision
+        }.toMutableList()
+        duplicates.headings.filter { line -> resolvedDecisions.none { it.line == line + 1 } }.take(500 - resolvedDecisions.size).forEach { line ->
+            resolvedDecisions += HeadingDecision(line + 1, lines[line].trim(), 90, setOf(HeadingReason.TITLE_SHAPE), true)
+        }
+        return ChapterPlan(duplicates.headings, resolvedDecisions.sortedBy { it.line }, unresolvedGaps(lines, duplicates.headings).take(100),
             skippedToc.count { canonical[it].trim() !in tocLabels },
             skippedToc.isNotEmpty() || selected.firstOrNull()?.let { it + 1 in options.ignoredHeadingLines } == true,
             scored.size > 500, scored.map { it.line - 1 },
             scored.filter { !it.accepted || it.score < 74 || HeadingReason.SEQUENCE_ALTERNATIVE in it.reasons ||
                 HeadingReason.UNNUMBERED_TITLE in it.reasons }.map { it.line - 1 }.toSet(),
-            scored.filter { HeadingReason.MODEL_SUGGESTION in it.reasons }.map { it.line - 1 }.toSet())
+            scored.filter { HeadingReason.MODEL_SUGGESTION in it.reasons }.map { it.line - 1 }.toSet(),
+            duplicates.omitted)
     }
 
     private fun lineCharacters(lines: List<String>, index: Int, trim: Boolean = false): Int =
@@ -666,11 +687,15 @@ object ChapterSplitter {
         for (i in lines.indices) prefix[i + 1] = prefix[i] + lineCharacters(lines, i, true)
         val result = original.toMutableSet()
         val candidates = lines.indices.filter { i ->
-            val text = canonical[i]
-            val longRoman = romanTitled.matches(text) && chapterOrderFromTitle(text) != null
-            if (fenced[i] || i in result || text.length !in 1..240) false
-            else (longRoman || (text.length <= 44 && (bareNumber.matches(text) || weak.any { it.matches(text) }))) &&
-                (i == 0 || lines[i - 1].isBlank()) && (i == lines.lastIndex || lines[i + 1].isBlank())
+            if (i and 511 == 0) ParseCancellation.checkpoint()
+            // These mandatory guards need no normalization or regex matching.
+            if (fenced[i] || i in result || (i > 0 && lines[i - 1].isNotBlank()) ||
+                (i < lines.lastIndex && lines[i + 1].isNotBlank())) false
+            else {
+                val text = canonical[i]
+                text.length in 1..240 && ((romanTitled.matches(text) && chapterOrderFromTitle(text) != null) ||
+                    (text.length <= 44 && (bareNumber.matches(text) || weak.any { it.matches(text) })))
+            }
         }
         var start = 0
         while (start < candidates.size) {
@@ -800,7 +825,8 @@ object ChapterSplitter {
         fallbackTitle: String,
         cleanWatermark: Boolean,
         trace: AnalysisTrace? = null,
-        mergeLeadingBody: Boolean = false
+        mergeLeadingBody: Boolean = false,
+        omittedHeadingLines: Set<Int> = emptySet()
     ): List<Part> {
         val parts = ArrayList<Part>()
 
@@ -811,7 +837,7 @@ object ChapterSplitter {
         }
 
         // 第一个标题之前的内容作为前言
-        val head = lines.subList(0, chosen.first()).joinToString("\n").trim()
+        val head = (0 until chosen.first()).filterNot { it in omittedHeadingLines }.joinToString("\n") { lines[it] }.trim()
         if (head.isNotEmpty() && head.length >= 200 && !mergeLeadingBody) {
             val hTitle = guessHeadTitle(head)
             val hBody = if (cleanWatermark) cleanBodyWatermarks(head) else head
@@ -829,7 +855,8 @@ object ChapterSplitter {
             // 如果标题本身就是分卷名，也同步更新 activeVolume
             extractVolumeTitle(rawTitle)?.let { activeVolume = it }
 
-            val bodyLines = lines.subList(lineIdx + 1, endIdx)
+            val bodyLines = if (omittedHeadingLines.isEmpty()) lines.subList(lineIdx + 1, endIdx)
+                else (lineIdx + 1 until endIdx).filterNot { it in omittedHeadingLines }.map { lines[it] }
             val hasNext = i + 1 < chosen.size
             val (keptLines, peeled) =
                 if (hasNext) peelTrailingUpperTitles(bodyLines) else bodyLines to emptyList()
@@ -847,7 +874,6 @@ object ChapterSplitter {
             if (cleanWatermark) {
                 body = cleanBodyWatermarks(body)
             }
-            if (body.isEmpty()) body = title
 
             val chapterVolume = activeVolume
             carryTitles = peeled.joinToString("\n")
@@ -1193,7 +1219,8 @@ object ChapterSplitter {
         for (i in lines.indices) {
             if (i and 511 == 0) ParseCancellation.checkpoint()
             if (fenced[i]) continue
-            val raw = lines[i]
+            // Ungated built-in passes already have the cached canonical line.
+            val raw = if (contextGated || !canonical || canonicalLines == null) lines[i] else ""
             if (contextGated) {
                 if (explicitListLabel.matches(raw.trim())) inExplicitList = true
                 if (inExplicitList && isNumberedChapterTitle(raw)) inExplicitList = false
@@ -1206,8 +1233,8 @@ object ChapterSplitter {
             // 标题行不应以句末标点结尾（那更像正文）
             if (TITLE_FORBIDDEN_END.indexOf(t.last()) >= 0) continue
             // 正文里引用某一章：「第一章里提到的…」「第三章的约定」，不是标题
-            if (looksLikeChapterReference(t)) continue
             if (patterns.none { it.matches(t) }) continue
+            if (looksLikeChapterReference(t)) continue
 
             val prevBlank = i == 0 || lines[i - 1].isBlank()
             val nextBlank = i == lines.lastIndex || lines[i + 1].isBlank()
@@ -1317,7 +1344,7 @@ object ChapterSplitter {
     /**
      * 判断这一行是不是「正文里引用某一章」而不是章节标题。
      */
-    private fun looksLikeChapterReference(line: String): Boolean {
+    internal fun looksLikeChapterReference(line: String): Boolean {
         chapterMarkerRegex.find(line)?.let { m ->
             val next = line.getOrNull(m.range.last + 1) ?: return false
             if (next == '「' || next == '“' || next == '"' || next == '\u2018' || next == '\u201C') {

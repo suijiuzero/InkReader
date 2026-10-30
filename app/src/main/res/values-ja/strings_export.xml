@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="export_choose_format">書き出し形式</string>
+    <string name="export_content_hint">選択した章と挿絵を書き出します。しおり・注釈・読書進捗は含みません。</string>
+    <string name="export_format_txt_hint">プレーンテキスト。画像は案内文に置き換わります</string>
+    <string name="export_format_epub_hint">挿絵と目次付きの電子書籍。文字サイズを変更可能</string>
+    <string name="export_format_docx_hint">挿絵と章見出しを含む、編集可能な Word 文書</string>
+    <string name="export_format_pdf_hint">挿絵付きの固定ページ。印刷や共有向け</string>
+    <string name="export_whole_file">本全体を書き出す…</string>
+    <string name="export_chapter_file">この章を書き出す…</string>
+    <string name="export_generating_format">%1$s を生成中</string>
+    <string name="export_share_file">ファイルを共有</string>
+</resources>

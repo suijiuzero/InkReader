@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="export_choose_format">Choose export format</string>
+    <string name="export_content_hint">Export selected chapters and illustrations, without bookmarks, notes or reading progress.</string>
+    <string name="export_format_txt_hint">Plain text, widely compatible; images become placeholders</string>
+    <string name="export_format_epub_hint">Ebook with illustrations and table of contents; adjustable text size</string>
+    <string name="export_format_docx_hint">Word document with illustrations and chapter headings; editable</string>
+    <string name="export_format_pdf_hint">Fixed pages with illustrations; ready to print or share</string>
+    <string name="export_whole_file">Export whole book…</string>
+    <string name="export_chapter_file">Export chapter…</string>
+    <string name="export_generating_format">Generating %1$s</string>
+    <string name="export_share_file">Share file</string>
+</resources>

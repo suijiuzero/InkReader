@@ -61,7 +61,8 @@ fun inlineText(text: String, start: Int, block: Block?): AnnotatedString = build
 }
 
 /** 页面中的一段内容（段落可能被跨页切开） */
-data class Placed(val blockIndex: Int, val start: Int, val end: Int, val continuation: Boolean)
+data class Placed(val blockIndex: Int, val start: Int, val end: Int, val continuation: Boolean,
+    val imageHeightPx: Float = 0f)
 
 /** 一页 */
 data class Page(
@@ -313,6 +314,21 @@ class Paginator(private val measurer: TextMeasurer) {
 
         for (block in blocks) {
             if (block.text.isEmpty()) continue
+            if (block.kind == RichKind.IMAGE) {
+                cancellation.ensureActive()
+                val reference = com.inkreader.parse.DocumentImages.reference(block.marker)
+                var gap = if (items.isEmpty()) 0f else st.gapBetween(blocks.getOrNull(items.last().blockIndex), block)
+                val natural = (reference?.heightAt(widthPx.toFloat(), safeHeightPx, density.density) ?: 48f * density.density)
+                    .coerceAtLeast(36f * density.density)
+                if (items.isNotEmpty() && natural + gap > safeHeightPx - used) {
+                    if (!flush()) return pages
+                    gap = 0f
+                }
+                val height = natural.coerceAtMost((safeHeightPx - used - gap).coerceAtLeast(1f))
+                items += Placed(block.index, block.start, block.start + block.text.length, false, height)
+                used += gap + height
+                continue
+            }
             val blockStyle = st.styleOf(block)
             val lineHeightPx = lineHeightOf(blockStyle)
             var cursor = 0

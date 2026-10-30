@@ -55,4 +55,5 @@
     <string name="fmt_xlsx">Excel 表</string>
     <string name="fmt_pptx">PowerPoint プレゼン</string>
     <string name="fmt_unknown">不明な形式</string>
+    <string name="repo_stage_save_chapters">章を保存中 %1$d / %2$d</string>
 </resources>

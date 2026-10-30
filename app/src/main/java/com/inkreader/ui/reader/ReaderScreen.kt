@@ -1423,7 +1423,8 @@ private fun PageContent(
                     onSelect = onSelect,
                     onExtend = onExtend,
                     onHandleDrag = onHandleDrag,
-                    onOpenLink = onOpenLink
+                    onOpenLink = onOpenLink,
+                    imageFile = session::imageFile
                 )
                 // 段间距按「前一块想留的」和「后一块想要的」取大的；同一段被切开的两截之间不留
                 val nextPlaced = page.items.getOrNull(idx + 1)
@@ -1531,6 +1532,9 @@ private fun ScrollingBody(
         val block = requestBlock ?: run { session.consumeJumpRequest(); return@LaunchedEffect }
         val local = session.blocks.indexOf(block)
         val target = session.flowCurrentStart + local
+        if (block.kind == RichKind.IMAGE) {
+            listState.scrollToItem(target); session.consumeJumpRequest(); return@LaunchedEffect
+        }
         if (requestLayout == null || requestTop == null) {
             listState.scrollToItem(target)
         } else {
@@ -1594,6 +1598,7 @@ private fun ScrollingBody(
                     onExtend = if (item.chapterIndex == session.chapterIndex) onExtend else { _ -> },
                     onHandleDrag = if (item.chapterIndex == session.chapterIndex) onHandleDrag else { _, _ -> },
                     onOpenLink = onOpenLink,
+                    imageFile = session::imageFile,
                     onLayout = { layouts[item.chapterIndex to item.block.start] = it },
                     onTextTop = { textTops[item.chapterIndex to item.block.start] = it }
                 )
@@ -1645,9 +1650,14 @@ private fun ParagraphText(
     onExtend: (Int) -> Unit,
     onHandleDrag: (Int, Int) -> Unit,
     onOpenLink: (String) -> Unit,
+    imageFile: ((String) -> java.io.File)? = null,
     onLayout: (TextLayoutResult) -> Unit = {},
     onTextTop: (Float) -> Unit = {}
 ) {
+    if (block?.kind == RichKind.IMAGE) {
+        ReaderImageBlock(block.marker, placed.imageHeightPx, imageFile)
+        return
+    }
     val start = placed.start.coerceIn(0, text.length)
     val end = placed.end.coerceIn(start, text.length)
     val sub = text.substring(start, end)

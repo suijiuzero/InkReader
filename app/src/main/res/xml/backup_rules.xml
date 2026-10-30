@@ -6,5 +6,6 @@
     <exclude domain="sharedpref" path="ink_diagnostics.xml" />
     <include domain="file" path="chapters/" />
     <include domain="file" path="covers/" />
+        <include domain="file" path="images/" />
         <include domain="file" path="recognition-notes/" />
 </full-backup-content>

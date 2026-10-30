@@ -11,7 +11,7 @@ import java.io.InputStream
  * 不使用 Apache POI —— POI 在 Android 上需要拖入 javax.xml.stream / AWT 等一大堆
  * 桌面端依赖，包体增加 10-15MB 且容易在 dex 阶段出问题。docx 本质是 ZIP + OOXML，
  * 这里直接用系统自带的 XmlPullParser 解析 word/document.xml，
- * 能拿到同样需要的东西：正文段落、标题层级、表格（降级为制表符文本）、图片（占位符）。
+ * 能拿到同样需要的东西：正文段落、标题层级、表格（降级为制表符文本）、嵌入图片（不支持的媒体保留占位）。
  */
 class DocxParser {
 
@@ -20,8 +20,12 @@ class DocxParser {
     data class Parsed(
         val title: String?,
         val author: String?,
-        val parts: List<ChapterSplitter.Part>
-    )
+        val parts: List<ChapterSplitter.Part>,
+        val sourceParts: List<String> = emptyList(),
+        val images: Map<String, DocumentImage> = emptyMap()
+    ) {
+        val sourceText: String? get() = sourceParts.takeIf { it.isNotEmpty() }?.joinToString("\n\n")
+    }
 
     fun parse(input: InputStream): Parsed {
         val entries = DocxArchive.read(input)
@@ -35,11 +39,14 @@ class DocxParser {
         // （如 `a3`），真正的层级信息在 styles.xml 里，不读它就全被当成正文。
         val styles = stylesXml?.let { parseStyles(it) } ?: emptyMap()
 
-        val paragraphs = parseDocument(doc, styles)
+        val media = EmbeddedImages()
+        val relationXml = entries[if (documentXml != null && entries.containsKey("word/document.xml")) "word/_rels/document.xml.rels" else "word/_rels/document2.xml.rels"]
+        val relations = relationXml?.let { parseRelationships(it, entries, media) }.orEmpty()
+        val paragraphs = parseDocument(doc, styles, relations)
         val parts = ChapterAssembler.assemble(
             paragraphs.map { ChapterAssembler.Para(it.level, it.text) }
         )
-        return Parsed(core?.first, core?.second, parts)
+        return Parsed(core?.first, core?.second, parts, paragraphs.map { it.text }, media.images)
     }
 
     /**
@@ -49,7 +56,7 @@ class DocxParser {
      * 「这是第几级标题」定义在这里：`<w:outlineLvl w:val="0"/>`，或样式名 `<w:name w:val="heading 1"/>`。
      */
     private fun parseStyles(bytes: ByteArray): Map<String, Int> = runCatching {
-        val map = HashMap<String, Int>()
+        val map = LinkedHashMap<String, DocxStyleLevels.Style>()
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
         parser.setInput(ByteArrayInputStream(bytes), null)
@@ -58,8 +65,10 @@ class DocxParser {
         var inPPr = false
         var outline = -1
         var name = ""
+        var basedOn: String? = null
         var ev = parser.eventType
         while (ev != XmlPullParser.END_DOCUMENT) {
+            ParseCancellation.checkpoint()
             when (ev) {
                 XmlPullParser.START_TAG -> when (local(parser.name)) {
                     "style" -> {
@@ -67,6 +76,7 @@ class DocxParser {
                         inPPr = false
                         outline = -1
                         name = ""
+                        basedOn = null
                     }
 
                     "pPr" -> inPPr = true
@@ -75,14 +85,14 @@ class DocxParser {
                     }
 
                     "name" -> if (styleId != null) name = attr(parser, "val") ?: ""
+                    "basedOn" -> if (styleId != null) basedOn = attr(parser, "val")
                 }
 
                 XmlPullParser.END_TAG -> when (local(parser.name)) {
                     "pPr" -> inPPr = false
                     "style" -> {
                         styleId?.let { id ->
-                            val level = if (outline in 0..5) outline else (levelFromName(name) ?: -1)
-                            if (level in 0..5) map[id] = level
+                            map[id] = DocxStyleLevels.Style(name, outline.takeIf { it >= 0 }, basedOn)
                         }
                         styleId = null
                     }
@@ -90,7 +100,7 @@ class DocxParser {
             }
             ev = parser.next()
         }
-        map
+        DocxStyleLevels.resolve(map)
     }.getOrDefault(emptyMap())
 
     /** 返回 (title, author) */
@@ -105,6 +115,7 @@ class DocxParser {
             var inCreator = false
             var ev = parser.eventType
             while (ev != XmlPullParser.END_DOCUMENT) {
+            ParseCancellation.checkpoint()
                 when (ev) {
                     XmlPullParser.START_TAG -> {
                         val n = local(parser.name)
@@ -130,7 +141,26 @@ class DocxParser {
         }.getOrNull()
     }
 
-    private fun parseDocument(bytes: ByteArray, styles: Map<String, Int>): List<Para> {
+    private fun parseRelationships(bytes: ByteArray, entries: Map<String, ByteArray>, media: EmbeddedImages): Map<String, String> {
+        val result = HashMap<String, String>()
+        val parser = Xml.newPullParser().apply {
+            setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
+            setInput(ByteArrayInputStream(bytes), null)
+        }
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            ParseCancellation.checkpoint()
+            if (event == XmlPullParser.START_TAG && local(parser.name) == "Relationship" && !attr(parser, "TargetMode").equals("External", true)) {
+                val id = attr(parser, "Id"); val target = attr(parser, "Target")
+                if (id != null && target != null && attr(parser, "Type")?.endsWith("/image") == true)
+                    media.fromArchive(target, "word", entries)?.let { result[id] = it }
+            }
+            event = parser.next()
+        }
+        return result
+    }
+
+    private fun parseDocument(bytes: ByteArray, styles: Map<String, Int>, relations: Map<String, String>): List<Para> {
         val out = ArrayList<Para>(256)
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
@@ -143,13 +173,29 @@ class DocxParser {
         var pStyle = ""
         var pOutline = -1
         var hasDrawing = false
+        var resolvedImage = false
         var numPrSeen = false
         val pText = StringBuilder()
         val cellBuf = StringBuilder()
         val rowBuf = StringBuilder()
 
+        val alternatives = ArrayList<Pair<Int, Boolean>>()
+        var skipDepth = -1
         var ev = parser.eventType
         while (ev != XmlPullParser.END_DOCUMENT) {
+            ParseCancellation.checkpoint()
+            if (skipDepth >= 0) {
+                if (ev == XmlPullParser.END_TAG && parser.depth == skipDepth) skipDepth = -1
+                ev = parser.next(); continue
+            }
+            val tag = local(parser.name)
+            if (ev == XmlPullParser.START_TAG && tag == "AlternateContent") alternatives += parser.depth to false
+            if (ev == XmlPullParser.START_TAG && tag in setOf("Choice", "Fallback") &&
+                alternatives.lastOrNull()?.first == parser.depth - 1) {
+                if (alternatives.last().second) { skipDepth = parser.depth; ev = parser.next(); continue }
+                alternatives[alternatives.lastIndex] = alternatives.last().first to true
+            }
+            if (ev == XmlPullParser.END_TAG && tag == "AlternateContent" && alternatives.isNotEmpty()) alternatives.removeAt(alternatives.lastIndex)
             when (ev) {
                 XmlPullParser.START_TAG -> {
                     when (local(parser.name)) {
@@ -158,6 +204,7 @@ class DocxParser {
                             pStyle = ""
                             pOutline = -1
                             hasDrawing = false
+                            resolvedImage = false
                             numPrSeen = false
                             pText.setLength(0)
                         }
@@ -174,7 +221,16 @@ class DocxParser {
                         "t" -> inT = true
                         "tab" -> if (inP) pText.append('\t')
                         "br", "cr" -> if (inP) pText.append('\n')
-                        "drawing", "pict", "object", "imagedata" -> if (inP) hasDrawing = true
+                        "drawing", "pict", "object" -> if (inP) hasDrawing = true
+                        "blip", "imagedata" -> if (inP) {
+                            hasDrawing = true
+                            val id = attr(parser, "embed") ?: attr(parser, "id")
+                            (if (id != null) relations[id] else null)?.let { token ->
+                                if (pText.isNotEmpty()) pText.append("\n\n")
+                                pText.append(token).append("\n\n")
+                                resolvedImage = true
+                            }
+                        }
                         "tbl" -> tableDepth++
                         "tr" -> rowBuf.setLength(0)
                         "tc" -> {
@@ -207,8 +263,8 @@ class DocxParser {
 
                         "p" -> {
                             var txt = pText.toString()
-                            if (hasDrawing && txt.isBlank()) txt = IMAGE_PLACEHOLDER
-                            else if (hasDrawing) txt = "$txt $IMAGE_PLACEHOLDER"
+                            if (hasDrawing && !resolvedImage && txt.isBlank()) txt = IMAGE_PLACEHOLDER
+                            else if (hasDrawing && !resolvedImage) txt = "$txt $IMAGE_PLACEHOLDER"
                             txt = txt.replace("\u00A0", " ").trimEnd()
                             val level = headingLevel(pStyle, pOutline, numPrSeen, styles)
                             if (tableDepth > 0) {
@@ -218,7 +274,9 @@ class DocxParser {
                                     cellBuf.append(txt)
                                 }
                             } else if (txt.isNotBlank()) {
-                                out += Para(level, txt, hasDrawing)
+                                if (resolvedImage) txt.split("\n\n").filter { it.isNotBlank() }.forEach { part ->
+                                    out += Para(if (DocumentImages.isToken(part)) BODY else level, part, DocumentImages.isToken(part))
+                                } else out += Para(level, txt, hasDrawing)
                             }
                             inP = false
                         }
@@ -236,26 +294,8 @@ class DocxParser {
      * 优先查 styles.xml 给出的映射（能认 `a3` 这类内部代号），认不出再退回按样式名猜；
      * 两者都没有时用段落自身的 `<w:outlineLvl>`。
      */
-    private fun headingLevel(style: String, outline: Int, numPr: Boolean, styles: Map<String, Int>): Int {
-        if (style.isNotEmpty()) {
-            val s = style.trim()
-            styles[s]?.let { if (it in 0..5) return it }
-            levelFromName(s)?.let { return it }
-        }
-        if (outline in 0..5) return outline
-        return BODY
-    }
-
-    /** 从样式名 / 样式 id 里认出「第几级标题」（heading 1 / 标题 1 / Title …），认不出返回 null */
-    private fun levelFromName(s: String): Int? {
-        if (s.isEmpty()) return null
-        Regex("(?i)^heading\\s*([1-6])$").find(s)?.let { return it.groupValues[1].toInt() - 1 }
-        Regex("^([1-6])$").find(s)?.let { return it.groupValues[1].toInt() - 1 }
-        Regex("^标题\\s*([1-6])$").find(s)?.let { return it.groupValues[1].toInt() - 1 }
-        Regex("(?i)^title$").find(s)?.let { return 0 }
-        Regex("(?i)^subtitle$").find(s)?.let { return 1 }
-        return null
-    }
+    private fun headingLevel(style: String, outline: Int, numPr: Boolean, styles: Map<String, Int>): Int =
+        DocxStyleLevels.paragraph(style, outline, styles)
 
     private fun attr(parser: XmlPullParser, name: String): String? {
         // 命名空间关闭时属性名可能带前缀（w:val），两种都试一遍

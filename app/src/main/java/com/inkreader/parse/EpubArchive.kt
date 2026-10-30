@@ -5,7 +5,7 @@ import java.util.zip.ZipInputStream
 
 /** 严格读取 EPUB 文本；任一必需条目超限或 CRC 错误向上报告，不返回半本书。 */
 object EpubArchive {
-    private val TEXT_EXT = setOf("xhtml", "html", "htm", "xml", "opf", "ncx", "txt")
+    private val RETAINED_EXT = setOf("xhtml", "html", "htm", "xml", "opf", "ncx", "txt", "png", "jpg", "jpeg", "gif", "webp", "bmp")
     private fun normalize(path: String): String {
         var p = path.trim()
         while (p.startsWith("./")) p = p.substring(2)
@@ -14,7 +14,7 @@ object EpubArchive {
 
     fun read(bytes: ByteArray, maxEntry: Long = 8L * 1024 * 1024,
              maxTotal: Long = 96L * 1024 * 1024,
-             maxInflated: Long = 256L * 1024 * 1024): Map<String, ByteArray> {
+             maxInflated: Long = 256L * 1024 * 1024, maxImageEntry: Long = 16L * 1024 * 1024): Map<String, ByteArray> {
         val out = LinkedHashMap<String, ByteArray>()
         var retained = 0L
         var inflated = 0L
@@ -22,13 +22,16 @@ object EpubArchive {
         val buffer = ByteArray(32 * 1024)
         ZipInputStream(bytes.inputStream().buffered()).use { zip ->
             while (true) {
+                ParseCancellation.checkpoint()
                 val entry = zip.nextEntry ?: break
                 check(++count <= 10000) { "EPUB 条目过多" }
                 val name = normalize(entry.name)
-                val keep = !entry.isDirectory && name.substringAfterLast('.', "").lowercase() in TEXT_EXT
+                val isImage = name.substringAfterLast('.', "").lowercase() in setOf("png", "jpg", "jpeg", "gif", "webp", "bmp")
+                val keep = !entry.isDirectory && name.substringAfterLast('.', "").lowercase() in RETAINED_EXT
                 val data = if (keep) ByteArrayOutputStream() else null
                 var size = 0L
                 while (true) {
+                    ParseCancellation.checkpoint()
                     val n = zip.read(buffer)
                     if (n < 0) break
                     size += n
@@ -36,7 +39,7 @@ object EpubArchive {
                     check(inflated <= maxInflated) { "EPUB 解压数据超限" }
                     if (keep) {
                         retained += n
-                        check(size <= maxEntry && retained <= maxTotal) { "EPUB 正文超限，未导入不完整书籍" }
+                        check(size <= (if (isImage) maxImageEntry else maxEntry) && retained <= maxTotal) { "EPUB 正文超限，未导入不完整书籍" }
                         data!!.write(buffer, 0, n)
                     }
                 }

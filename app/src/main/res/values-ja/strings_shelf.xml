@@ -101,4 +101,6 @@
     <string name="shelf_split_custom_placeholder">例：◆ または ^第.+章</string>
     <string name="shelf_clean_watermark_title">タイトルと透かしノイズの除去</string>
     <string name="shelf_clean_watermark_desc">章タイトル末尾の括弧書きや本文中のサイトURL透かし行を自動で除去します</string>
+    <string name="import_background">バックグラウンド</string>
+    <string name="import_background_progress">インポート中 %1$d%% · タップで詳細</string>
 </resources>

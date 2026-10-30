@@ -56,4 +56,5 @@
     <string name="fmt_xlsx">Excel spreadsheet</string>
     <string name="fmt_pptx">PowerPoint presentation</string>
     <string name="fmt_unknown">Unknown format</string>
+    <string name="repo_stage_save_chapters">Saving chapters %1$d / %2$d</string>
 </resources>

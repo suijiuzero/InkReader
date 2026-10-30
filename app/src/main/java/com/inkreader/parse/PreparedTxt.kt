@@ -68,7 +68,7 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
             // Size splitting preserves every boundary newline. With no removed watermark,
             // cleaning an individual chunk must not trim a paragraph shared with the next chunk.
             if (section.chunked && clean == raw.trim()) return java.io.StringReader(raw)
-            return java.io.StringReader(clean.ifEmpty { if (plan.headings.isNotEmpty()) section.title else "" })
+            return java.io.StringReader(clean)
         }
         val kept = ArrayList<Piece>(); var cursor = 0
         for (i in text.starts.indices) {
@@ -152,6 +152,44 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
     private fun joined(parts: List<Piece>, separator: String = "\n\n"): List<Piece> = buildList {
         parts.filter { it.length > 0 }.forEach { if (isNotEmpty()) add(literal(separator)); add(it) }
     }
+    private val duplicateHeaderCuts by lazy {
+        plan.omittedHeadingLines.sorted().map { index ->
+            text.starts[index] to (text.starts.getOrNull(index + 1) ?: text.ends[index])
+        }
+    }
+    private fun omitDuplicateHeaders(pieces: List<Piece>): List<Piece> {
+        if (plan.omittedHeadingLines.isEmpty()) return pieces
+        val cuts = duplicateHeaderCuts
+        val kept = ArrayList<Piece>()
+        for (piece in pieces) {
+            if (piece.literal != null) { kept += piece; continue }
+            var cursor = piece.start
+            var low = 0; var high = cuts.size
+            while (low < high) { val mid = (low + high) ushr 1
+                if (cuts[mid].second <= cursor) low = mid + 1 else high = mid }
+            for (index in low until cuts.size) {
+                val (start, end) = cuts[index]
+                if (end <= cursor) continue
+                if (start >= piece.end) break
+                if (start > cursor) kept += Piece(cursor, start)
+                cursor = maxOf(cursor, end).coerceAtMost(piece.end)
+            }
+            if (cursor < piece.end) kept += Piece(cursor, piece.end)
+        }
+        while (kept.isNotEmpty()) {
+            val first = kept.first()
+            if (first.literal != null) { if (first.literal.isBlank()) kept.removeAt(0) else break }
+            else { val bounds = text.trimmedRange(first.start, first.end)
+                if (bounds == null) kept.removeAt(0) else { kept[0] = Piece(bounds.first, first.end); break } }
+        }
+        while (kept.isNotEmpty()) {
+            val last = kept.last()
+            if (last.literal != null) { if (last.literal.isBlank()) kept.removeAt(kept.lastIndex) else break }
+            else { val bounds = text.trimmedRange(last.start, last.end)
+                if (bounds == null) kept.removeAt(kept.lastIndex) else { kept[kept.lastIndex] = Piece(last.start, bounds.last + 1); break } }
+        }
+        return kept
+    }
     private fun assemble(): List<Section> {
         if (text.length == 0) return emptyList()
         if (options.mode == SplitMode.PER_FILE) return listOf(Section("正文", listOf(Piece(0, text.length))))
@@ -163,7 +201,7 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
         for (i in 0 until plan.headings.first()) ChapterSplitter.extractVolumeTitle(text.lines[i])?.let { volume = it }
         if (head != null && head.length >= 200 && !plan.mergeLeadingBody) {
             val first = text.lines.firstOrNull { it.isNotBlank() }.orEmpty().trim()
-            result += Section(first.takeIf { it.length <= 20 } ?: "前言", listOf(head), volume)
+            result += Section(first.takeIf { it.length <= 20 } ?: "前言", omitDuplicateHeaders(listOf(head)), volume)
         }
         var carry = emptyList<Piece>()
         for ((position, start) in plan.headings.withIndex()) {
@@ -193,8 +231,7 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
             pieces.clear()
             pieces += prefix
             range(start + 1, stop)?.let { if (pieces.isNotEmpty()) pieces += literal("\n\n"); pieces += it }
-            if (pieces.isEmpty()) pieces += literal(rawTitle)
-            val section = Section(if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(rawTitle) else rawTitle, pieces, volume)
+            val section = Section(if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(rawTitle) else rawTitle, omitDuplicateHeaders(pieces), volume)
             if (section.length > 120000) result += chunks(section, 18000, true) else result += section
             carry = peeled.map { Piece(text.starts[it], text.ends[it]) }
         }

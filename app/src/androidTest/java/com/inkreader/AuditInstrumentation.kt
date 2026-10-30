@@ -71,6 +71,50 @@ class AuditInstrumentation : Instrumentation() {
                 SQLiteDatabase.openDatabase(getDatabasePath(name).path, factory, SQLiteDatabase.CREATE_IF_NECESSARY, errorHandler)
         }
         try {
+            if (auditArguments?.getString("duplicateImport") == "true") {
+                val report = runBlocking { DuplicateChapterImportChecks.run(isolated) }
+                results.putString("stream", report.toString(2)); finish(-1, results); return
+            }
+            if (auditArguments?.getString("exportUi") == "true") {
+                val checks = ExportUiChecks.run(this, isolated)
+                results.putString("stream", "PASS ${checks.size} export UI checks\n" + checks.joinToString("\n")); finish(-1, results); return
+            }
+            if (auditArguments?.getString("exportFiles") == "true") {
+                ParcelFileDescriptor.AutoCloseInputStream(uiAutomation.executeShellCommand(
+                    "am start --user 0 -f 0x10008000 -n ${targetContext.packageName}/.MainActivity"
+                )).use { it.readBytes() }
+                Thread.sleep(800)
+                val report = runBlocking { ExportChecks.run(this@AuditInstrumentation, isolated, auditArguments?.getString("exportStress") == "true") }
+                results.putString("stream", report.toString(2)); finish(-1, results); return
+            }
+            if (auditArguments?.getString("documentImages") == "true") {
+                val report = ImageReaderChecks.run(this, isolated)
+                results.putString("stream", report.toString(2))
+                finish(-1, results)
+                return
+            }
+            if (auditArguments?.getString("docxImport") == "true") {
+                val report = runBlocking { DocxImportChecks.run(isolated) }
+                results.putString("stream", report.toString(2))
+                finish(-1, results)
+                return
+            }
+            if (auditArguments?.getString("largeImportUi") == "true") {
+                passed += ImportBackgroundChecks.run(this, isolated)
+                results.putString("stream", "PASS ${passed.size} background import checks\n" + passed.joinToString("\n"))
+                finish(-1, results)
+                return
+            }
+            if (auditArguments?.getString("largeImport") == "true") {
+                ParcelFileDescriptor.AutoCloseInputStream(uiAutomation.executeShellCommand(
+                    "am start --user 0 -f 0x10008000 -n ${targetContext.packageName}/.MainActivity"
+                )).use { it.readBytes() }
+                Thread.sleep(800)
+                val report = runBlocking { LargeImportChecks.run(this@AuditInstrumentation, isolated) }
+                results.putString("stream", report.toString(2))
+                finish(-1, results)
+                return
+            }
             if (auditArguments?.getString("sourceV2") == "true" || auditArguments?.getString("sourceV3") == "true") {
                 val report = runBlocking {
                     val repository = BookRepository(isolated)

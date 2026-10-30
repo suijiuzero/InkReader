@@ -24,6 +24,9 @@ object PdfParagraphs {
                 size = 0f
             }
             for (line in lines) {
+                if (DocumentImages.isToken(line.text) || line.text == "〔图片〕") {
+                    flush(); out += Para(line.text, line.size); y = line.y; paragraphEnd = true; continue
+                }
                 if (paragraphEnd || (!y.isNaN() && abs(line.y - y) > threshold)) flush()
                 if (buf.isNotEmpty() && latin(buf.last()) && line.text.firstOrNull()?.let(::latin) == true) buf.append(' ')
                 buf.append(line.text)

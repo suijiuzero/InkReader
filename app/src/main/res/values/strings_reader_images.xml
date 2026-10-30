@@ -1,0 +1,6 @@
+<resources>
+    <string name="reader_image">插图</string>
+    <string name="reader_image_unavailable">图片暂时无法显示</string>
+    <string name="reader_image_close">关闭</string>
+    <string name="reader_image_loading">正在载入图片…</string>
+</resources>

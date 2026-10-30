@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="export_choose_format">选择导出格式</string>
+    <string name="export_content_hint">导出所选章节和插图，不包含书签、批注及阅读进度。</string>
+    <string name="export_format_txt_hint">纯文字，兼容性好；图片以提示文字代替</string>
+    <string name="export_format_epub_hint">电子书，保留插图与章节目录，可调整字号</string>
+    <string name="export_format_docx_hint">Word 文档，保留插图和章节标题，方便编辑</string>
+    <string name="export_format_pdf_hint">固定分页，保留插图，适合打印与分享</string>
+    <string name="export_whole_file">导出整本书…</string>
+    <string name="export_chapter_file">导出本章…</string>
+    <string name="export_generating_format">正在生成 %1$s</string>
+    <string name="export_share_file">分享文件</string>
+</resources>

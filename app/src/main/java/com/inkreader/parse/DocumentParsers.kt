@@ -12,6 +12,12 @@ import com.tom_roush.pdfbox.android.PDFBoxResourceLoader
  * 这样「暂不支持该文件格式」「文件内容为空」「没有提取到文字」这些说法全局一致。
  */
 object DocumentParsers {
+    @Volatile private var mediaCache: java.io.File? = null
+    internal fun mediaTemporaryFile(): java.io.File {
+        val directory = mediaCache ?: throw ParseException(ParseErrorCode.NEEDS_OCR, DocumentFormat.PDF)
+        check(directory.isDirectory || directory.mkdirs())
+        return java.io.File.createTempFile("pdf-page-", ".pdf", directory)
+    }
 
     private val parsers: Map<DocumentFormat, DocumentParser> by lazy {
         listOf(
@@ -26,6 +32,7 @@ object DocumentParsers {
 
     /** pdfbox 需要初始化一次（加载字体/字型表等资源），在 Application 启动时调用 */
     fun init(context: Context) {
+        mediaCache = java.io.File(context.applicationContext.cacheDir, "document-media")
         runCatching { PDFBoxResourceLoader.init(context.applicationContext) }
     }
 
@@ -45,6 +52,7 @@ object DocumentParsers {
             parser.parse(bytes, name)
         } catch (e: ParseException) {
             throw e
+        } catch (e: java.util.concurrent.CancellationException) { throw e
         } catch (t: Throwable) {
             throw ParseException(ParseErrorCode.CORRUPTED, format, t.message)
         }

@@ -37,7 +37,10 @@ enum class RichKind {
     TABLE_ROW,
 
     /** 分隔线（正文是一个空格，渲染时画成一条线） */
-    RULE
+    RULE,
+
+    /** Embedded illustration. Body is one object character; marker is a validated local asset reference. */
+    IMAGE
 }
 
 /** 行内样式区间 */

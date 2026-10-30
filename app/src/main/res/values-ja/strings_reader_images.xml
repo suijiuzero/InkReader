@@ -1,0 +1,6 @@
+<resources>
+    <string name="reader_image">挿絵</string>
+    <string name="reader_image_unavailable">画像を表示できません</string>
+    <string name="reader_image_close">閉じる</string>
+    <string name="reader_image_loading">画像を読み込み中…</string>
+</resources>

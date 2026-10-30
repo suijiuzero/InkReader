@@ -101,4 +101,6 @@
     <string name="shelf_split_custom_placeholder">例如：◆ 或 ^第.+章</string>
     <string name="shelf_clean_watermark_title">净网清洗（去求票括注与网址水印）</string>
     <string name="shelf_clean_watermark_desc">剥离标题尾部的（求月票/第一更）与正文夹杂的网址水印行，目录与听书更清爽</string>
+    <string name="import_background">后台运行</string>
+    <string name="import_background_progress">导入中 %1$d%% · 点击查看</string>
 </resources>

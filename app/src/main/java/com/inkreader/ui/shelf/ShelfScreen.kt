@@ -404,6 +404,21 @@ fun ShelfScreen(
             }
         )
 
+        if (lib.importing && lib.importInBackground) {
+            Column(Modifier.fillMaxWidth().background(p.surface).clickable { lib.showImportProgress() }
+                .padding(horizontal = 18.dp, vertical = 10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(stringResource(R.string.import_background_progress, (lib.importFraction * 100).toInt()),
+                            color = p.accent, fontSize = 13.sp)
+                        Text(lib.importStage, color = p.textSecondary, fontSize = 12.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    InkTextButton(stringResource(R.string.recovery_cancel), onClick = lib::pauseImport)
+                }
+                InkProgress(lib.importFraction, Modifier.fillMaxWidth())
+            }
+        }
         Box(Modifier.fillMaxSize()) {
             when {
                 lib.loading && lib.books.isEmpty() -> InkLoading()
@@ -496,8 +511,8 @@ fun ShelfScreen(
             }
 
             // 导入进度
-            if (lib.importing) {
-                ImportOverlay(lib.importStage, lib.importFraction, lib::pauseImport)
+            if (lib.importing && !lib.importInBackground) {
+                ImportOverlay(lib.importStage, lib.importFraction, lib::pauseImport, lib::backgroundImport)
             }
         }
     }
@@ -901,7 +916,7 @@ private fun SelectionBar(
 }
 
 @Composable
-private fun ImportOverlay(stage: String, fraction: Float, onPause: () -> Unit) {
+private fun ImportOverlay(stage: String, fraction: Float, onPause: () -> Unit, onBackground: () -> Unit) {
     val p = LocalInkPalette.current
     Box(
         Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
@@ -909,7 +924,7 @@ private fun ImportOverlay(stage: String, fraction: Float, onPause: () -> Unit) {
     ) {
         Column(
             Modifier
-                .width(260.dp)
+                .width(320.dp)
                 .clip(RoundedCornerShape(18.dp))
                 .background(p.surfaceHigh)
                 .border(1.dp, p.divider, RoundedCornerShape(18.dp))
@@ -935,7 +950,11 @@ private fun ImportOverlay(stage: String, fraction: Float, onPause: () -> Unit) {
                 style = InkType.Caption.copy(fontSize = 11.sp),
                 color = p.textFaint
             )
-            InkTextButton(stringResource(R.string.recovery_cancel), onClick = onPause)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                InkTextButton(stringResource(R.string.recovery_cancel), onClick = onPause)
+                Spacer(Modifier.width(12.dp))
+                InkTextButton(stringResource(R.string.import_background), onClick = onBackground)
+            }
         }
     }
 }

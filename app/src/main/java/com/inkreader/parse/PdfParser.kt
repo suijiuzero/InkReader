@@ -48,31 +48,33 @@ class PdfParser : DocumentParser {
                 styledChars.toFloat() / stripper.glyphChars
             } else 0f
 
-            val parts = when {
-                // 字形流和收集到的文字量对得上：可以放心用字号推断标题
-                styledChars > 0 && ratio in 0.7f..1.35f -> buildFromPages(pages)
-
-                // 收集异常：退回标准提取（多一次解析，但保证正文是对的）
+            var media = EmbeddedImages()
+            val pictures = PdfEmbeddedImages.collect(document, media, decode = styledChars > 0)
+            val content = when {
+                styledChars > 0 && ratio in 0.7f..1.35f -> buildFromPages(pages, pictures)
                 else -> {
-                    val plain = runCatching {
-                        PDFTextStripper().apply {
-                            sortByPosition = true
-                            lineSeparator = "\n"
-                        }.getText(document)
-                    }.getOrDefault("")
+                    val plain = runCatching { PDFTextStripper().apply { sortByPosition = true; lineSeparator = "\n" }.getText(document) }.getOrDefault("")
                     val normalized = ChapterSplitter.normalize(plain)
                     if (normalized.isBlank()) {
-                        throw ParseException(ParseErrorCode.NEEDS_OCR, format)
+                        if (pictures.all { it.isEmpty() }) throw ParseException(ParseErrorCode.NEEDS_OCR, format)
+                        media = EmbeddedImages()
+                        val images = PdfPageImages.render(bytes, media)
+                        PdfContent(images.mapIndexed { i, token -> ChapterSplitter.Part("第${i + 1}页", token) }, images)
+                    } else {
+                        // Unusual text streams keep the standard extractor's complete text.
+                        val tokens = pictures.flatten().map { it.text }
+                        val source = listOf(normalized) + tokens
+                        PdfContent(ChapterSplitter.split(source.joinToString("\n\n"), "正文"), source)
                     }
-                    ChapterSplitter.split(normalized, "正文")
                 }
             }
+            val parts = content.parts
 
             if (parts.isEmpty()) throw ParseException(ParseErrorCode.NEEDS_OCR, format)
             if (parts.all { it.content.isBlank() }) throw ParseException(ParseErrorCode.NO_CONTENT, format)
 
             val title = metaTitle ?: ChapterSplitter.titleFromFileName(displayName)
-            return ParsedDoc(title, metaAuthor, parts, format)
+            return ParsedDoc(title, metaAuthor, parts, format, images = media.images, sourceParts = content.sourceParts)
         }
     }
 
@@ -81,6 +83,7 @@ class PdfParser : DocumentParser {
             PDDocument.load(ByteArrayInputStream(bytes))
         } catch (e: InvalidPasswordException) {
             throw ParseException(ParseErrorCode.ENCRYPTED, format)
+        } catch (e: java.util.concurrent.CancellationException) { throw e
         } catch (t: Throwable) {
             throw ParseException(ParseErrorCode.CORRUPTED, format, t.message)
         }
@@ -94,15 +97,23 @@ class PdfParser : DocumentParser {
 
     private val PUNCT_END = "。！？；：，、,.!?;:"
 
-    private fun buildFromPages(pages: List<List<PdfParagraphs.Line>>): List<ChapterSplitter.Part> {
+    private data class PdfContent(val parts: List<ChapterSplitter.Part>, val sourceParts: List<String>)
+    private fun buildFromPages(pages: List<List<PdfParagraphs.Line>>, pictures: List<List<PdfEmbeddedImages.Item>>): PdfContent {
         val artifacts = PdfArtifacts(pages)
         val allLines = pages.flatten()
-        if (allLines.isEmpty()) return emptyList()
+        if (allLines.isEmpty() && pictures.all { it.isEmpty() }) return PdfContent(emptyList(), emptyList())
 
         val bodySize = bodyFontSize(allLines)
 
-        val paras = PdfParagraphs.collect(pages, { false }, ::paragraphGap, artifacts::drop)
-        if (paras.isEmpty()) return emptyList()
+        val paras = if (pictures.all { it.isEmpty() }) PdfParagraphs.collect(pages, { false }, ::paragraphGap, artifacts::drop)
+        else {
+            val enriched = pages.mapIndexed { page, lines ->
+                (lines.filterIndexed { index, line -> !artifacts.drop(line, index, lines.size) } + pictures.getOrNull(page).orEmpty()
+                    .map { PdfParagraphs.Line(it.text, bodySize, it.y, true) }).sortedBy { it.y }
+            }
+            PdfParagraphs.collect(enriched, { false }, { paragraphGap(it.filterNot { line -> DocumentImages.isToken(line.text) }) })
+        }
+        if (paras.isEmpty()) return PdfContent(emptyList(), emptyList())
 
         val headings = paras
             .filter { isHeadingCandidate(it, bodySize) }
@@ -121,7 +132,7 @@ class PdfParser : DocumentParser {
                 ChapterAssembler.Para(level, p.text)
             }
         }
-        return ChapterAssembler.assemble(leveled)
+        return PdfContent(ChapterAssembler.assemble(leveled), paras.map { it.text })
     }
 
 
@@ -138,6 +149,7 @@ class PdfParser : DocumentParser {
 
     private fun isHeadingCandidate(p: PdfParagraphs.Para, bodySize: Float): Boolean {
         val t = p.text.trim()
+        if (DocumentImages.isToken(t)) return false
         if (t.isEmpty() || t.length > 40) return false
         if (t.contains('\n')) return false
         if (PUNCT_END.indexOf(t.last()) >= 0) return false

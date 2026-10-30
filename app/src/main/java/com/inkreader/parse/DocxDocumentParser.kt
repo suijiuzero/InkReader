@@ -3,8 +3,7 @@ package com.inkreader.parse
 /**
  * DOCX 解析器适配：包一层既有的 [DocxParser]。
  *
- * 解析逻辑（OOXML 段落 / 标题样式 / 表格 / 图片占位）一行没动，
- * 只是把「解析不出来」的几种情况区分开，方便给出具体提示。
+ * 保留 OOXML 段落、标题样式与嵌入图片，并区分损坏、空内容和资源超限。
  */
 class DocxDocumentParser : DocumentParser {
 
@@ -16,12 +15,14 @@ class DocxDocumentParser : DocumentParser {
         }
         val parsed = try {
             DocxParser().parse(bytes.inputStream())
+        } catch (e: ParseException) { throw e
+        } catch (e: java.util.concurrent.CancellationException) { throw e
         } catch (t: Throwable) {
             throw ParseException(ParseErrorCode.CORRUPTED, format, t.message)
         }
         if (parsed.parts.isEmpty()) {
             throw ParseException(ParseErrorCode.NO_CONTENT, format)
         }
-        return ParsedDoc(parsed.title, parsed.author.orEmpty(), parsed.parts, format)
+        return ParsedDoc(parsed.title, parsed.author.orEmpty(), parsed.parts, format, sourceParts = parsed.sourceParts, images = parsed.images)
     }
 }

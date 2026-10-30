@@ -167,13 +167,15 @@ class BookRepository(context: Context) {
         runInterruptible { indexedTxt.withDocument(name, options, { openIndexedSource(uri) }, block) }
 
     private fun commitIndexed(document: PreparedTxt, name: String, customTitle: String?, options: SplitOptions,
-        cancellation: CoroutineContext, receipt: String = ""): Pair<Long, Int> {
+        cancellation: CoroutineContext, receipt: String = "", onSaved: (Int, Int) -> Unit = { _, _ -> }): Pair<Long, Int> {
         val title = customTitle?.takeIf { it.isNotBlank() } ?: document.title ?: ChapterSplitter.titleFromFileName(name)
         val staged = ArrayList<String>()
         val result = try { db.inTransaction {
             val id = db.insertBook(Book(title = title, sourceType = SourceType.TXT, coverHue = hueFromString(title), createdAt = now()))
             check(id > 0)
             var chars = 0
+            var lastProgress = android.os.SystemClock.elapsedRealtime()
+            onSaved(0, document.sections.size)
             for ((i, section) in document.sections.withIndex()) {
                 cancellation.ensureActive()
                 val fileName = files.newFileName(); staged += fileName
@@ -183,6 +185,10 @@ class BookRepository(context: Context) {
                 val heading = if (options.mode == SplitMode.PER_FILE) ChapterSplitter.titleFromFileName(name) else section.title
                 check(db.insertChapter(Chapter(bookId = id, indexInBook = i, title = heading, fileName = fileName,
                     charCount = count, sourceName = name, volume = section.volume)) > 0)
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (i == document.sections.lastIndex || now - lastProgress >= 100) {
+                    onSaved(i + 1, document.sections.size); lastProgress = now
+                }
             }
             cancellation.ensureActive()
             check(document.sections.isNotEmpty())
@@ -200,12 +206,14 @@ class BookRepository(context: Context) {
 
     /** 合并与追加共用按范围写入逻辑；每个源文件单独提交，取消保留先前完整文件。 */
     private fun appendIndexed(document: PreparedTxt, name: String, bookId: Long, firstIndex: Int,
-        cancellation: CoroutineContext, receipt: String = ""): List<Pair<Long, String>> {
+        cancellation: CoroutineContext, receipt: String = "", onSaved: (Int, Int) -> Unit = { _, _ -> }): List<Pair<Long, String>> {
         val staged = ArrayList<String>(); val inserted = ArrayList<Pair<Long, String>>()
         val units = document.units(name)
         try { db.inTransaction {
             val book = db.getBook(bookId) ?: error("Book unavailable")
             var totalChars = book.totalChars.toLong()
+            var lastProgress = android.os.SystemClock.elapsedRealtime()
+            onSaved(0, units.size)
             for ((i, section) in units.withIndex()) {
                 cancellation.ensureActive()
                 val file = files.newFileName(); staged += file
@@ -215,6 +223,10 @@ class BookRepository(context: Context) {
                 val id = db.insertChapter(Chapter(bookId = bookId, indexInBook = firstIndex + i, title = section.title,
                     fileName = file, charCount = count, sourceName = name, volume = section.volume))
                 check(id > 0); inserted += id to section.title
+                val now = android.os.SystemClock.elapsedRealtime()
+                if (i == units.lastIndex || now - lastProgress >= 100) {
+                    onSaved(i + 1, units.size); lastProgress = now
+                }
             }
             cancellation.ensureActive(); check(units.isNotEmpty())
             refreshStats(bookId)
@@ -465,7 +477,7 @@ class BookRepository(context: Context) {
                 db.inTransaction {
                 for (u in units) {
                     cancellation.ensureActive()
-                    val body = prepareBody(parsed.sourceType, u.content)
+                    val body = prepareBody(parsed.sourceType, u.content, parsed.images)
                     val fileName = files.newFileName()
                     staged += fileName
                     writeChapter(fileName, body)
@@ -529,7 +541,12 @@ class BookRepository(context: Context) {
             val uri = ordered.single()
             val name = displayName(uri).orEmpty()
             try {
-                val imported = withIndexed(uri, name, splitOptions) { commitIndexed(it, name, customTitle, splitOptions, cancellation, receipt) }
+                val imported = withIndexed(uri, name, splitOptions) { document ->
+                    commitIndexed(document, name, customTitle, splitOptions, cancellation, receipt) { done, count ->
+                        onProgress(appContext.getString(R.string.repo_stage_save_chapters, done, count),
+                            .15f + .8f * done / count.coerceAtLeast(1))
+                    }
+                }
                 if (imported != null) {
                     if (fileOrder == ImportOrder.AUTO && splitOptions.mode == SplitMode.SMART) autoSortChapters(imported.first)
                     onProgress(appContext.getString(R.string.repo_stage_done), 1f)
@@ -548,7 +565,12 @@ class BookRepository(context: Context) {
             onProgress(appContext.getString(R.string.repo_stage_parse, name), (i.toFloat() / total) * 0.9f + 0.03f)
             currentCoroutineContext().ensureActive()
             try {
-                val imported = withIndexed(uri, name, splitOptions) { commitIndexed(it, name, customTitle, splitOptions, cancellation, receipt) }
+                val imported = withIndexed(uri, name, splitOptions) { document ->
+                    commitIndexed(document, name, customTitle, splitOptions, cancellation, receipt) { done, count ->
+                        onProgress(appContext.getString(R.string.repo_stage_save_chapters, done, count),
+                            .03f + .9f * (i + .15f + .8f * done / count.coerceAtLeast(1)) / total)
+                    }
+                }
                 if (imported != null) {
                     ids += imported.first; results += ImportFileResult(name, true, bookId = imported.first, chapterCount = imported.second)
                     continue
@@ -608,21 +630,28 @@ class BookRepository(context: Context) {
         val sourceType: SourceType,
         val analysis: ChapterAnalysis? = null,
         val encoding: CharsetDetector.Result? = null,
-        val textPreview: String = ""
+        val textPreview: String = "",
+        val sourceText: String? = null,
+        val images: Map<String, com.inkreader.parse.DocumentImage> = emptyMap(),
+        val sourceParts: List<String>? = null
     )
 
     /** 章节正文定稿：正文（纯文本）+ 可选的样式覆盖 */
-    private class ChapterBody(val text: String, val rich: RichChapter?)
+    private class ChapterBody(val text: String, val rich: RichChapter?,
+        val images: Map<String, com.inkreader.parse.DocumentImage> = emptyMap())
 
-    private fun prepareBody(sourceType: SourceType, content: String): ChapterBody =
+    private fun prepareBody(sourceType: SourceType, content: String,
+        images: Map<String, com.inkreader.parse.DocumentImage> = emptyMap()): ChapterBody =
         if (sourceType == SourceType.MD) {
             val rendered = RichMarkdown.render(content)
             ChapterBody(rendered.text, rendered.rich)
         } else {
-            ChapterBody(content, null)
+            val rendered = com.inkreader.parse.DocumentImages.render(content, images)
+            ChapterBody(rendered.text, rendered.rich, images)
         }
 
-    private fun writeChapter(fileName: String, body: ChapterBody) {
+    private fun writeChapter(fileName: String, body: ChapterBody) = files.withMediaWrite {
+        com.inkreader.parse.DocumentImages.references(body.rich).forEach { key -> body.images[key]?.let(files::writeImage) }
         files.write(fileName, body.text)
         val rich = body.rich
         if (rich != null) files.writeRich(fileName, rich.encode()) else files.deleteRich(fileName)
@@ -654,7 +683,7 @@ class BookRepository(context: Context) {
             options.mode == SplitMode.FIXED_SIZE ||
             options.mode == SplitMode.CUSTOM
         val parts = if (ruleMode) {
-            val raw = flatten(doc.parts)
+            val raw = doc.sourceText ?: doc.sourceParts?.joinToString("\n\n") ?: flatten(doc.parts)
             val norm = ChapterSplitter.normalize(raw)
             var splitParts = ChapterSplitter.split(norm, "正文", options)
             val title = doc.title
@@ -687,7 +716,13 @@ class BookRepository(context: Context) {
             parts = parts,
             metaTitle = doc.title,
             author = doc.author,
-            sourceType = sourceType
+            sourceType = sourceType,
+            textPreview = com.inkreader.parse.DocumentImages.preview(
+                doc.sourceParts?.asSequence()?.take(3)?.joinToString("\n\n") { it.take(180) }
+                    ?: doc.sourceText?.take(180) ?: parts.firstOrNull()?.content?.take(180).orEmpty()).take(180),
+            sourceText = doc.sourceText,
+            images = doc.images,
+            sourceParts = doc.sourceParts
         )
     }
 
@@ -716,7 +751,9 @@ class BookRepository(context: Context) {
                 listOf(
                     ChapterSplitter.Part(
                         title = if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(fileTitle) else fileTitle,
-                        content = ChapterSplitter.normalize(flatten(parts)),
+                        content = ChapterSplitter.normalize((parsed.sourceText ?: parsed.sourceParts?.joinToString("\n\n"))?.let {
+                            if (options.cleanWatermark) ChapterSplitter.cleanBodyWatermarks(it) else it
+                        } ?: flatten(parts)),
                         volume = ""
                     )
                 )
@@ -821,7 +858,7 @@ class BookRepository(context: Context) {
         var inserted = 0
         for ((i, p) in parts.withIndex()) {
             cancellation.ensureActive()
-            val body = prepareBody(sourceType, p.content)
+            val body = prepareBody(sourceType, p.content, parsedFile.images)
             val fileName = files.newFileName()
             staged += fileName
             writeChapter(fileName, body)
@@ -935,7 +972,12 @@ class BookRepository(context: Context) {
             onProgress(appContext.getString(R.string.repo_stage_parse, name), i.toFloat() / total)
             currentCoroutineContext().ensureActive()
             try {
-                val appended = withIndexed(uri, name, splitOptions) { appendIndexed(it, name, bookId, index, cancellation, receipt) }
+                val appended = withIndexed(uri, name, splitOptions) { document ->
+                    appendIndexed(document, name, bookId, index, cancellation, receipt) { done, count ->
+                        onProgress(appContext.getString(R.string.repo_stage_save_chapters, done, count),
+                            (i + .15f + .8f * done / count.coerceAtLeast(1)) / total)
+                    }
+                }
                 if (appended != null) { index += appended.size; inserted += appended; continue }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
@@ -964,7 +1006,7 @@ class BookRepository(context: Context) {
             db.inTransaction {
             for (u in units) {
                 cancellation.ensureActive()
-                val body = prepareBody(parsed.sourceType, u.content)
+                val body = prepareBody(parsed.sourceType, u.content, parsed.images)
                 val fileName = files.newFileName()
                 staged += fileName
                 writeChapter(fileName, body)
@@ -1450,6 +1492,40 @@ class BookRepository(context: Context) {
         }
     }
 
+    suspend fun createExportSnapshot(bookId: Long, ids: List<Long>): com.inkreader.data.export.ExportSnapshot =
+        withContext(Dispatchers.IO) { writes.write(bookId) {
+            val book = db.getBook(bookId) ?: throw IOException("Book no longer exists")
+            val current = db.chaptersOf(bookId).associateBy { it.id }
+            val selected = ids.distinct().map { current[it] ?: throw IOException("Chapters changed; reopen the book") }
+            require(selected.isNotEmpty())
+            val parent = File(appContext.cacheDir, "export-snapshots").apply { mkdirs() }
+            parent.listFiles()?.filter { System.currentTimeMillis() - it.lastModified() > 86400000L }?.forEach { it.deleteRecursively() }
+            val dir = File(parent, java.util.UUID.randomUUID().toString()).apply { check(mkdirs()) }
+            val job = currentCoroutineContext()
+            try {
+                files.withMediaWrite {
+                    for (chapter in selected) {
+                        job.ensureActive()
+                        val text = files.read(chapter.fileName)
+                        File(dir, "${chapter.id}.txt").writeText(text)
+                        val raw = files.readRich(chapter.fileName)
+                        val rich = RichChapter.decode(raw)?.takeIf { it.len == text.length }
+                        if (rich != null) {
+                            File(dir, "${chapter.id}.rich").writeText(rich.encode())
+                            for (key in com.inkreader.parse.DocumentImages.references(rich)) {
+                                val target = File(dir, "$key.img")
+                                if (!target.exists()) files.imageFile(key).inputStream().use { input -> target.outputStream().use { out ->
+                                    val buffer = ByteArray(65536)
+                                    while (true) { job.ensureActive(); val n = input.read(buffer); if (n < 0) break; out.write(buffer, 0, n) }
+                                } }
+                            }
+                        }
+                    }
+                }
+                com.inkreader.data.export.ExportSnapshot(book, selected, dir)
+            } catch (t: Throwable) { dir.deleteRecursively(); throw t }
+        } }
+
     suspend fun chapterText(chapter: Chapter): String =
         withContext(Dispatchers.IO) { writes.write(chapter.bookId) {
             val current = db.chapterOf(chapter.bookId, chapter.id)
@@ -1483,6 +1559,7 @@ class BookRepository(context: Context) {
         files.deleteCover(cover)
         corrections.clear(bookId)
         undo.clear(bookId)
+        files.pruneImagesIfDirty()
         com.inkreader.ui.component.CoverCache.invalidate()
     }
 

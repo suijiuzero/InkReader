@@ -64,6 +64,7 @@ class ReaderSession(
     val scope: CoroutineScope
 ) {
     private val repo = container.repo
+    internal fun imageFile(key: String): java.io.File = repo.files.imageFile(key)
     private val errors = CoroutineExceptionHandler { _, error ->
         loading = false
         pageCountSignature = ""

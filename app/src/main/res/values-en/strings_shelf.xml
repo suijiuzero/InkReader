@@ -108,4 +108,6 @@
     <string name="shelf_split_custom_placeholder">e.g. ◆ or ^Chapter\s+\d+</string>
     <string name="shelf_clean_watermark_title">Clean watermarks &amp; title noise</string>
     <string name="shelf_clean_watermark_desc">Strip vote-begging brackets from titles and website watermark lines from text</string>
+    <string name="import_background">Run in background</string>
+    <string name="import_background_progress">Importing %1$d%% · Tap for details</string>
 </resources>

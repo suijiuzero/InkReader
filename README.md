@@ -19,7 +19,7 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 
 - **中文重点来源评估**：第三批增加 32 份作品／选集书源，其中 24 份中文、96 个案例；独立标注 237 个标题和 707 个正文块，来源及边界见 [样本说明](tests/fixtures/real-source-v3/README.md)。
 - **本机体验记录**：设置中可选开启，默认关闭；最多保留 200 条数值耗时，可导出、清空，不记录书名、正文、搜索词或配对信息，不自动上传。
-- **六种格式**：TXT、DOCX、Markdown、文字版 PDF、HTML、EPUB。支持常见编码、文档标题结构和部分 Markdown 排版；不做 OCR，不完整复刻原书图片和页面版式。
+- **六种格式**：TXT、DOCX、Markdown、PDF、HTML、EPUB。支持常见编码、文档标题结构和部分 Markdown 排版；支持内嵌图片与扫描页看图，不做 OCR，不完整复刻原页面版式。
 - **编码与预览纠错**：TXT 支持 UTF 系列、GB18030、Big5、Shift-JIS 和 EUC-JP 自动比较；单个 TXT 可切换编码、核对文字、查看识别疑点；全书校对可分页搜索标题、跳转原文行并增删分章点，原文字保留。
 - **自有标题模型（实验）**：从项目标注数据训练的离线分类器，单个 TXT 的智能导入／重新分章可开启；额外候选只进入全书校对，手动确认才分章。训练、再训练及评估见 [模型说明](docs/1.16.0-自有章节模型.md)。
 - **无编号篇名（可选）**：TXT 导入或重新分章的智能模式可开启「识别无编号篇名」，按短标题、留白和正文长度识别中文短篇／散文集；默认关闭，有编号章节优先，推测结果请先预览校正。
@@ -40,7 +40,7 @@ An Android e-book reader with offline reading and optional paired LAN computer v
 
 书架「导入」→ 添加小说文件夹 → 按顺序点选或长按批量选择 → 核对预计次序 → 继续并选择导入／分章方式。选文件页的「*」仅是文件夹首页，与书架首页不同。
 
-单文件超过 200 MiB、TXT 索引超过 50 万行会拒绝导入，压缩文档另有解压预算；更小的复杂文档也可能受内存或损坏影响。扫描 PDF 不支持；旧 DOC、MOBI、AZW3 不在当前格式列表中。大型书籍识别和后台全书页数统计需要时间，大书重分章按磁盘范围处理，仍受源文件、行数、临时存储和批注端点预算约束；超大单章阅读及非 TXT 解析仍可能受内存限制。
+单文件超过 200 MiB、TXT 索引超过 50 万行会拒绝导入，压缩文档另有解压预算；更小的复杂文档也可能受内存或损坏影响。扫描 PDF 可看图，不做 OCR；旧 DOC、MOBI、AZW3 不在当前格式列表中。大型书籍识别和后台全书页数统计需要时间，大书重分章按磁盘范围处理，仍受源文件、行数、临时存储和批注端点预算约束；超大单章阅读及非 TXT 解析仍可能受内存限制。
 
 电脑语音需要 Windows 本地音色、电脑保持唤醒，并与手机互通。自动模式中文／英文用晓晓，日语优先七海；电脑需安装对应音色。只发送当前与下一句至配对电脑，LAN 使用 HTTP、没有 TLS 加密，请在可信网络使用。[电脑端说明](tools/natural-voice/README.md)
 
@@ -87,7 +87,7 @@ Ink Reader reads local books without accounts or ads. Reading, annotations and p
 ### Features and workflow
 
 - Version 1.15.0 coalesces reading-progress writes, protects text anchors during reflow, and offers an optional bounded local timing log. It is off by default, excludes book titles/text/queries/pairing data, and never uploads automatically. A second frozen corpus covers 8 real works, 7 languages and 24 cases; arbitrary unnumbered headings remain a separately measured capability limit.
-- TXT, DOCX, Markdown, text-based PDF, HTML and EPUB; common encodings and structured headings, supported Markdown formatting, no OCR or full original-page reproduction.
+- TXT, DOCX, Markdown, PDF, HTML and EPUB; common encodings and structured headings, supported Markdown formatting, no OCR or full original-page reproduction.
 - TXT encoding ranking for UTF, GB18030, Big5, Shift-JIS and EUC-JP; a single TXT can override the codec, inspect an excerpt and uncheck displayed boundaries without losing the source text.
 - Expanded native chapter labels, Unicode decimal digits, conservative bare numerals and mid-book style changes. Combined chapters use number ranges; source titles remain intact and missing content is never invented.
 - Whole-book paged correction can search headings, jump to source lines and add/remove boundaries; up to 10,000 explicit choices can be remembered per book. Resplit can reuse, disable or forget it; exact title/context matches are required, ambiguous or changed text is skipped.
@@ -101,7 +101,7 @@ Ink Reader reads local books without accounts or ads. Reading, annotations and p
 - Cross-chapter reading, paging/scrolling, themes, global layout, annotations, groups, search and chapter editing. TXT exports exclude private annotations and are not a full-library backup.
 - Phone TTS or optional local PC voices: Auto, Xiaoxiao and Nanami. Auto prefers Nanami for Japanese; install the corresponding voice on the PC. The floating player avoids reader controls without resizing the text page.
 
-Open Import, add a book folder, select files, inspect the expected order, then confirm import and splitting options. Sources over 200 MiB are rejected; smaller complex or damaged documents can also exceed practical limits. Scanned PDFs, old DOC, MOBI and AZW3 are not supported.
+Open Import, add a book folder, select files, inspect the expected order, then confirm import and splitting options. Sources over 200 MiB are rejected; smaller complex or damaged documents can also exceed practical limits. Scanned PDFs can be viewed as page images without OCR. Old DOC, MOBI and AZW3 are not supported.
 
 Computer speech sends only the current sentence and next prefetched sentence to the paired PC over HTTP without TLS. Keep the PC awake and reachable on a trusted network. Android backup/device transfer may include books, annotations, progress and covers; voice credentials are excluded. Uninstalling or clearing data removes the local library.
 
@@ -123,3 +123,9 @@ See the [manual](docs/使用说明.md), [changelog](CHANGELOG.md), [contributing
 [Apache-2.0](LICENSE). Third-party components retain their respective licenses.
 
 1.15.2 adds opt-in detection of unnumbered Chinese story/essay titles for TXT in smart splitting mode. Review inferred headings before import or resplitting; arbitrary prose cannot always be distinguished from a title. See [verification notes](docs/1.15.2-无编号篇名识别.md).
+
+## 当前工作区更新（待发布）
+
+支持导入进度收起到书架后台运行；改进大 TXT 的扫描、清理和保存反馈。修复 DOCX 普通样式误识别、单文件正文重复及 TXT 相邻重复章标题。增加 DOCX／EPUB／HTML 内嵌图片、PDF 提取图片与扫描页看图，以及放大、缩放和含图片备份。
+
+整本及单章导出可选 TXT、EPUB、DOCX、PDF，后三者保留插图；导出使用临时内容快照并可取消。详见 [使用说明](docs/使用说明.md)。功能的资源限制与 OCR、外部图片、复杂版式边界同样适用。发布徽章仍对应已发布版本。

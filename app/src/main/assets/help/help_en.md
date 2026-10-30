@@ -69,7 +69,7 @@ Only matching files in the current folder are included. The current search filte
 
 TXT supports common UTF-8/BOM, GBK/GB18030 and UTF-16 encodings. DOCX extracts text and heading styles; convert old DOC files first. Markdown preserves supported text formatting. HTML/HTM/XHTML extracts text without running scripts or loading remote images. EPUB follows its spine reading order.
 
-PDF requires extractable text: there is no OCR, and complex columns may need manual checking. Images, tables and original page layout are not fully reproduced. Sources over 200 MiB are rejected; smaller complex or damaged documents can also exceed practical limits.
+PDF extracts text and embedded images; image-only scanned pages are viewable without OCR. Complex columns, tables and original layouts may need manual checking. Sources over 200 MiB are rejected; smaller complex or damaged documents can also exceed practical limits.
 
 ## Reading and layout
 
@@ -134,3 +134,12 @@ Resuming after an earlier file failed restores the selected source order. Failed
 ## Local experience log
 
 Settings offers an optional local log, off by default. It keeps up to 200 loading, pagination, layout and rendering measurements without book titles, text, queries or pairing details. Nothing is uploaded automatically. Export JSON or clear it manually. System cache cleanup may remove the log; frame summaries are limited measurements.
+
+## Illustrations, background import and export formats
+
+- Run in background hides the import dialog. The compact shelf progress can reopen it or pause the job. It does not prevent Android from killing the app; recovery skips completed files and may restart the unfinished file.
+- DOCX, EPUB and embedded HTML images are displayed with the text. Text PDFs retain extracted pictures; image-only scanned PDFs can be viewed as page images without OCR. Tap to enlarge and pinch to zoom in either reading mode.
+- Embedded PNG, JPEG, GIF (static first frame), WebP and BMP are supported within resource budgets. External images are not downloaded. Complex tables, columns and original layouts are not reproduced exactly; Markdown still uses image placeholders.
+- DOCX body styles are distinguished from headings even when style IDs are numeric. Single-file chapters keep the original paragraph stream. Nearby duplicate chapter headings in TXT are coalesced, retaining the fuller title; distinct parts, volume resets and intervening prose remain protected.
+- Whole-book and single-chapter export offers TXT, EPUB, DOCX and PDF. TXT is UTF-8 BOM/CRLF with image placeholders. The other formats retain illustrations and chapter headings; EPUB has a table of contents, DOCX is editable and PDF has fixed pages. Files are newly laid out, not copies of the source layout. Export can be cancelled; large PDFs need additional time and storage.
+- Export uses a temporary snapshot so later edits do not change it. It attempts to save in Downloads and also offers sharing. Reading exports exclude bookmarks, notes and progress. Complete backups include illustrations and require a current app to restore the new image-capable format.

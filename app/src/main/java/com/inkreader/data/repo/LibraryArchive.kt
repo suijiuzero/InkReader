@@ -23,7 +23,7 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
     companion object {
         private val gate = Any()
         private const val MAX_BYTES = 4L * 1024 * 1024 * 1024
-        private val pathPattern = Regex("(?:library\\.json|(?:chapters|rich)/[0-9]+/[0-9]+\\.(?:txt|rich)|covers/[0-9]+\\.bin|notes/[0-9]+\\.json)")
+        private val pathPattern = Regex("(?:library\\.json|(?:chapters|rich)/[0-9]+/[0-9]+\\.(?:txt|rich)|covers/[0-9]+\\.bin|notes/[0-9]+\\.json|images/[a-f0-9]{64}\\.img)")
         private val preferenceKeys = setOf("font_size", "line_height", "para_spacing", "font", "theme", "page_mode", "page_animation",
             "margin", "volume_key_turn", "tag_sound", "chapter_flash", "indent", "brightness", "letter_spacing", "shelf_sort", "shelf_view", "tts_rate", "tts_pitch", "tts_timer")
         private fun checkpoint() { if (Thread.currentThread().isInterrupted) throw java.util.concurrent.CancellationException() }
@@ -71,7 +71,14 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
                         val chapter = chapters.getJSONObject(j); val name = chapter.getString("file")
                         val textPath = "chapters/$id/$j.txt"; add(textPath, files.file(name)); chapter.put("archive_text", textPath)
                         val rich = files.file(files.richNameOf(name))
-                        if (rich.isFile || File(rich.path + ".bak").isFile) { val richPath = "rich/$id/$j.rich"; add(richPath, rich); chapter.put("archive_rich", richPath) }
+                        if (rich.isFile || File(rich.path + ".bak").isFile) {
+                            val richPath = "rich/$id/$j.rich"; add(richPath, rich); chapter.put("archive_rich", richPath)
+                            val metadata = com.inkreader.parse.RichChapter.decode(files.readRich(name))
+                            for (key in com.inkreader.parse.DocumentImages.references(metadata)) {
+                                val path = "images/$key.img"
+                                if (!entries.has(path)) add(path, files.imageFile(key))
+                            }
+                        }
                     }
                     book.put("chapters", chapters).put("marks", rows("marks", "WHERE book_id=? ORDER BY id", arrayOf(id.toString())))
                     if (book.optString("cover_path").isNotEmpty()) { val path = "covers/$id.bin"; add(path, files.coverFile(book.getString("cover_path"))); book.put("archive_cover", path) }
@@ -82,7 +89,8 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
                 if (bookId == null) context.getSharedPreferences("ink_prefs", Context.MODE_PRIVATE).all.forEach { (key, value) ->
                     if (key in preferenceKeys && value != null) preferences.put(key, JSONObject().put("type", value.javaClass.simpleName).put("value", value))
                 }
-                val manifest = JSONObject().put("format", "ink-reader-library").put("version", 1).put("books", books)
+                val manifest = JSONObject().put("format", "ink-reader-library").put("version",
+                    if (entries.keys().asSequence().any { it.startsWith("images/") }) 2 else 1).put("books", books)
                     .put("groups", if (bookId == null) rows("groups", "ORDER BY sort_order,id") else
                         rows("groups", "WHERE id=?", arrayOf(books.getJSONObject(0).optLong("group_id").toString())))
                     .put("preferences", preferences).put("files", entries).toString().toByteArray()
@@ -125,7 +133,7 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
                 }
             }
             val manifest = JSONObject(File(staging, "library.json").readText())
-            require(manifest.getString("format") == "ink-reader-library" && manifest.getInt("version") == 1)
+            require(manifest.getString("format") == "ink-reader-library" && manifest.getInt("version") in 1..2)
             val expectedFiles = manifest.getJSONObject("files")
             require(expectedFiles.keys().asSequence().toSet() == hashes.keys - "library.json")
             expectedFiles.keys().forEach { name -> val expected = expectedFiles.getJSONObject(name)
@@ -136,6 +144,13 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
             val groups = manifest.getJSONArray("groups"); val groupMap = HashMap<Long, Long>()
             val oldIds = HashSet<Long>()
             db.inTransaction {
+              files.withMediaWrite {
+                for (path in hashes.keys.filter { it.startsWith("images/") }) {
+                    val key = path.removePrefix("images/").removeSuffix(".img")
+                    require(hashes.getValue(path).first <= 16L * 1024 * 1024 && hashes.getValue(path).second == key) { "Invalid image payload" }
+                    val image = com.inkreader.parse.DocumentImages.fromBytes(source(path).readBytes()) ?: error("Unsupported image payload")
+                    require(image.key == key); files.writeImage(image)
+                }
                 for (i in 0 until groups.length()) {
                     val group = groups.getJSONObject(i); val old = group.getLong("id")
                     val existing = if (replaceBook != null) db.groups().firstOrNull { it.id == old }?.id else null
@@ -163,7 +178,11 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
                         require(count == chapter.getInt("chars")) { "Chapter length mismatch" }; chars += count; sizes += count
                         chapter.optString("archive_rich").takeIf { it.isNotEmpty() }?.let { path ->
                             val rich = source(path); require(rich.length() <= 16L * 1024 * 1024) { "Rich metadata exceeds budget" }
-                            rich.copyTo(files.file(files.richNameOf(name)), overwrite = false)
+                            val raw = rich.readText()
+                            com.inkreader.parse.DocumentImages.references(com.inkreader.parse.RichChapter.decode(raw)).forEach { key ->
+                                require("images/$key.img" in hashes) { "Missing image payload" }
+                            }
+                            files.writeRich(name, raw)
                         }
                         chapter.remove("archive_text"); chapter.remove("archive_rich")
                         val cv = values(chapter, "chapters").apply { put("book_id", id); put("idx", j); put("file", name) }
@@ -225,6 +244,7 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
                 }
                 checkpoint()
             }
+            }
             obsolete.forEach { files.deleteChapter(it) }; if (obsoleteCover.isNotEmpty()) files.deleteCover(obsoleteCover)
             books.length()
         } catch (t: Throwable) {
@@ -242,6 +262,6 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
                 } }; editor.commit()
             }
             throw t
-        } finally { staging.deleteRecursively() }
+        } finally { staging.deleteRecursively(); runCatching { files.pruneImagesIfDirty() } }
     }
 }

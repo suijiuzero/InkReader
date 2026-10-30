@@ -75,9 +75,9 @@ class ImportJournal(private val context: Context, private val repo: BookReposito
             .put("uris", JSONArray(ordered.map { it.toString() })).put("mode", mode.name).put("title", title ?: JSONObject.NULL)
             .put("options", encode(options)).put("order", order.name).put("target", target)
         save(job)
-        execute(job, progress)
+        try { execute(job, progress) } finally { runCatching { repo.files.pruneImagesIfDirty() } }
     } }
-    suspend fun resume(progress: (String, Float) -> Unit): BookRepository.ImportResult = withContext(Dispatchers.IO) { gate.withLock { execute(read(), progress) } }
+    suspend fun resume(progress: (String, Float) -> Unit): BookRepository.ImportResult = withContext(Dispatchers.IO) { gate.withLock { try { execute(read(), progress) } finally { runCatching { repo.files.pruneImagesIfDirty() } } } }
     private suspend fun execute(job: JSONObject, progress: (String, Float) -> Unit): BookRepository.ImportResult {
         val id = job.getString("id"); val array = job.getJSONArray("uris")
         val uris = (0 until array.length()).map { array.getString(it).also { value -> require(value.length <= 8192) } }.map { Uri.parse(it) }
@@ -94,17 +94,20 @@ class ImportJournal(private val context: Context, private val repo: BookReposito
             currentCoroutineContext().ensureActive()
             val name = repo.displayName(uri) ?: context.getString(R.string.repo_fallback_file_n, index + 1)
             progress(context.getString(R.string.repo_stage_parse, name), index.toFloat() / uris.size)
+            val fileProgress: (String, Float) -> Unit = { stage, fraction ->
+                progress(stage, (index + fraction.coerceIn(0f, 1f) * .98f) / uris.size)
+            }
             val key = "$id:$index"
             val existing = repo.importReceipt(key)
             if (existing == null) {
                 if (target > 0) {
                     check(repo.book(target) != null) { context.getString(R.string.recovery_target_missing) }
                     val errors = repo.appendFilesAsChapters(target, listOf(uri), splitOptions = options,
-                        fileOrder = ImportOrder.SELECTION, receipt = key)
+                        fileOrder = ImportOrder.SELECTION, receipt = key, onProgress = fileProgress)
                     if (errors.isNotEmpty()) results += BookRepository.ImportFileResult(name, false, errors.joinToString("; "))
                 } else {
                     val result = repo.importDocuments(listOf(uri), ImportMode.SEPARATE, title,
-                        splitOptions = options, fileOrder = ImportOrder.SELECTION, receipt = key) { _, _ -> }
+                        splitOptions = options, fileOrder = ImportOrder.SELECTION, receipt = key, onProgress = fileProgress)
                     results += result.failed
                 }
             }

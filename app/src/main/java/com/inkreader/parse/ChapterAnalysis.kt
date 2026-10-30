@@ -32,5 +32,7 @@ data class ChapterPlan(
     val truncated: Boolean,
     val reviewLines: List<Int> = emptyList(),
     val doubtLines: Set<Int> = emptySet(),
-    val modelLines: Set<Int> = emptySet()
+    val modelLines: Set<Int> = emptySet(),
+    /** Zero-based redundant header copies; original source coordinates remain stable. */
+    val omittedHeadingLines: Set<Int> = emptySet()
 )

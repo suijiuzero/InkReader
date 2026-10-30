@@ -41,7 +41,7 @@ object HtmlTextExtractor {
         "([a-zA-Z_:][-a-zA-Z0-9_:.]*)\\s*=\\s*(\"([^\"]*)\"|'([^']*)'|([^\\s\"'>]+))"
     )
 
-    fun extract(html: String): Extracted {
+    fun extract(html: String, imageResolver: ((String) -> String?)? = null): Extracted {
         val paras = ArrayList<ChapterAssembler.Para>()
         val cur = StringBuilder()
         var curLevel = ChapterAssembler.BODY
@@ -146,6 +146,13 @@ object HtmlTextExtractor {
                         attrValue(attrs, "content")?.trim()?.takeIf { it.isNotEmpty() }
                             ?.let { if (author == null) author = it }
                     }
+                }
+
+                name == "img" && !closing && imageResolver != null -> {
+                    flush()
+                    val source = attrValue(attrs, "src").orEmpty()
+                    val token = imageResolver(source) ?: "〔图片〕"
+                    paras += ChapterAssembler.Para(ChapterAssembler.BODY, token)
                 }
 
                 name == "br" || name == "hr" -> flush()

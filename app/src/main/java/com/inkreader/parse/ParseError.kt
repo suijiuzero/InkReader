@@ -101,7 +101,12 @@ data class ParsedDoc(
     val title: String?,
     val author: String,
     val parts: List<ChapterSplitter.Part>,
-    val format: DocumentFormat
+    val format: DocumentFormat,
+    /** 原始段落流：单文件模式和显式重切不应把生成的章节标题拼进正文。 */
+    val sourceText: String? = null,
+    val images: Map<String, DocumentImage> = emptyMap(),
+    /** Shared paragraph strings; joining is deferred until a mode really needs the whole document. */
+    val sourceParts: List<String>? = null
 )
 
 /** 一种格式对应一个解析器 */
