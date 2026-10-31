@@ -461,6 +461,20 @@ object ChapterSplitter {
         val regional = (regionalCandidates + natural).filterNot { it in skippedToc }.distinct().sorted()
         val suggestions = if (options.modelSuggestions && options.mode in setOf(SplitMode.SMART, SplitMode.IN_FILE))
             HeadingModel.suggest(lines, fenced, (regional + skippedToc).toHashSet()) else emptyList()
+        // 开关打开时，模型候选要再过一遍全书结构校验（A3）：通过的直接进章节，未通过的仍作为建议展示。
+        // 离线验证（20 本中文 / 4 本英文人工标注）：中文 P 0.845→0.978、误报 246→31、召回 0.991→0.993。
+        val modelScores = if (suggestions.isEmpty()) emptyMap()
+            else HeadingModel.scoredCandidates(lines, fenced, (regional + skippedToc).toHashSet(), 0.25)
+        // 结构校验必须看到**规则已确定的章节**，否则"本书存在强编号链"这个前提不成立：
+        // 网络小说里规则给出几十个「第N章」，模型却会把大量无编号短句也判成标题。
+        // 这里把规则结果以满分并入上下文，结构校验据此启用 R7（编号主导）。
+        val structuralContext = HashMap<Int, Double>()
+        for (line in regional) structuralContext[line] = 1.0
+        for ((idx, score) in modelScores) structuralContext.putIfAbsent(idx, score)
+        val structuralAccepted = if (structuralContext.isEmpty()) emptySet()
+            else HeadingStructureFilter.accept(lines, structuralContext, HeadingModelWeights.threshold)
+        // 只允许模型"新增"通过校验的行；规则已确定的章节不受结构校验影响。
+        val acceptedByModel = modelScores.keys.filter { it in structuralAccepted }.toHashSet()
         if (regional.isEmpty() && options.forcedHeadingLines.isEmpty() && suggestions.isEmpty())
             return ChapterPlan(emptyList(), emptyList(), emptyList(), 0, false, false)
         val recovered = recoverNumberGaps(lines, regional)
@@ -470,7 +484,8 @@ object ChapterSplitter {
         val existing = scored.map { it.line - 1 }.toHashSet()
         suggestions.filterNot { it.index in existing }.forEach {
             scored += HeadingDecision(it.index + 1, lines[it.index].trim(), (it.score * 100).toInt(),
-                setOf(HeadingReason.MODEL_SUGGESTION), false)
+                setOf(if (it.index in acceptedByModel) HeadingReason.MODEL_ACCEPTED else HeadingReason.MODEL_SUGGESTION),
+                it.index in acceptedByModel)
         }
         val sequenceChoice = SequencePlanner.resolve(lines, scored)
         for (i in scored.indices) {
@@ -498,7 +513,8 @@ object ChapterSplitter {
             scored.take(500).forEach { decision ->
                 val idx = decision.line - 1
                 val reasons = decision.reasons.toMutableSet()
-                if (idx !in regionalSet && HeadingReason.MODEL_SUGGESTION !in reasons) reasons += HeadingReason.NUMBER_RECOVERY
+                if (idx !in regionalSet && HeadingReason.MODEL_SUGGESTION !in reasons && HeadingReason.MODEL_ACCEPTED !in reasons)
+                      reasons += HeadingReason.NUMBER_RECOVERY
                 if (idx in regionalSet && idx !in globalSet) reasons += HeadingReason.LOCAL_STYLE
                 if (decision.line in options.ignoredHeadingLines) reasons += HeadingReason.USER_IGNORED
                 decisions += decision.copy(reasons = reasons,
@@ -506,9 +522,11 @@ object ChapterSplitter {
             }
         }
         val chosen = selected.filterNot { it + 1 in options.ignoredHeadingLines }
+        // 只有**已被接受**的模型章节才算独立标题；未接受或未通过结构校验的建议不参与去重，
+        // 否则会打乱规则本来正确的合并结果（实测：同一本书 67 章会被抬到 73 章）。
         val duplicates = DuplicateChapterHeadings.resolve(lines, chosen, options, skippedToc +
-            scored.filter { HeadingReason.MODEL_SUGGESTION in it.reasons }.map { it.line - 1 },
-            scored.filterNot { HeadingReason.MODEL_SUGGESTION in it.reasons }.map { it.line - 1 }.toSet())
+            scored.filter { HeadingReason.MODEL_ACCEPTED in it.reasons }.map { it.line - 1 },
+            scored.filterNot { HeadingReason.MODEL_ACCEPTED in it.reasons }.map { it.line - 1 }.toSet())
         val kept = duplicates.headings.toHashSet()
         val resolvedDecisions = decisions.map { decision ->
             if (decision.line - 1 in duplicates.omitted) decision.copy(accepted = false)
@@ -526,6 +544,8 @@ object ChapterSplitter {
             scored.filter { HeadingReason.MODEL_SUGGESTION in it.reasons }.map { it.line - 1 }.toSet(),
             duplicates.omitted)
     }
+
+    private val MODEL_REASONS = setOf(HeadingReason.MODEL_SUGGESTION, HeadingReason.MODEL_ACCEPTED)
 
     private fun lineCharacters(lines: List<String>, index: Int, trim: Boolean = false): Int =
         (lines as? SizedLines)?.characters(index, trim) ?: if (trim) lines[index].trim().length else lines[index].length

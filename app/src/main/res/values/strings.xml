@@ -57,9 +57,10 @@
     <string name="cover_fallback_char">书</string>
     <string name="analysis_unnumbered_title">识别无编号篇名</string>
     <string name="analysis_unnumbered_hint">适用于中文小说集、散文集：结合独立短标题、留白与正文长度识别。默认关闭；有编号章节优先，请先预览并校正误识别。</string>
+    <string name="analysis_reason_model_auto">模型识别（全书结构校验通过）</string>
     <string name="analysis_reason_unnumbered">无编号篇名（根据排版推测，请核对）</string>
-    <string name="analysis_model_title">墨阅模型辅助（实验）</string>
-    <string name="analysis_model_hint">本机运行我们训练的标题分类器，额外建议放入全书校对的疑点列表，勾选确认后才分章。默认关闭，每份文件最多建议 200 处；不会上传正文或自动学习私人书籍。</string>
-    <string name="analysis_model_pending">墨阅模型建议 · 待确认，不会自动切章</string>
-    <string name="analysis_model_review">发现模型建议，请进入「全书校对」查看疑点并勾选确认。</string>
+    <string name="analysis_model_title">墨阅模型辅助分章（实验）</string>
+    <string name="analysis_model_hint">打开后，本机模型会找出规则漏掉的标题，并做全书结构校验（编号连续性、重复套话、目录区、样板文字、句末标点）。通过校验的直接加入章节，未通过的仍放进「全书校对」等你确认。全部在本机运行，不上传正文；可随时撤销。</string>
+    <string name="analysis_model_pending">墨阅模型 · 结构校验通过的直接入章，其余待确认</string>
+    <string name="analysis_model_review">模型已加入若干章节，另有疑点待确认，可进入「全书校对」调整。</string>
 </resources>

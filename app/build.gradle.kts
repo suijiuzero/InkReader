@@ -173,3 +173,84 @@ dependencies {
     // 首次需要联网让它落进 Gradle 缓存。
     testImplementation("junit:junit:4.13.2")
 }
+
+// 特征导出工具：直接调用生产 HeadingFeatures.at32()，避免"Python 复刻 Kotlin"导致的语义漂移。
+// 用法（在 InkReader 目录）：
+//   gradle.bat exportFeatures -Pbook="D:\x.txt" -Pout="D:\x.jsonl" [-Pcharset=GB18030]
+tasks.register<JavaExec>("exportFeatures") {
+    group = "verification"
+    description = "Export 32-dim heading features using the production HeadingFeatures code."
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.ExportFeatures")
+    val book = (project.findProperty("book") as String?) ?: ""
+    val out = (project.findProperty("out") as String?) ?: ""
+    val charset = (project.findProperty("charset") as String?) ?: "UTF-8"
+    args(book, out, charset)
+    doFirst {
+        if (book.isBlank() || out.isBlank()) throw GradleException("需要 -Pbook=<输入txt> 与 -Pout=<输出jsonl>")
+    }
+}
+
+// 一致性校验：用生产代码算 32 维并打分，供 Python 逐行比对。
+tasks.register<JavaExec>("predictCheck") {
+    group = "verification"
+    description = "Score a book with production features + exported weights."
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.PredictCheck")
+    val book = (project.findProperty("book") as String?) ?: ""
+    val weights = (project.findProperty("weights") as String?) ?: ""
+    val out = (project.findProperty("out") as String?) ?: ""
+    val charset = (project.findProperty("charset") as String?) ?: "UTF-8"
+    args(book, weights, out, charset)
+    doFirst {
+        if (book.isBlank() || weights.isBlank() || out.isBlank())
+            throw GradleException("需要 -Pbook= -Pweights= -Pout=")
+    }
+}
+
+// 批量导出（一次 JVM 处理整份书单）
+tasks.register<JavaExec>("exportBatch") {
+    group = "verification"
+    description = "Batch-export 32-dim features for a TSV book list."
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.ExportBatch")
+    val list = (project.findProperty("list") as String?) ?: ""
+    val out = (project.findProperty("out") as String?) ?: ""
+    args(list, out)
+    doFirst {
+        if (list.isBlank() || out.isBlank()) throw GradleException("需要 -Plist= -Pout=")
+    }
+}
+
+// A3 一致性校验：生产 HeadingStructureFilter 的最终接受行号
+tasks.register<JavaExec>("splitCheck") {
+    group = "verification"
+    description = "Run production scoring + HeadingStructureFilter on one book."
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.SplitCheck")
+    val book = (project.findProperty("book") as String?) ?: ""
+    val weights = (project.findProperty("weights") as String?) ?: ""
+    val out = (project.findProperty("out") as String?) ?: ""
+    args(book, weights, out, "UTF-8")
+    doFirst { if (book.isBlank() || weights.isBlank() || out.isBlank()) throw GradleException("需要 -Pbook= -Pweights= -Pout=") }
+}
+
+// 端到端：直接调生产 ChapterSplitter，对比模型开关前后
+tasks.register<JavaExec>("splitE2E") {
+    group = "verification"
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.SplitE2E")
+    dependsOn("compileDebugUnitTestKotlin")
+    val book = (project.findProperty("book") as String?) ?: ""
+    args(book, "UTF-8")
+    doFirst { if (book.isBlank()) throw GradleException("需要 -Pbook=") }
+}

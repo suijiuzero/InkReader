@@ -88,4 +88,40 @@ class DuplicateChapterHeadingsTest {
         val bodyLines = listOf("第一章 相遇", "", "站在门口", "", "第一章 相遇", "", body)
         assertTrue(DuplicateChapterHeadings.resolve(bodyLines, listOf(0), SplitOptions()).omitted.isEmpty())
     }
+
+    /**
+     * 真实网文回归：来自用户提供的《修仙…》文件的实际形态。
+     * 三个特征同时出现，历史上都踩过：
+     *   1. 同一标题**隔一行**再出现一次（不是隔空行）
+     *   2. 阿拉伯数字与中文数字**混用**（第1章 / 第二章）
+     *   3. 正文里有一句以「第二回」开头、但明显是叙述（带句号）
+     */
+    @Test fun realWebNovelAdjacentDuplicateHeadingsWithMixedNumberingCollapse() {
+        val raw = buildString {
+            appendLine("第一章")
+            appendLine("　　「正文」")
+            appendLine("第1章 灵根种子")
+            appendLine(body)
+            appendLine("第二章")
+            appendLine(body)
+            appendLine("第2章 你快点")
+            appendLine(body)
+            appendLine("第3章 你们继续")
+            appendLine("　　「中间夹一行正文」")
+            appendLine("第3章 你们继续")
+            appendLine(body)
+            appendLine("第二回来得比第一回快得多。")
+            appendLine(body)
+            appendLine("第4章 灵石交易")
+            appendLine(body)
+            appendLine("第4章 灵石交易")
+            appendLine(body)
+        }
+        val parts = ChapterSplitter.split(raw, options = SplitOptions(cleanWatermark = false))
+        val numbers = parts.mapNotNull { ChapterSplitter.chapterOrderFromTitle(it.title) }
+        assertEquals("重复标题必须合并，句中「第二回」不能变成章", listOf(1, 2, 3, 4), numbers)
+        assertEquals("第3章只应出现一次", 1, parts.count { it.title.startsWith("第3章") })
+        assertEquals("第4章只应出现一次", 1, parts.count { it.title.startsWith("第4章") })
+        assertFalse("句中的「第二回」不能被当成标题", parts.any { it.title.startsWith("第二回来得") })
+    }
 }
