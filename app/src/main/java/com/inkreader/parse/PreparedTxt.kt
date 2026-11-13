@@ -235,9 +235,30 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
             pieces += prefix
             range(start + 1, stop)?.let { if (pieces.isNotEmpty()) pieces += literal("\n\n"); pieces += it }
             val section = Section(if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(rawTitle) else rawTitle, omitDuplicateHeaders(pieces), volume)
-            // 与 ChapterSplitter.assembleParts 用同一个超长阈值，避免两条导入路径给出不同章数
-            if (section.length > ChapterSplitter.MAX_CHAPTER_CHARS)
-                result += chunks(section, ChapterSplitter.MAX_CHAPTER_CHARS, true) else result += section
+            // 与 ChapterSplitter.assembleParts 保持一致：
+            // 超长章先按部级标题（上部/下部/第X部）切，剩余仍超长才按字数切。
+            if (section.length > ChapterSplitter.MAX_CHAPTER_CHARS) {
+                val cuts = (start + 1 until stop).filter {
+                    ChapterSplitter.extractVolumeTitle(text.lines[it]) != null
+                }
+                if (cuts.isEmpty()) {
+                    result += chunks(section, ChapterSplitter.MAX_CHAPTER_CHARS, true)
+                } else {
+                    val bounds = listOf(start) + cuts + listOf(stop)
+                    for (bi in 0 until bounds.size - 1) {
+                        val a = bounds[bi]
+                        val b = bounds[bi + 1]
+                        val subTitle = if (a == start) section.title else text.lines[a].trim()
+                        val pieces2 = ArrayList<Piece>()
+                        range(a + 1, b)?.let { pieces2 += it }
+                        val sub = Section(
+                            if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(subTitle) else subTitle,
+                            omitDuplicateHeaders(pieces2), volume)
+                        if (sub.length > ChapterSplitter.MAX_CHAPTER_CHARS)
+                            result += chunks(sub, ChapterSplitter.MAX_CHAPTER_CHARS, true) else result += sub
+                    }
+                }
+            } else result += section
             carry = peeled.map { Piece(text.starts[it], text.ends[it]) }
         }
         return result

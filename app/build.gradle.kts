@@ -288,3 +288,15 @@ tasks.register<JavaExec>("regressionCheck") {
         configurations.getByName("debugUnitTestRuntimeClasspath"))
     mainClass.set("com.inkreader.tools.RegressionCheck")
 }
+
+
+// 两条导入路径一致性
+tasks.register<JavaExec>("pathParity") {
+    group = "verification"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.PathParity")
+    val book = (project.findProperty("book") as String?) ?: ""
+    args(book)
+}

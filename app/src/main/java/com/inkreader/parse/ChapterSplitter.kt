@@ -566,18 +566,24 @@ object ChapterSplitter {
      */
     private fun promotePartsInOversizedGaps(lines: List<String>, headings: List<Int>): List<Int> {
         if (headings.size < 2) return headings
-        val extra = ArrayList<Int>()
-        for (k in 0 until headings.size - 1) {
-            val a = headings[k]
-            val b = headings[k + 1]
-            if (b - a < 2) continue
-            var chars = 0
-            for (i in a + 1 until b) chars += lines[i].length + 1
-            if (chars <= MAX_CHAPTER_CHARS) continue
-            for (i in a + 1 until b) if (extractVolumeTitle(lines[i]) != null) extra.add(i)
+        var current = headings
+        // 反复提升直到稳定：一个新提升的部标题可能把它后面仍超长的区间切开，
+        // 里面还藏着别的部标题（《三体》第三部里的第四部/第五部）。
+        repeat(4) {
+            val extra = ArrayList<Int>()
+            for (k in 0 until current.size - 1) {
+                val a = current[k]
+                val b = current[k + 1]
+                if (b - a < 2) continue
+                var chars = 0
+                for (i in a + 1 until b) chars += lines[i].length + 1
+                if (chars <= MAX_CHAPTER_CHARS) continue
+                for (i in a + 1 until b) if (extractVolumeTitle(lines[i]) != null) extra.add(i)
+            }
+            if (extra.isEmpty()) return current
+            current = (current + extra).distinct().sorted()
         }
-        if (extra.isEmpty()) return headings
-        return (headings + extra).distinct().sorted()
+        return current
     }
 
     private fun collapseGluedHeadings(lines: List<String>, headings: List<Int>): List<Int> {
@@ -1384,7 +1390,7 @@ object ChapterSplitter {
     private fun splitOversized(title: String, lines: List<String>, volume: String): List<Part> {
         val cuts = lines.indices.filter { it > 0 && extractVolumeTitle(lines[it]) != null }
         if (cuts.isEmpty()) {
-            return splitBySize(lines.joinToString("\n").trim(), title).mapIndexed { k, p ->
+            return splitBySize(lines.joinToString("\n").trim(), title, MAX_CHAPTER_CHARS).mapIndexed { k, p ->
                 Part(if (k == 0) title else "$title（${k + 1}）", p.content, volume)
             }
         }
@@ -1397,7 +1403,7 @@ object ChapterSplitter {
             val segBody = lines.subList(a, b).joinToString("\n").trim()
             if (segBody.isEmpty()) continue
             if (segBody.length > MAX_CHAPTER_CHARS) {
-                splitBySize(segBody, segTitle).forEachIndexed { j, p ->
+                splitBySize(segBody, segTitle, MAX_CHAPTER_CHARS).forEachIndexed { j, p ->
                     out += Part(if (j == 0) segTitle else "$segTitle（${j + 1}）", p.content, volume)
                 }
             } else {
