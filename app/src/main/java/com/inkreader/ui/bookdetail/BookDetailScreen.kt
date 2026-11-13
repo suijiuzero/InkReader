@@ -611,9 +611,14 @@ fun BookDetailScreen(
                                             dragVolumeHover = null
                                             if (vol != null) {
                                                 if (!busy && target != null && target != vol) {
+                                                    // 往下拖时落点表示「放到目标卷之后」，往上拖表示「放到之前」
+                                                    val fromIdx = volumeOrder.indexOf(vol)
+                                                    val toIdx = volumeOrder.indexOf(target)
+                                                    val dest = if (fromIdx >= 0 && toIdx > fromIdx)
+                                                        volumeOrder.getOrNull(toIdx + 1) else target
                                                     busy = true
                                                     scope.launch {
-                                                        container.repo.moveVolumeBefore(bookId, vol, target)
+                                                        container.repo.moveVolumeBefore(bookId, vol, dest)
                                                         chapters = container.repo.chapters(bookId)
                                                         book = container.repo.book(bookId)
                                                         container.library.refresh()
@@ -787,10 +792,8 @@ fun BookDetailScreen(
                                         canMergeNext = vi >= 0 && vi < volumeOrder.lastIndex,
                                         canMoveUp = vi > 0,
                                         canMoveDown = vi >= 0 && vi < volumeOrder.lastIndex,
-                                        modifier = if (dragged) Modifier.graphicsLayer {
-                                            alpha = 0.85f
-                                            translationY = dragVolumeY - dragVolumeGrab
-                                        } else Modifier
+                                        // 拖动中的卷头在列表里隐藏，跟手的浮层画在下面（与章节拖动一致）
+                                        modifier = if (dragged) Modifier.graphicsLayer { alpha = 0f } else Modifier
                                     )
                                 } else {
                                 val i = (row as ChapterRow.Item).index
@@ -847,6 +850,32 @@ fun BookDetailScreen(
                                 )
                                 }
                             }
+                        }
+
+                        // 跟手的卷头浮层
+                        val draggedVol = dragVolume
+                        if (draggedVol != null) {
+                            VolumeHeader(
+                                name = draggedVol,
+                                count = chapters.count { it.volume == draggedVol },
+                                collapsed = draggedVol in collapsedVolumes,
+                                busy = busy,
+                                canMergePrev = false,
+                                canMergeNext = false,
+                                canMoveUp = false,
+                                canMoveDown = false,
+                                onToggle = {},
+                                onMergePrev = {},
+                                onMergeNext = {},
+                                onMoveUp = {},
+                                onMoveDown = {},
+                                onRename = {},
+                                onDelete = {},
+                                modifier = Modifier
+                                    .padding(horizontal = 20.dp)
+                                    .offset { IntOffset(0, (dragVolumeY - dragVolumeGrab).roundToInt()) }
+                                    .shadow(10.dp, CardShape)
+                            )
                         }
 
                         // 跟手的浮层卡片
