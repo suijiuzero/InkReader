@@ -163,6 +163,8 @@ fun BookDetailScreen(
     var dragVolumeY by remember { mutableStateOf(0f) }
     var dragVolumeGrab by remember { mutableStateOf(0f) }
     var dragVolumeHover by remember { mutableStateOf<String?>(null) }
+    var dragRowBase by remember { mutableStateOf(0) }
+    var pendingVolumeFix by remember { mutableStateOf<Pair<Long, String>?>(null) }
     var confirmDeleteBook by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
     var newChapterTitle by remember { mutableStateOf("") }
@@ -203,6 +205,28 @@ fun BookDetailScreen(
         }
     }
 
+    /** 拖动中的卷在本地实时换位（整块移动），松手时再一次性落库。 */
+    fun reorderVolumeLocal(dragged: String, target: String) {
+        if (dragged == target) return
+        val order = chapterVolumeOrder(chapters)
+        val from = order.indexOf(dragged)
+        val to = order.indexOf(target)
+        if (from < 0 || to < 0) return
+        val list = chapters.toMutableList()
+        val block = list.filter { it.volume == dragged }
+        if (block.isEmpty()) return
+        list.removeAll { it.volume == dragged }
+        val insertAt = if (to > from) {
+            val idx = list.indexOfLast { it.volume == target }
+            if (idx < 0) list.size else idx + 1
+        } else {
+            val idx = list.indexOfFirst { it.volume == target }
+            if (idx < 0) 0 else idx
+        }
+        list.addAll(insertAt.coerceIn(0, list.size), block)
+        chapters = list
+    }
+
     fun dragHitTest() {
         val moved = dragChapterId ?: return
         val target = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
@@ -220,19 +244,24 @@ fun BookDetailScreen(
         val visible = listState.layoutInfo.visibleItemsInfo.firstOrNull()
         val anchorId = visible?.key as? Long
         val anchorOffset = listState.firstVisibleItemScrollOffset
-        val anchorChapterIndex = if (anchorId != null) list.indexOfFirst { it.id == anchorId } else -1
-        // 章列表前面还有若干个头部 item，换算回 LazyColumn 的下标时要补上
-        val headerCount = if (visible != null && anchorChapterIndex >= 0) visible.index - anchorChapterIndex else 0
         list.add(to, list.removeAt(from))
+        // 跨卷拖动：落到别的卷里就把卷标记改成目标卷的，否则章节会挂在原卷头下面「跑错位置」
+        val movedChapter = list[to]
+        val targetVolume = list.getOrNull(to - 1)?.volume ?: list.getOrNull(to + 1)?.volume ?: ""
+        if (movedChapter.volume != targetVolume) {
+            list[to] = movedChapter.copy(volume = targetVolume)
+            pendingVolumeFix = movedChapter.id to targetVolume
+        }
         chapters = list
         // 一次只跑一个锚点修复：拖动帧循环里每帧都会调到这里，
         // 并发发起 scrollToItem 会和边缘自动滚的 scrollBy 互相取消。
         if (anchorId != null && !anchorFixInFlight) {
-            val newChapterIndex = list.indexOfFirst { it.id == anchorId }
-            if (newChapterIndex >= 0) {
+            val newRow = chapterRows(list, collapsedVolumes)
+                .indexOfFirst { it is ChapterRow.Item && it.chapter.id == anchorId }
+            if (newRow >= 0) {
                 anchorFixInFlight = true
                 scope.launch {
-                    runCatching { listState.scrollToItem(headerCount + newChapterIndex, anchorOffset) }
+                    runCatching { listState.scrollToItem(dragRowBase + newRow, anchorOffset) }
                     anchorFixInFlight = false
                 }
             }
@@ -587,6 +616,11 @@ fun BookDetailScreen(
                                             dragStartIds = chapters.map { it.id }
                                             dragFingerY = pos.y
                                             dragGrab = pos.y - hit.offset
+                                            // 列表里现在是「卷头 + 章节」混排，锚点回滚必须按行下标换算，
+                                            // 否则 headerCount + chapterIndex 会越界导致崩溃。
+                                            val rowIdx = chapterRows(chapters, collapsedVolumes)
+                                                .indexOfFirst { it is ChapterRow.Item && it.chapter.id == key }
+                                            dragRowBase = if (rowIdx >= 0) hit.index - rowIdx else 0
                                         },
                                         onDrag = { change, amount ->
                                             val vol = dragVolume
@@ -597,7 +631,11 @@ fun BookDetailScreen(
                                                     val k = info.key
                                                     k is String && dragVolumeY >= info.offset && dragVolumeY <= info.offset + info.size
                                                 }?.key as? String
-                                                if (hover != null) dragVolumeHover = hover.removePrefix("vol:")
+                                                if (hover != null) {
+                                                    val name = hover.removePrefix("vol:")
+                                                    if (name != vol) reorderVolumeLocal(vol, name)
+                                                    dragVolumeHover = name
+                                                }
                                             } else if (dragChapterId != null) {
                                                 change.consume()
                                                 dragFingerY += amount.y
@@ -605,20 +643,21 @@ fun BookDetailScreen(
                                             }
                                         },
                                         onDragEnd = {
+                                            pendingVolumeFix?.let { (id, volume) ->
+                                                pendingVolumeFix = null
+                                                scope.launch { container.repo.setVolumeOfChapter(id, volume) }
+                                            }
                                             val vol = dragVolume
                                             val target = dragVolumeHover
                                             dragVolume = null
                                             dragVolumeHover = null
                                             if (vol != null) {
+                                                // 拖动过程中已经实时换位，松手把当前顺序落库即可
                                                 if (!busy && target != null && target != vol) {
-                                                    // 往下拖时落点表示「放到目标卷之后」，往上拖表示「放到之前」
-                                                    val fromIdx = volumeOrder.indexOf(vol)
-                                                    val toIdx = volumeOrder.indexOf(target)
-                                                    val dest = if (fromIdx >= 0 && toIdx > fromIdx)
-                                                        volumeOrder.getOrNull(toIdx + 1) else target
+                                                    val ids = chapters.map { it.id }
                                                     busy = true
                                                     scope.launch {
-                                                        container.repo.moveVolumeBefore(bookId, vol, dest)
+                                                        container.repo.reorderChapters(bookId, ids)
                                                         chapters = container.repo.chapters(bookId)
                                                         book = container.repo.book(bookId)
                                                         container.library.refresh()
@@ -1346,6 +1385,29 @@ fun BookDetailScreen(
                     InkTextButton(stringResource(R.string.detail_resplit_confirm)) {
                         if (preparing) return@InkTextButton
                         showResplitDialog = false
+                        // 与导入一致：立刻回到书架，进度卡片在书架上显示，「后台运行」按钮在卡片上
+                        container.library.startResplit(
+                            bookId,
+                            book?.title.orEmpty(),
+                            SplitOptions(
+                                mode = resplitMode,
+                                cleanWatermark = cleanWatermark,
+                                detectUnnumberedTitles = unnumberedTitles,
+                                modelSuggestions = modelSuggestions,
+                                customPattern = customPattern.trim(),
+                                useSavedCorrections = useMemory,
+                                ignoredHeadingLines = manualOptions.ignoredHeadingLines
+                            )
+                        ) { count ->
+                            Toast.makeText(
+                                ctx,
+                                if (count < 0) ctx.getString(R.string.detail_resplit_too_large)
+                                else ctx.getString(R.string.detail_resplit_done_toast, count),
+                                Toast.LENGTH_SHORT
+                            ).show()
+                        }
+                        onBack()
+                        return@InkTextButton
                         busy = true; detailProgress = 0f; detailStage = ctx.getString(R.string.detail_resplit_book)
                         detailTask = scope.launch { try {
                             // 兜住异常：失败要么是「书太大」（仓库返回 -1），要么是仓库抛错，

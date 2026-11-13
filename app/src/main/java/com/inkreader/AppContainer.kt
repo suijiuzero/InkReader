@@ -106,6 +106,45 @@ class LibraryStore(
         private set
     fun backgroundImport() { if (importing) importInBackground = true }
     fun showImportProgress() { importInBackground = false }
+    // 重新分章进度（与导入一致的后台运行体验）
+    var resplitting by mutableStateOf(false)
+        private set
+    var resplitInBackground by mutableStateOf(false)
+        private set
+    var resplitTitle by mutableStateOf("")
+        private set
+    var resplitStage by mutableStateOf("")
+        private set
+    var resplitFraction by mutableStateOf(0f)
+        private set
+    private var resplitJob: kotlinx.coroutines.Job? = null
+    fun backgroundResplit() { if (resplitting) resplitInBackground = true }
+    fun showResplitProgress() { resplitInBackground = false }
+    fun cancelResplit() { resplitJob?.cancel() }
+
+    fun startResplit(
+        bookId: Long,
+        title: String,
+        options: com.inkreader.data.model.SplitOptions,
+        onDone: (Int) -> Unit = {}
+    ) {
+        if (resplitting) return
+        resplitInBackground = false
+        resplitting = true
+        resplitTitle = title
+        resplitFraction = 0f
+        resplitStage = appContext.getString(R.string.repo_stage_resplit)
+        resplitJob = scope.launch {
+            val count = runCatching {
+                repo.resplitBook(bookId, options) { f -> resplitFraction = f }
+            }.getOrElse { -2 }
+            resplitting = false
+            resplitInBackground = false
+            refresh()
+            onDone(count)
+        }
+    }
+
     var recoveryAvailable by mutableStateOf(false)
         private set
     private var importJob: kotlinx.coroutines.Job? = null
@@ -129,6 +168,9 @@ class LibraryStore(
     }
 
     fun refresh() {
+        // 重新分章会长时间占住数据库写入；此时再读书架会把 UI 卡成空白页，
+        // 直接沿用当前列表，等分章结束后由 startResplit 的 onDone 再刷一次。
+        if (resplitting) return
         scope.launch {
             loading = true
             books = repo.books(sort)

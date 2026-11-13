@@ -110,4 +110,5 @@
     <string name="shelf_clean_watermark_desc">Strip vote-begging brackets from titles and website watermark lines from text</string>
     <string name="import_background">Run in background</string>
     <string name="import_background_progress">Importing %1$d%% · Tap for details</string>
+    <string name="resplit_background_progress">%1$s is re-splitting in background %2$d%% · Tap for details</string>
 </resources>

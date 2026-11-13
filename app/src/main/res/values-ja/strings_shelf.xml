@@ -103,4 +103,5 @@
     <string name="shelf_clean_watermark_desc">章タイトル末尾の括弧書きや本文中のサイトURL透かし行を自動で除去します</string>
     <string name="import_background">バックグラウンド</string>
     <string name="import_background_progress">インポート中 %1$d%% · タップで詳細</string>
+    <string name="resplit_background_progress">%1$s をバックグラウンドで再分割中 %2$d%% · タップで詳細</string>
 </resources>

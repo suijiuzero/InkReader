@@ -1290,7 +1290,9 @@ class BookRepository(context: Context) {
 
     private fun resplitInternal(bookId: Long, options: SplitOptions, onProgress: (Float) -> Unit): Int {
         val book = db.getBook(bookId) ?: return 0
-        val oldChapters = db.chaptersOf(bookId)
+        // 重新分章只认「导入时的原始章节顺序」（按自增 id），不看用户在章节管理里
+        // 拖动卷/章之后的顺序：否则把第一卷移到第二卷之后，重分章会按错乱的正文顺序切。
+        val oldChapters = db.chaptersOf(bookId).sortedBy { it.id }
         if (oldChapters.isEmpty()) return 0
         val oldMarks = db.marksOf(bookId)
         val charBudget = minOf(MAX_RESPLIT_CHARS.toLong(), Runtime.getRuntime().maxMemory() / 48).coerceAtLeast(1)
@@ -1583,6 +1585,11 @@ class BookRepository(context: Context) {
         if (file != null) runCatching { files.deleteChapter(file) }
         reanchorLastChapter(bookId, curId, curIdx)
         refreshStats(bookId)
+    }
+
+    /** 把单章的卷标记改成 [volume]（拖动章节跨卷时用）。 */
+    suspend fun setVolumeOfChapter(chapterId: Long, volume: String) = withContext(Dispatchers.IO) {
+        chapterBook(chapterId)?.let { id -> bookWrite(id) { db.updateChapterVolume(chapterId, volume) } }
     }
 
     /** 把某一卷整体改名；[to] 为空表示清除卷标记（章节保留）。 */

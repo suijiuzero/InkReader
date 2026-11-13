@@ -404,6 +404,28 @@ fun ShelfScreen(
             }
         )
 
+        if (lib.resplitting && lib.resplitInBackground) {
+            Column(Modifier.fillMaxWidth().background(p.surface).clickable { lib.showResplitProgress() }
+                .padding(horizontal = 18.dp, vertical = 10.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(
+                                R.string.resplit_background_progress,
+                                lib.resplitTitle,
+                                (lib.resplitFraction * 100).toInt()
+                            ),
+                            color = p.accent, fontSize = 13.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis
+                        )
+                        Text(lib.resplitStage, color = p.textSecondary, fontSize = 12.sp,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                    InkTextButton(stringResource(R.string.recovery_cancel), onClick = lib::cancelResplit)
+                }
+                InkProgress(lib.resplitFraction, Modifier.fillMaxWidth())
+            }
+        }
         if (lib.importing && lib.importInBackground) {
             Column(Modifier.fillMaxWidth().background(p.surface).clickable { lib.showImportProgress() }
                 .padding(horizontal = 18.dp, vertical = 10.dp)) {
@@ -513,6 +535,14 @@ fun ShelfScreen(
             // 导入进度
             if (lib.importing && !lib.importInBackground) {
                 ImportOverlay(lib.importStage, lib.importFraction, lib::pauseImport, lib::backgroundImport)
+        if (lib.resplitting && !lib.resplitInBackground) {
+            ImportOverlay(
+                stage = lib.resplitStage.ifBlank { lib.resplitTitle },
+                fraction = lib.resplitFraction,
+                onPause = lib::cancelResplit,
+                onBackground = lib::backgroundResplit
+            )
+        }
             }
         }
     }
