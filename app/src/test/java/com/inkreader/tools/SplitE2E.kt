@@ -20,14 +20,20 @@ object SplitE2E {
             System.err.println("usage: SplitE2E <book.txt> [charset]")
             kotlin.system.exitProcess(2)
         }
-        val charset = Charset.forName(args.getOrNull(1)?.takeIf { it.isNotBlank() } ?: "UTF-8")
-        val text = File(args[0]).readText(charset)
+        // 与 App 一致：按 CharsetDetector 嗅探编码（网文里有大量 GB18030）
+        val bytes = File(args[0]).readBytes()
+        val det = com.inkreader.parse.CharsetDetector.detect(bytes)
+        val text = String(bytes, det.bomLength, bytes.size - det.bomLength, det.charset)
+        println("charset=" + det.charset.name())
         val base = SplitOptions(mode = SplitMode.SMART, cleanWatermark = false,
             detectUnnumberedTitles = false, modelSuggestions = false)
         val withModel = base.copy(modelSuggestions = true)
 
         val off = ChapterSplitter.analyze(text, File(args[0]).nameWithoutExtension, base)
         val on = ChapterSplitter.analyze(text, File(args[0]).nameWithoutExtension, withModel)
+        val dump = File(args[0]).parentFile.resolve(File(args[0]).nameWithoutExtension + ".parts.txt")
+        dump.writeText(off.parts.mapIndexed { i, p -> "${i + 1}\t${p.content.length}\t${p.title}" }.joinToString("\n"), Charsets.UTF_8)
+        println("partsDump -> " + dump.path)
         println("模型关闭: ${off.parts.size} 章")
         println("模型打开: ${on.parts.size} 章")
 

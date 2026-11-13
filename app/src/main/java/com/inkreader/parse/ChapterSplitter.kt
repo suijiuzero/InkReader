@@ -527,15 +527,19 @@ object ChapterSplitter {
         val duplicates = DuplicateChapterHeadings.resolve(lines, chosen, options, skippedToc +
             scored.filter { HeadingReason.MODEL_ACCEPTED in it.reasons }.map { it.line - 1 },
             scored.filterNot { HeadingReason.MODEL_ACCEPTED in it.reasons }.map { it.line - 1 }.toSet())
-        val kept = duplicates.headings.toHashSet()
+        // 网文常见的「标题写两遍」：先独立一行标题，紧接着又把同一标题粘在正文开头，
+        // 例如 `第4章 不速之客` / `第4章 不速之客转身的一瞬…`。
+        // 两行都会被判为标题，导致前一个成为空章（实测某书 1359 处）。
+        val collapsed = collapseGluedHeadings(lines, duplicates.headings)
+        val kept = collapsed.toHashSet()
         val resolvedDecisions = decisions.map { decision ->
-            if (decision.line - 1 in duplicates.omitted) decision.copy(accepted = false)
-            else if (decision.line - 1 in kept) decision.copy(accepted = true) else decision
+            if (decision.line - 1 in duplicates.omitted || decision.line - 1 !in kept) decision.copy(accepted = false)
+            else decision.copy(accepted = true)
         }.toMutableList()
-        duplicates.headings.filter { line -> resolvedDecisions.none { it.line == line + 1 } }.take(500 - resolvedDecisions.size).forEach { line ->
+        collapsed.filter { line -> resolvedDecisions.none { it.line == line + 1 } }.take(500 - resolvedDecisions.size).forEach { line ->
             resolvedDecisions += HeadingDecision(line + 1, lines[line].trim(), 90, setOf(HeadingReason.TITLE_SHAPE), true)
         }
-        return ChapterPlan(duplicates.headings, resolvedDecisions.sortedBy { it.line }, unresolvedGaps(lines, duplicates.headings).take(100),
+        return ChapterPlan(collapsed, resolvedDecisions.sortedBy { it.line }, unresolvedGaps(lines, collapsed).take(100),
             skippedToc.count { canonical[it].trim() !in tocLabels },
             skippedToc.isNotEmpty() || selected.firstOrNull()?.let { it + 1 in options.ignoredHeadingLines } == true,
             scored.size > 500, scored.map { it.line - 1 },
@@ -546,6 +550,41 @@ object ChapterSplitter {
     }
 
     private val MODEL_REASONS = setOf(HeadingReason.MODEL_SUGGESTION, HeadingReason.MODEL_ACCEPTED)
+
+    /**
+     * 合并「标题写两遍」：当后一个标题以前一个标题为前缀，且两者之间没有正文时，丢弃前一个。
+     * 只处理相邻 4 行以内、且文本前缀匹配的情况，避免误伤正常章节。
+     */
+    private fun collapseGluedHeadings(lines: List<String>, headings: List<Int>): List<Int> {
+        if (headings.size < 2) return headings
+        val out = ArrayList<Int>(headings.size)
+        for (k in headings.indices) {
+            val cur = headings[k]
+            val next = headings.getOrNull(k + 1)
+            val noBody = next != null && next - cur <= 4 && (cur + 1 until next).all { !lines[it].isNotBlank() }
+            // 三条合并条件，任一成立即丢弃前一个（它必然是空章）：
+            //   1. 后一个以前一个为前缀（标题粘进正文）
+            //   2. 前一个以后一个为前缀（顺序相反的同类粘法）
+            //   3. 去掉「第X章」后章名相同（源文件把同一章写了两遍、编号却打错）
+            val glued = noBody && (
+                lines[next!!].trim().startsWith(lines[cur].trim()) ||
+                    lines[cur].trim().startsWith(lines[next].trim()) ||
+                    headingSubtitle(lines[cur]) == headingSubtitle(lines[next])
+                )
+            if (glued) continue
+            out.add(cur)
+        }
+        return out
+    }
+
+    /** 去掉开头的「第X章/回/节」与空白，只留章名，用于判断两行是不是同一章的重复。 */
+    private fun headingSubtitle(raw: String): String {
+        val t = raw.trim()
+        val m = Regex("^第\\s*[0-9０-９一二三四五六七八九十百千零两〇○]{1,10}\\s*[章回节節话話卷][\\s:：、.]*")
+            .find(t)
+        val rest = if (m != null) t.substring(m.range.last + 1).trim() else t
+        return rest.filterNot { it.isWhitespace() }.takeIf { it.isNotEmpty() } ?: t.filterNot { it.isWhitespace() }
+    }
 
     private fun lineCharacters(lines: List<String>, index: Int, trim: Boolean = false): Int =
         (lines as? SizedLines)?.characters(index, trim) ?: if (trim) lines[index].trim().length else lines[index].length
@@ -650,6 +689,7 @@ object ChapterSplitter {
     private fun fencedLines(lines: List<String>): BooleanArray {
         val result = BooleanArray(lines.size)
         var fence: FenceInfo? = null
+        var openedAt = -1
         for (i in lines.indices) {
             if (i and 511 == 0) ParseCancellation.checkpoint()
             val info = if (lines is SizedLines) lines.fence(i) else {
@@ -661,11 +701,21 @@ object ChapterSplitter {
             val valid = info != null && info.length >= 3
             if (fence != null) {
                 result[i] = true
-                if (valid && info!!.marker == fence.marker && info.length >= fence.length && info.onlyMarker) fence = null
+                if (valid && info!!.marker == fence.marker && info.length >= fence.length && info.onlyMarker) {
+                    fence = null
+                    openedAt = -1
+                }
             } else if (valid) {
                 fence = info
+                openedAt = i
                 result[i] = true
             }
+        }
+        // 到文件末尾仍未闭合的"围栏"几乎都是 TXT 正文里的装饰性字符（网文常见的 `~~~好舒服！~~~~`），
+        // 不是 Markdown 代码块。若沿用旧逻辑，它会吞掉后面整本书的所有标题：
+        // 实测《诡秘之主》从第 111 章起全部丢失，正文被按字数切成数百个「第 111 章（n）」。
+        if (fence != null && openedAt >= 0) {
+            for (i in openedAt until result.size) result[i] = false
         }
         return result
     }

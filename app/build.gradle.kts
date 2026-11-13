@@ -254,3 +254,37 @@ tasks.register<JavaExec>("splitE2E") {
     args(book, "UTF-8")
     doFirst { if (book.isBlank()) throw GradleException("需要 -Pbook=") }
 }
+
+
+// 诊断探针
+tasks.register<JavaExec>("probe") {
+    group = "verification"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.Probe")
+    val book = (project.findProperty("book") as String?) ?: ""
+    args(book)
+}
+
+
+// 批量体检
+tasks.register<JavaExec>("batchSplit") {
+    group = "verification"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.BatchSplit")
+    val dir = (project.findProperty("dir") as String?) ?: ""
+    args(dir, "true")
+}
+
+
+// 回归场景检查（绕开本机 JUnit 加载失败）
+tasks.register<JavaExec>("regressionCheck") {
+    group = "verification"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.RegressionCheck")
+}
