@@ -220,7 +220,7 @@ object ChapterSplitter {
     private const val SENTENCE_PUNCT = "。！？；，、："
 
     private const val FALLBACK_CHARS = 18000
-    private const val MAX_CHAPTER_CHARS = 120000
+    internal const val MAX_CHAPTER_CHARS = 120000
 
     /** 文首目录区：候选行之间除标题外的正文少于这么多字，就算「密集成簇」 */
     private const val TOC_GAP_CHARS = 30
@@ -534,7 +534,7 @@ object ChapterSplitter {
         // 网文常见的「标题写两遍」：先独立一行标题，紧接着又把同一标题粘在正文开头，
         // 例如 `第4章 不速之客` / `第4章 不速之客转身的一瞬…`。
         // 两行都会被判为标题，导致前一个成为空章（实测某书 1359 处）。
-        val collapsed = collapseGluedHeadings(lines, duplicates.headings)
+        val collapsed = collapseGluedHeadings(lines, duplicates.headings).let { promotePartsInOversizedGaps(lines, it) }
         val kept = collapsed.toHashSet()
         val resolvedDecisions = decisions.map { decision ->
             if (decision.line - 1 in duplicates.omitted || decision.line - 1 !in kept) decision.copy(accepted = false)
@@ -559,6 +559,27 @@ object ChapterSplitter {
      * 合并「标题写两遍」：当后一个标题以前一个标题为前缀，且两者之间没有正文时，丢弃前一个。
      * 只处理相邻 4 行以内、且文本前缀匹配的情况，避免误伤正常章节。
      */
+    /**
+     * 超长章里若存在「上部 / 下部 / 第X部」这类部级标题，把它们提升为章节切点。
+     * 《三体》第二部整本没有章级标题，只能靠部标题切；否则会被按字数切成十几个同名块。
+     * 只处理相邻两次切分之间正文超过 MAX_CHAPTER_CHARS 的区间，不影响正常书籍。
+     */
+    private fun promotePartsInOversizedGaps(lines: List<String>, headings: List<Int>): List<Int> {
+        if (headings.size < 2) return headings
+        val extra = ArrayList<Int>()
+        for (k in 0 until headings.size - 1) {
+            val a = headings[k]
+            val b = headings[k + 1]
+            if (b - a < 2) continue
+            var chars = 0
+            for (i in a + 1 until b) chars += lines[i].length + 1
+            if (chars <= MAX_CHAPTER_CHARS) continue
+            for (i in a + 1 until b) if (extractVolumeTitle(lines[i]) != null) extra.add(i)
+        }
+        if (extra.isEmpty()) return headings
+        return (headings + extra).distinct().sorted()
+    }
+
     private fun collapseGluedHeadings(lines: List<String>, headings: List<Int>): List<Int> {
         if (headings.size < 2) return headings
         val out = ArrayList<Int>(headings.size)
@@ -970,14 +991,7 @@ object ChapterSplitter {
             // 单章过长时再按字数拆
             if (body.length > MAX_CHAPTER_CHARS) {
                 trace?.fallback = true
-                val subs = splitBySize(body, title)
-                subs.forEachIndexed { k, p ->
-                    parts += Part(
-                        title = if (k == 0) title else "$title（${k + 1}）",
-                        content = p.content,
-                        volume = chapterVolume
-                    )
-                }
+                parts += splitOversized(title, keptLines, chapterVolume)
             } else {
                 parts += Part(title, body, chapterVolume)
             }
@@ -1361,6 +1375,36 @@ object ChapterSplitter {
         if (raw.length == 3 && raw[1] == '十')
             return (map[raw[0]] ?: return null) * 10 + (map[raw[2]] ?: return null)
         return null
+    }
+
+    /**
+     * 超长章拆分。有些书（《三体》第二部）完全没有章级标题，只有「上部 面壁者 / 下部 黑暗森林 / 第一部」，
+     * 直接按字数切会得到十几个同名的「序章（n）」。这里优先按部级标题切，再对仍然超长的段按字数切。
+     */
+    private fun splitOversized(title: String, lines: List<String>, volume: String): List<Part> {
+        val cuts = lines.indices.filter { it > 0 && extractVolumeTitle(lines[it]) != null }
+        if (cuts.isEmpty()) {
+            return splitBySize(lines.joinToString("\n").trim(), title).mapIndexed { k, p ->
+                Part(if (k == 0) title else "$title（${k + 1}）", p.content, volume)
+            }
+        }
+        val out = ArrayList<Part>()
+        val bounds = listOf(0) + cuts + listOf(lines.size)
+        for (k in 0 until bounds.size - 1) {
+            val a = bounds[k]
+            val b = bounds[k + 1]
+            val segTitle = if (a == 0) title else lines[a].trim()
+            val segBody = lines.subList(a, b).joinToString("\n").trim()
+            if (segBody.isEmpty()) continue
+            if (segBody.length > MAX_CHAPTER_CHARS) {
+                splitBySize(segBody, segTitle).forEachIndexed { j, p ->
+                    out += Part(if (j == 0) segTitle else "$segTitle（${j + 1}）", p.content, volume)
+                }
+            } else {
+                out += Part(segTitle, segBody, volume)
+            }
+        }
+        return out.ifEmpty { listOf(Part(title, lines.joinToString("\n").trim(), volume)) }
     }
 
     private fun peelTrailingUpperTitles(lines: List<String>): Pair<List<String>, List<String>> {

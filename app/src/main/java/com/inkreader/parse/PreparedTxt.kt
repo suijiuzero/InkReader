@@ -235,7 +235,9 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
             pieces += prefix
             range(start + 1, stop)?.let { if (pieces.isNotEmpty()) pieces += literal("\n\n"); pieces += it }
             val section = Section(if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(rawTitle) else rawTitle, omitDuplicateHeaders(pieces), volume)
-            if (section.length > 120000) result += chunks(section, 18000, true) else result += section
+            // 与 ChapterSplitter.assembleParts 用同一个超长阈值，避免两条导入路径给出不同章数
+            if (section.length > ChapterSplitter.MAX_CHAPTER_CHARS)
+                result += chunks(section, ChapterSplitter.MAX_CHAPTER_CHARS, true) else result += section
             carry = peeled.map { Piece(text.starts[it], text.ends[it]) }
         }
         return result
