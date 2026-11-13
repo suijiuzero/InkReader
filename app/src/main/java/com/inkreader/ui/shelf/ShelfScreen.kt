@@ -443,6 +443,9 @@ fun ShelfScreen(
         }
         Box(Modifier.fillMaxSize()) {
             when {
+                // 重新分章期间列表可能是空的：不要显示整屏转圈（看起来就是白屏），
+                // 让上方的进度卡片/横幅继续可见。
+                lib.resplitting && lib.books.isEmpty() -> Box(Modifier.fillMaxSize()) {}
                 lib.loading && lib.books.isEmpty() -> InkLoading()
                 lib.books.isEmpty() -> EmptyState(
                     iconRes = R.drawable.ic_book,
