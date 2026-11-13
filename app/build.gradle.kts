@@ -300,3 +300,16 @@ tasks.register<JavaExec>("pathParity") {
     val book = (project.findProperty("book") as String?) ?: ""
     args(book)
 }
+
+
+// EPUB 批量体检
+tasks.register<JavaExec>("epubBatch") {
+    group = "verification"
+    dependsOn("compileDebugUnitTestKotlin")
+    classpath = files(layout.buildDirectory.dir("tmp/kotlin-classes/debugUnitTest"),
+        configurations.getByName("debugUnitTestRuntimeClasspath"))
+    mainClass.set("com.inkreader.tools.EpubBatch")
+    val dir = (project.findProperty("dir") as String?) ?: ""
+    val limit = (project.findProperty("limit") as String?) ?: "0"
+    args(dir, limit)
+}

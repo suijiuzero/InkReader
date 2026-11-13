@@ -960,16 +960,24 @@ object ChapterSplitter {
         // 分卷：有些书没有卷标题，只靠章号从 1 重新开始来换卷（《诡秘之主》8 部都是这样）。
         // 章号回退到不大于上一章时即视为进入下一卷，并尽量用附近的「第N部完」给卷命名。
         val volumeLabels = volumeLabelsFor(lines, chosen)
+        val useRestartLabels = volumeLabels.any { it.isNotBlank() }
         for ((i, lineIdx) in chosen.withIndex()) {
             ParseCancellation.checkpoint()
             val endIdx = if (i + 1 < chosen.size) chosen[i + 1] else lines.size
             val rawTitle = lines[lineIdx].trim().ifEmpty { "第 ${i + 1} 章" }
             val title = if (cleanWatermark) cleanChapterTitle(rawTitle) else rawTitle
 
+            // 章号重置型的书里，纯卷名行只当分卷标记，不单独生成章节
+            if (useRestartLabels && extractVolumeTitle(rawTitle) != null) continue
             // 如果标题本身就是分卷名，也同步更新 activeVolume
-            extractVolumeTitle(rawTitle)?.let { activeVolume = it }
+            if (!useRestartLabels) extractVolumeTitle(rawTitle)?.let { activeVolume = it }
 
-            if (volumeLabels[i].isNotBlank()) activeVolume = volumeLabels[i]
+            // 分卷只认一个来源：出现过章号重置的书，全程用重置序列命名，
+            // 不再被零散的「第二部 无面人」这类显式卷名打断（否则会出现
+            // 第一卷 → 第二部 → 第一卷 的跳变）。
+            if (useRestartLabels) {
+                if (volumeLabels[i].isNotBlank()) activeVolume = volumeLabels[i]
+            }
 
             val bodyLines = if (omittedHeadingLines.isEmpty()) lines.subList(lineIdx + 1, endIdx)
                 else (lineIdx + 1 until endIdx).filterNot { it in omittedHeadingLines }.map { lines[it] }
@@ -979,7 +987,7 @@ object ChapterSplitter {
 
             var body = keptLines.joinToString("\n").trim()
             if (carryTitles.isNotEmpty()) {
-                carryTitles.lineSequence().forEach { l ->
+                if (!useRestartLabels) carryTitles.lineSequence().forEach { l ->
                     extractVolumeTitle(l)?.let { activeVolume = it }
                 }
                 body = if (body.isEmpty()) carryTitles else "$carryTitles\n\n$body"
