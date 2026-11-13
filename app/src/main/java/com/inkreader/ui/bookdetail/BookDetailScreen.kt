@@ -34,6 +34,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
@@ -56,6 +57,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -153,6 +155,14 @@ fun BookDetailScreen(
     var editingInfo by remember { mutableStateOf(false) }
     var renaming by remember { mutableStateOf<Chapter?>(null) }
     var deleting by remember { mutableStateOf<Chapter?>(null) }
+    // 分卷：折叠状态、卷菜单、卷重命名/删除、长按拖动
+    var collapsedVolumes by remember { mutableStateOf(setOf<String>()) }
+    var renamingVolume by remember { mutableStateOf<String?>(null) }
+    var deletingVolume by remember { mutableStateOf<String?>(null) }
+    var dragVolume by remember { mutableStateOf<String?>(null) }
+    var dragVolumeY by remember { mutableStateOf(0f) }
+    var dragVolumeGrab by remember { mutableStateOf(0f) }
+    var dragVolumeHover by remember { mutableStateOf<String?>(null) }
     var confirmDeleteBook by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
     var newChapterTitle by remember { mutableStateOf("") }
@@ -548,6 +558,10 @@ fun BookDetailScreen(
                 else -> {
                     val b = book!!
                     Box(Modifier.fillMaxSize()) {
+                        val volumeRows = remember(chapters, collapsedVolumes) {
+                            chapterRows(chapters, collapsedVolumes)
+                        }
+                        val volumeOrder = remember(chapters) { chapterVolumeOrder(chapters) }
                         LazyColumn(
                             state = listState,
                             modifier = Modifier
@@ -556,22 +570,63 @@ fun BookDetailScreen(
                                     detectDragGesturesAfterLongPress(
                                         onDragStart = { pos ->
                                             val hit = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
-                                                val key = info.key
-                                                key is Long && pos.y >= info.offset && pos.y <= info.offset + info.size
+                                                pos.y >= info.offset && pos.y <= info.offset + info.size
                                             } ?: return@detectDragGesturesAfterLongPress
-                                            dragChapterId = hit.key as Long
+                                            val key = hit.key
+                                            // 卷头也可以长按拖动：整卷一起移动
+                                            if (key is String && key.startsWith("vol:")) {
+                                                val name = key.removePrefix("vol:")
+                                                dragVolume = name
+                                                dragVolumeHover = name
+                                                dragVolumeY = pos.y
+                                                dragVolumeGrab = pos.y - hit.offset
+                                                return@detectDragGesturesAfterLongPress
+                                            }
+                                            if (key !is Long) return@detectDragGesturesAfterLongPress
+                                            dragChapterId = key
                                             dragStartIds = chapters.map { it.id }
                                             dragFingerY = pos.y
                                             dragGrab = pos.y - hit.offset
                                         },
                                         onDrag = { change, amount ->
-                                            if (dragChapterId == null) return@detectDragGesturesAfterLongPress
-                                            change.consume()
-                                            dragFingerY += amount.y
-                                            dragHitTest()
+                                            val vol = dragVolume
+                                            if (vol != null) {
+                                                change.consume()
+                                                dragVolumeY += amount.y
+                                                val hover = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
+                                                    val k = info.key
+                                                    k is String && dragVolumeY >= info.offset && dragVolumeY <= info.offset + info.size
+                                                }?.key as? String
+                                                if (hover != null) dragVolumeHover = hover.removePrefix("vol:")
+                                            } else if (dragChapterId != null) {
+                                                change.consume()
+                                                dragFingerY += amount.y
+                                                dragHitTest()
+                                            }
                                         },
-                                        onDragEnd = { endChapterDrag() },
-                                        onDragCancel = { endChapterDrag() }
+                                        onDragEnd = {
+                                            val vol = dragVolume
+                                            val target = dragVolumeHover
+                                            dragVolume = null
+                                            dragVolumeHover = null
+                                            if (vol != null) {
+                                                if (!busy && target != null && target != vol) {
+                                                    busy = true
+                                                    scope.launch {
+                                                        container.repo.moveVolumeBefore(bookId, vol, target)
+                                                        chapters = container.repo.chapters(bookId)
+                                                        book = container.repo.book(bookId)
+                                                        container.library.refresh()
+                                                        busy = false
+                                                    }
+                                                }
+                                            } else endChapterDrag()
+                                        },
+                                        onDragCancel = {
+                                            dragVolume = null
+                                            dragVolumeHover = null
+                                            endChapterDrag()
+                                        }
                                     )
                                 },
                             userScrollEnabled = dragChapterId == null,
@@ -643,7 +698,8 @@ fun BookDetailScreen(
                                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                         InkButton(
                                             text = if (b.displayProgress > 0f) stringResource(R.string.detail_continue_reading) else stringResource(R.string.detail_start_reading),
-                                            onClick = { onRead(b.lastChapterIndex, b.lastCharOffset) },
+                                            // -1 = 阅读器打开时从数据库读最新进度（本页缓存的进度可能过时）
+                                            onClick = { onRead(-1, 0) },
                                             iconRes = R.drawable.ic_book,
                                             modifier = Modifier.weight(1f)
                                         )
@@ -671,7 +727,74 @@ fun BookDetailScreen(
                                 }
                             }
 
-                            itemsIndexed(chapters, key = { _, c -> c.id }) { i, c ->
+                            items(volumeRows, key = { row ->
+                                when (row) {
+                                    is ChapterRow.Item -> row.chapter.id
+                                    is ChapterRow.Volume -> "vol:" + row.name
+                                }
+                            }) { row ->
+                                if (row is ChapterRow.Volume) {
+                                    val vi = volumeOrder.indexOf(row.name)
+                                    val dragged = dragVolume == row.name
+                                    VolumeHeader(
+                                        name = row.name,
+                                        count = row.count,
+                                        collapsed = row.name in collapsedVolumes,
+                                        busy = busy,
+                                        onToggle = {
+                                            collapsedVolumes = if (row.name in collapsedVolumes)
+                                                collapsedVolumes - row.name else collapsedVolumes + row.name
+                                        },
+                                        onMergePrev = {
+                                            val prev = volumeOrder.getOrNull(vi - 1) ?: return@VolumeHeader
+                                            busy = true
+                                            scope.launch {
+                                                container.repo.setChapterVolume(bookId, row.name, prev)
+                                                chapters = container.repo.chapters(bookId)
+                                                busy = false
+                                            }
+                                        },
+                                        onMergeNext = {
+                                            val next = volumeOrder.getOrNull(vi + 1) ?: return@VolumeHeader
+                                            busy = true
+                                            scope.launch {
+                                                container.repo.setChapterVolume(bookId, row.name, next)
+                                                chapters = container.repo.chapters(bookId)
+                                                busy = false
+                                            }
+                                        },
+                                        onMoveUp = {
+                                            val prev = volumeOrder.getOrNull(vi - 1) ?: return@VolumeHeader
+                                            busy = true
+                                            scope.launch {
+                                                container.repo.moveVolumeBefore(bookId, row.name, prev)
+                                                chapters = container.repo.chapters(bookId)
+                                                busy = false
+                                            }
+                                        },
+                                        onMoveDown = {
+                                            val after = volumeOrder.getOrNull(vi + 2)
+                                            busy = true
+                                            scope.launch {
+                                                container.repo.moveVolumeBefore(bookId, row.name, after)
+                                                chapters = container.repo.chapters(bookId)
+                                                busy = false
+                                            }
+                                        },
+                                        onRename = { renamingVolume = row.name },
+                                        onDelete = { deletingVolume = row.name },
+                                        canMergePrev = vi > 0,
+                                        canMergeNext = vi >= 0 && vi < volumeOrder.lastIndex,
+                                        canMoveUp = vi > 0,
+                                        canMoveDown = vi >= 0 && vi < volumeOrder.lastIndex,
+                                        modifier = if (dragged) Modifier.graphicsLayer {
+                                            alpha = 0.85f
+                                            translationY = dragVolumeY - dragVolumeGrab
+                                        } else Modifier
+                                    )
+                                } else {
+                                val i = (row as ChapterRow.Item).index
+                                val c = row.chapter
                                 val dragging = dragChapterId == c.id
                                 ChapterCard(
                                     index = i,
@@ -722,6 +845,7 @@ fun BookDetailScreen(
                                     onDelete = { deleting = c },
                                     modifier = if (dragging) Modifier.graphicsLayer { alpha = 0f } else Modifier
                                 )
+                                }
                             }
                         }
 
@@ -881,6 +1005,73 @@ fun BookDetailScreen(
                 }
             }
         }
+    }
+
+    renamingVolume?.let { vol ->
+        var vt by remember(vol) { mutableStateOf(vol) }
+        InkDialogShell(onDismiss = { renamingVolume = null }, title = stringResource(R.string.detail_volume_rename)) {
+            InkTextField(vt, { vt = it }, stringResource(R.string.detail_volume_name_field))
+            Spacer(Modifier.height(20.dp))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                InkTextButton(stringResource(R.string.action_cancel), color = LocalInkPalette.current.textSecondary) {
+                    renamingVolume = null
+                }
+                InkTextButton(stringResource(R.string.action_save)) {
+                    val target = vt.trim()
+                    val from = vol
+                    renamingVolume = null
+                    if (target.isNotEmpty() && target != from) {
+                        busy = true
+                        scope.launch {
+                            container.repo.setChapterVolume(bookId, from, target)
+                            chapters = container.repo.chapters(bookId)
+                            busy = false
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    deletingVolume?.let { vol ->
+        AlertDialog(
+            onDismissRequest = { deletingVolume = null },
+            containerColor = LocalInkPalette.current.surfaceHigh,
+            tonalElevation = 0.dp,
+            shape = RoundedCornerShape(20.dp),
+            title = {
+                Text(
+                    stringResource(R.string.detail_volume_delete),
+                    fontFamily = FontFamily.SansSerif,
+                    fontWeight = FontWeight.SemiBold,
+                    color = LocalInkPalette.current.textPrimary
+                )
+            },
+            text = {
+                Text(
+                    stringResource(R.string.detail_volume_delete_hint, vol),
+                    style = InkType.Caption.copy(fontSize = 12.5.sp),
+                    color = LocalInkPalette.current.textSecondary
+                )
+            },
+            confirmButton = {
+                InkTextButton(stringResource(R.string.action_delete), color = dangerColor()) {
+                    val from = vol
+                    deletingVolume = null
+                    busy = true
+                    scope.launch {
+                        container.repo.setChapterVolume(bookId, from, "")
+                        chapters = container.repo.chapters(bookId)
+                        busy = false
+                    }
+                }
+            },
+            dismissButton = {
+                InkTextButton(stringResource(R.string.action_cancel), color = LocalInkPalette.current.textSecondary) {
+                    deletingVolume = null
+                }
+            }
+        )
     }
 
     deleting?.let { ch ->
@@ -1345,6 +1536,138 @@ private fun MenuRow(icon: Int, label: String, danger: Boolean = false, onClick: 
         },
         onClick = onClick
     )
+}
+
+/** 章节管理列表的一行：卷头或章节。 */
+private sealed interface ChapterRow {
+    data class Volume(val name: String, val count: Int) : ChapterRow
+    data class Item(val index: Int, val chapter: Chapter) : ChapterRow
+}
+
+/** 按连续的 volume 分组；全书没有卷信息时退化成纯章节列表。 */
+private fun chapterRows(chapters: List<Chapter>, collapsed: Set<String>): List<ChapterRow> {
+    if (chapters.none { it.volume.isNotBlank() }) {
+        return chapters.mapIndexed { i, c -> ChapterRow.Item(i, c) }
+    }
+    val rows = ArrayList<ChapterRow>()
+    var i = 0
+    while (i < chapters.size) {
+        val vol = chapters[i].volume
+        var j = i
+        while (j < chapters.size && chapters[j].volume == vol) j++
+        if (vol.isNotBlank()) rows.add(ChapterRow.Volume(vol, j - i))
+        if (vol.isBlank() || vol !in collapsed) {
+            for (k in i until j) rows.add(ChapterRow.Item(k, chapters[k]))
+        }
+        i = j
+    }
+    return rows
+}
+
+/** 卷的出现顺序（去重），用于「并入上一卷/下一卷」。 */
+private fun chapterVolumeOrder(chapters: List<Chapter>): List<String> {
+    val out = ArrayList<String>()
+    for (c in chapters) if (c.volume.isNotBlank() && out.lastOrNull() != c.volume) out.add(c.volume)
+    return out
+}
+
+@Composable
+private fun VolumeHeader(
+    name: String,
+    count: Int,
+    collapsed: Boolean,
+    busy: Boolean,
+    canMergePrev: Boolean,
+    canMergeNext: Boolean,
+    canMoveUp: Boolean,
+    canMoveDown: Boolean,
+    onToggle: () -> Unit,
+    onMergePrev: () -> Unit,
+    onMergeNext: () -> Unit,
+    onMoveUp: () -> Unit,
+    onMoveDown: () -> Unit,
+    onRename: () -> Unit,
+    onDelete: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val p = LocalInkPalette.current
+    var menu by remember { mutableStateOf(false) }
+    Row(
+        modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(p.surfaceHigh)
+            .clickable { onToggle() }
+            .padding(start = 12.dp, end = 4.dp, top = 9.dp, bottom = 9.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        InkIcon(
+            R.drawable.ic_down,
+            null,
+            tint = p.textFaint,
+            size = 14,
+            modifier = Modifier.rotate(if (collapsed) -90f else 0f)
+        )
+        Spacer(Modifier.width(8.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                text = name,
+                fontFamily = FontFamily.SansSerif,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 14.sp,
+                color = p.textPrimary,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = pluralStringResource(R.plurals.detail_volume_chapter_count, count, count),
+                style = InkType.Caption.copy(fontSize = 10.5.sp),
+                color = p.textFaint
+            )
+        }
+        Box {
+            InkIconButton(
+                res = R.drawable.ic_more,
+                contentDescription = stringResource(R.string.detail_volume_actions),
+                onClick = { menu = true },
+                tint = p.textFaint,
+                size = 18
+            )
+            DropdownMenu(expanded = menu, onDismissRequest = { menu = false },
+                containerColor = p.surfaceHigh) {
+                if (canMergePrev) DropdownMenuItem(
+                    leadingIcon = { InkIcon(R.drawable.ic_merge, null, tint = p.textSecondary, size = 18) },
+                    text = { Text(stringResource(R.string.detail_volume_merge_prev), fontSize = 14.sp, color = p.textPrimary) },
+                    onClick = { menu = false; if (!busy) onMergePrev() }
+                )
+                if (canMergeNext) DropdownMenuItem(
+                    leadingIcon = { InkIcon(R.drawable.ic_merge, null, tint = p.textSecondary, size = 18) },
+                    text = { Text(stringResource(R.string.detail_volume_merge_next), fontSize = 14.sp, color = p.textPrimary) },
+                    onClick = { menu = false; if (!busy) onMergeNext() }
+                )
+                if (canMoveUp) DropdownMenuItem(
+                    leadingIcon = { InkIcon(R.drawable.ic_up, null, tint = p.textSecondary, size = 18) },
+                    text = { Text(stringResource(R.string.detail_volume_move_up), fontSize = 14.sp, color = p.textPrimary) },
+                    onClick = { menu = false; if (!busy) onMoveUp() }
+                )
+                if (canMoveDown) DropdownMenuItem(
+                    leadingIcon = { InkIcon(R.drawable.ic_down, null, tint = p.textSecondary, size = 18) },
+                    text = { Text(stringResource(R.string.detail_volume_move_down), fontSize = 14.sp, color = p.textPrimary) },
+                    onClick = { menu = false; if (!busy) onMoveDown() }
+                )
+                DropdownMenuItem(
+                    leadingIcon = { InkIcon(R.drawable.ic_edit, null, tint = p.textSecondary, size = 18) },
+                    text = { Text(stringResource(R.string.detail_volume_rename), fontSize = 14.sp, color = p.textPrimary) },
+                    onClick = { menu = false; onRename() }
+                )
+                DropdownMenuItem(
+                    leadingIcon = { InkIcon(R.drawable.ic_delete, null, tint = dangerColor(), size = 18) },
+                    text = { Text(stringResource(R.string.detail_volume_delete), fontSize = 14.sp, color = dangerColor()) },
+                    onClick = { menu = false; onDelete() }
+                )
+            }
+        }
+    }
 }
 
 @Composable

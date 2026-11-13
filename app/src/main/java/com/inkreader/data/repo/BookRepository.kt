@@ -1585,6 +1585,32 @@ class BookRepository(context: Context) {
         refreshStats(bookId)
     }
 
+    /** 把某一卷整体改名；[to] 为空表示清除卷标记（章节保留）。 */
+    suspend fun setChapterVolume(bookId: Long, from: String, to: String): Int = withContext(Dispatchers.IO) {
+        val targets = db.chaptersOf(bookId).filter { it.volume == from }
+        targets.forEach { db.updateChapterVolume(it.id, to) }
+        targets.size
+    }
+
+    /** 把 [volume] 整卷移动到 [target] 卷之前；[target] 为空表示移到全书末尾。 */
+    suspend fun moveVolumeBefore(bookId: Long, volume: String, target: String?) {
+        val all = db.chaptersOf(bookId)
+        val blocks = ArrayList<Pair<String, MutableList<Long>>>()
+        for (c in all) {
+            val last = blocks.lastOrNull()
+            if (last != null && last.first == c.volume) last.second.add(c.id)
+            else blocks.add(c.volume to mutableListOf(c.id))
+        }
+        val from = blocks.indexOfFirst { it.first == volume }
+        if (from < 0) return
+        val block = blocks.removeAt(from)
+        val at = if (target == null) blocks.size
+        else blocks.indexOfFirst { it.first == target }.let { if (it < 0) blocks.size else it }
+        if (at == from) return
+        blocks.add(at, block)
+        reorderChapters(bookId, blocks.flatMap { it.second })
+    }
+
     suspend fun renameChapter(chapterId: Long, title: String) = withContext(Dispatchers.IO) {
         chapterBook(chapterId)?.let { id -> bookWrite(id) { db.updateChapterTitle(chapterId, title) } }
     }

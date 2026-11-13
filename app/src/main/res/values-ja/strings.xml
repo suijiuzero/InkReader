@@ -60,4 +60,16 @@
     <string name="analysis_model_hint">オンにすると、端末内モデルがルールで拾えなかった見出しを検出し、全書構造チェック（番号の連続性・繰り返しの定型文・目次領域・前後付き物・文末記号）を行います。通過した候補はそのまま章になり、通過しない候補は全書校正で確認できます。すべて端末内で実行し、本文は送信しません。いつでも取り消せます。</string>
     <string name="analysis_model_pending">墨閲モデル · 構造チェック通過分は自動で章に、残りは確認待ち</string>
     <string name="analysis_model_review">モデルが章を追加しました。残りの候補は全書校正で確認できます。</string>
+    <plurals name="detail_volume_chapter_count">
+        <item quantity="other">%1$d 章</item>
+    </plurals>
+    <string name="detail_volume_actions">巻の操作</string>
+    <string name="detail_volume_merge_prev">前の巻に統合</string>
+    <string name="detail_volume_merge_next">次の巻に統合</string>
+    <string name="detail_volume_rename">巻名を変更</string>
+    <string name="detail_volume_name_field">巻名</string>
+    <string name="detail_volume_delete">巻を削除</string>
+    <string name="detail_volume_delete_hint">「%1$s」の巻ラベルを消します。章はそのまま残ります。</string>
+    <string name="detail_volume_move_up">巻を上へ移動</string>
+    <string name="detail_volume_move_down">巻を下へ移動</string>
 </resources>

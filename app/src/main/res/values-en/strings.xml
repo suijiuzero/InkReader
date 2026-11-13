@@ -63,4 +63,16 @@
     <string name="analysis_model_hint">On opening, the on-device model finds headings the rules missed and runs a whole-book structural check (numbering continuity, repeated boilerplate, table-of-contents regions, front/back matter, sentence-ending punctuation). Candidates that pass become chapters directly; the rest still land in full-book review for you to confirm. Everything runs on this device — no text is uploaded, and you can undo at any time.</string>
     <string name="analysis_model_pending">Ink Reader model · passing candidates are added directly, the rest await confirmation</string>
     <string name="analysis_model_review">The model added some chapters; other candidates await confirmation in full-book review.</string>
+    <plurals name="detail_volume_chapter_count">
+        <item quantity="other">%1$d chapters</item>
+    </plurals>
+    <string name="detail_volume_actions">Volume actions</string>
+    <string name="detail_volume_merge_prev">Merge into previous volume</string>
+    <string name="detail_volume_merge_next">Merge into next volume</string>
+    <string name="detail_volume_rename">Rename volume</string>
+    <string name="detail_volume_name_field">Volume name</string>
+    <string name="detail_volume_delete">Delete volume</string>
+    <string name="detail_volume_delete_hint">The volume label for "%1$s" will be cleared. Chapters are kept.</string>
+    <string name="detail_volume_move_up">Move volume up</string>
+    <string name="detail_volume_move_down">Move volume down</string>
 </resources>

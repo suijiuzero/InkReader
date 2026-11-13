@@ -63,4 +63,16 @@
     <string name="analysis_model_hint">打开后，本机模型会找出规则漏掉的标题，并做全书结构校验（编号连续性、重复套话、目录区、样板文字、句末标点）。通过校验的直接加入章节，未通过的仍放进「全书校对」等你确认。全部在本机运行，不上传正文；可随时撤销。</string>
     <string name="analysis_model_pending">墨阅模型 · 结构校验通过的直接入章，其余待确认</string>
     <string name="analysis_model_review">模型已加入若干章节，另有疑点待确认，可进入「全书校对」调整。</string>
+    <plurals name="detail_volume_chapter_count">
+        <item quantity="other">%1$d 章</item>
+    </plurals>
+    <string name="detail_volume_actions">卷操作</string>
+    <string name="detail_volume_merge_prev">并入上一卷</string>
+    <string name="detail_volume_merge_next">并入下一卷</string>
+    <string name="detail_volume_rename">重命名卷名</string>
+    <string name="detail_volume_name_field">卷名</string>
+    <string name="detail_volume_delete">删除卷</string>
+    <string name="detail_volume_delete_hint">「%1$s」的卷标记会被清除，章节本身保留，可随时重新分章。</string>
+    <string name="detail_volume_move_up">上移一卷</string>
+    <string name="detail_volume_move_down">下移一卷</string>
 </resources>
