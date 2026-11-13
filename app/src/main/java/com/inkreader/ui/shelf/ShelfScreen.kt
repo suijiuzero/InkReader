@@ -466,7 +466,7 @@ fun ShelfScreen(
                         if (selected.contains(b.id)) selected.remove(b.id) else selected.add(b.id)
                     },
                     onDetail = { onOpenDetail(it) },
-                    groups = lib.groups,
+                    groups = sortGroups(lib),
                     groupBooks = { gid -> lib.booksOf(gid) },
                     onOpenGroup = onOpenGroup
                 )
@@ -480,7 +480,7 @@ fun ShelfScreen(
                         if (selected.contains(b.id)) selected.remove(b.id) else selected.add(b.id)
                     },
                     onDetail = { onOpenDetail(it) },
-                    groups = lib.groups,
+                    groups = sortGroups(lib),
                     groupBooks = { gid -> lib.booksOf(gid) },
                     onOpenGroup = onOpenGroup
                 )
@@ -673,6 +673,21 @@ private fun FloatingAction(
 }
 
 @OptIn(ExperimentalFoundationApi::class)
+/** 分组参与排序：取组内最近一次阅读/添加时间，点开组内任意书该组会前移。 */
+private fun sortGroups(lib: com.inkreader.LibraryStore): List<BookGroup> {
+    fun activity(g: BookGroup): Long =
+        lib.booksOf(g.id).maxOfOrNull { maxOf(it.lastReadAt, it.createdAt) } ?: 0L
+    fun progress(g: BookGroup): Float =
+        lib.booksOf(g.id).maxOfOrNull { it.displayProgress } ?: 0f
+    return when (lib.sort) {
+        com.inkreader.data.model.ShelfSort.RECENT,
+        com.inkreader.data.model.ShelfSort.ADDED -> lib.groups.sortedByDescending { activity(it) }
+        com.inkreader.data.model.ShelfSort.PROGRESS -> lib.groups.sortedByDescending { progress(it) }
+        com.inkreader.data.model.ShelfSort.TITLE -> lib.groups.sortedBy { it.name }
+    }
+}
+
+@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun BookGrid(
     state: LazyGridState,

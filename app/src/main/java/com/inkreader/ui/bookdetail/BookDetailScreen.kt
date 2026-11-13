@@ -164,6 +164,7 @@ fun BookDetailScreen(
     var dragVolumeGrab by remember { mutableStateOf(0f) }
     var dragVolumeHover by remember { mutableStateOf<String?>(null) }
     var dragRowBase by remember { mutableStateOf(0) }
+    var dragVolumeStartOrder by remember { mutableStateOf<List<String>>(emptyList()) }
     var pendingVolumeFix by remember { mutableStateOf<Pair<Long, String>?>(null) }
     var confirmDeleteBook by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
@@ -606,6 +607,7 @@ fun BookDetailScreen(
                                             if (key is String && key.startsWith("vol:")) {
                                                 val name = key.removePrefix("vol:")
                                                 dragVolume = name
+                                                dragVolumeStartOrder = chapterVolumeOrder(chapters)
                                                 dragVolumeHover = name
                                                 dragVolumeY = pos.y
                                                 dragVolumeGrab = pos.y - hit.offset
@@ -652,8 +654,11 @@ fun BookDetailScreen(
                                             dragVolume = null
                                             dragVolumeHover = null
                                             if (vol != null) {
-                                                // 拖动过程中已经实时换位，松手把当前顺序落库即可
-                                                if (!busy && target != null && target != vol) {
+                                                // 拖动过程中已经实时换位，松手把当前顺序落库即可。
+                                                // 只要顺序变过就写库（不能再用 target != vol 判断：
+                                                // 悬停目标常常就是自己，会导致退了再进顺序没保存）。
+                                                val changedOrder = chapterVolumeOrder(chapters) != dragVolumeStartOrder
+                                                if (!busy && changedOrder) {
                                                     val ids = chapters.map { it.id }
                                                     busy = true
                                                     scope.launch {
@@ -979,6 +984,40 @@ fun BookDetailScreen(
                 }
             }
         }
+        val lib = container.library
+        if (lib.resplitting && !lib.resplitInBackground) {
+            Box(Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
+                contentAlignment = Alignment.Center) {
+                Column(
+                    Modifier.width(270.dp).clip(RoundedCornerShape(18.dp)).background(p.surfaceHigh)
+                        .border(1.dp, p.divider, RoundedCornerShape(18.dp)).padding(22.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    SectionLabel(stringResource(R.string.detail_resplit_book))
+                    Spacer(Modifier.height(14.dp))
+                    Text(
+                        text = lib.resplitStage.ifBlank { stringResource(R.string.action_loading) },
+                        style = InkType.Caption.copy(fontSize = 12.5.sp),
+                        color = p.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.height(14.dp))
+                    InkProgress(lib.resplitFraction, Modifier.fillMaxWidth())
+                    Spacer(Modifier.height(9.dp))
+                    Text("${(lib.resplitFraction * 100).toInt()}%",
+                        style = InkType.Caption.copy(fontSize = 11.sp), color = p.textFaint)
+                    Spacer(Modifier.height(10.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        InkTextButton(stringResource(R.string.recovery_cancel), onClick = lib::cancelResplit)
+                        Spacer(Modifier.width(12.dp))
+                        InkTextButton(stringResource(R.string.import_background)) {
+                            lib.backgroundResplit()
+                            onBack()
+                        }
+                    }
+                }
+            }
+        }
+
         if (exporting) {
             Box(
                 Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
@@ -1405,8 +1444,8 @@ fun BookDetailScreen(
                                 else ctx.getString(R.string.detail_resplit_done_toast, count),
                                 Toast.LENGTH_SHORT
                             ).show()
+                            reload()
                         }
-                        onBack()
                         return@InkTextButton
                         busy = true; detailProgress = 0f; detailStage = ctx.getString(R.string.detail_resplit_book)
                         detailTask = scope.launch { try {
