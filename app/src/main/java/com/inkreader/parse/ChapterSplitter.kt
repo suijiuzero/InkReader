@@ -147,6 +147,10 @@ object ChapterSplitter {
             "|(?i:volume|vol|book)\\.?\\s*$NUM)\\s*(.{0,160})$"
     )
 
+    /** 「第一部完 / 第二卷終」这类零宽分卷标记；只表示上一卷结束，本身不是章节。 */
+    private val volumeEndMarker = Regex(
+        "^\\s*第\\s*[0-9０-９一二三四五六七八九十百千两〇○]{1,6}\\s*[部卷]\\s*(?:完|終|终|结束|結束)\\s*$")
+
     // 英 / 日：Chapter / Part / Book / Volume / Episode + 编号
     private val enTitle =
         Regex("^\\s{0,6}(?i:$EN_ALL_WORDS)$EN_NUMBER$NUM\\s*[:：.、\\-–—]?\\s*(.{0,160})$")
@@ -562,6 +566,10 @@ object ChapterSplitter {
             val cur = headings[k]
             val next = headings.getOrNull(k + 1)
             val noBody = next != null && next - cur <= 4 && (cur + 1 until next).all { !lines[it].isNotBlank() }
+            // 后一个标题之后是否有正文：目录区每一行标题后面都没有正文，
+            // 借此区分「标题抄两遍」和「目录列表」，避免把目录整段合成一章。
+            val afterNext = headings.getOrNull(k + 2) ?: lines.size
+            val nextHasBody = next != null && (next + 1 until afterNext).any { lines[it].isNotBlank() }
             // 三条合并条件，任一成立即丢弃前一个（它必然是空章）：
             //   1. 后一个以前一个为前缀（标题粘进正文）
             //   2. 前一个以后一个为前缀（顺序相反的同类粘法）
@@ -569,7 +577,13 @@ object ChapterSplitter {
             val glued = noBody && (
                 lines[next!!].trim().startsWith(lines[cur].trim()) ||
                     lines[cur].trim().startsWith(lines[next].trim()) ||
-                    headingSubtitle(lines[cur]) == headingSubtitle(lines[next])
+                    headingSubtitle(lines[cur]) == headingSubtitle(lines[next]) ||
+                    // 同一章号、中间没有正文：标题被抄了两遍但改写了副标题
+                    //（第3章 祝安息 / 第3章 祝……安息"此物……"）
+                    (chapterOrderFromTitle(lines[cur]) != null &&
+                        chapterOrderFromTitle(lines[cur]) == chapterOrderFromTitle(lines[next])) ||
+                    // 前一行没有正文、后一行有正文：前一行必然是重复标题产生的空章
+                    nextHasBody
                 )
             if (glued) continue
             out.add(cur)
@@ -916,6 +930,9 @@ object ChapterSplitter {
 
         // 上一章末尾剥出来的卷标题（`第二卷 惊雷`），挂到这一章的开头当卷首，并更新当前所属卷
         var carryTitles = ""
+        // 分卷：有些书没有卷标题，只靠章号从 1 重新开始来换卷（《诡秘之主》8 部都是这样）。
+        // 章号回退到不大于上一章时即视为进入下一卷，并尽量用附近的「第N部完」给卷命名。
+        val volumeLabels = volumeLabelsFor(lines, chosen)
         for ((i, lineIdx) in chosen.withIndex()) {
             ParseCancellation.checkpoint()
             val endIdx = if (i + 1 < chosen.size) chosen[i + 1] else lines.size
@@ -924,6 +941,8 @@ object ChapterSplitter {
 
             // 如果标题本身就是分卷名，也同步更新 activeVolume
             extractVolumeTitle(rawTitle)?.let { activeVolume = it }
+
+            if (volumeLabels[i].isNotBlank()) activeVolume = volumeLabels[i]
 
             val bodyLines = if (omittedHeadingLines.isEmpty()) lines.subList(lineIdx + 1, endIdx)
                 else (lineIdx + 1 until endIdx).filterNot { it in omittedHeadingLines }.map { lines[it] }
@@ -1255,6 +1274,95 @@ object ChapterSplitter {
     /**
      * 把一章末尾残留的「上级划分标题」剥出来，交给下一章当卷首行。
      */
+    /**
+     * 在标题附近（前 6 行、后 10 行）找卷名：
+     * 优先「第N部完 / 第N卷終」这类结束标记（去掉"完/终"），其次显式的「第N卷 xxx」。
+     */
+    private fun volumeLabelNearby(lines: List<String>, headingLine: Int): String? {
+        val from = (headingLine - 6).coerceAtLeast(0)
+        val to = (headingLine + 10).coerceAtMost(lines.size - 1)
+        for (k in from..to) {
+            val s = lines[k].trim()
+            if (s.isEmpty()) continue
+            if (volumeEndMarker.matches(s)) return s.replace(Regex("\\s*(完|終|终|结束|結束)\\s*$"), "").trim()
+        }
+        for (k in from..to) {
+            val s = lines[k].trim()
+            if (s.isEmpty()) continue
+            extractVolumeTitle(s)?.let { return it }
+        }
+        return null
+    }
+
+    /**
+     * 分卷归属：有些书没有卷标题，只靠章号从 1 重新开始换卷（《诡秘之主》8 部都是这样）。
+     * 判定必须严格，否则作者写错的章号（`第六十三章 耐心（上一章章节序号错了）`）会造成假分卷：
+     * 上一章号 ≥10、当前章号正好是 1、且下一章正好是 2，三者同时满足才算换卷。
+     */
+    internal fun volumeLabelsFor(lines: List<String>, chosen: List<Int>): Array<String> =
+        volumeLabelsFor(lines.size, chosen) { lines[it] }
+
+    /** 供 PreparedTxt（流式导入）复用的重载，避免两次实现分卷逻辑。 */
+    internal fun volumeLabelsFor(lineCount: Int, chosen: List<Int>, lineAt: (Int) -> String): Array<String> {
+        val labels = Array(chosen.size) { "" }
+        if (chosen.isEmpty()) return labels
+        val nums = chosen.map { chapterOrderFromTitle(lineAt(it).trim()) }
+        val restarts = ArrayList<Int>()
+        for (i in 1 until chosen.size) {
+            val cur = nums[i] ?: continue
+            val prev = nums[i - 1] ?: continue
+            val next = nums.getOrNull(i + 1)
+            if (cur == 1 && prev >= 10 && (next == null || next == 2)) restarts.add(i)
+        }
+        if (restarts.isEmpty()) return labels
+        // 用「第N部完」标记推断真实卷号：标记写在换卷第一章附近，表示上一个 N 卷结束
+        fun markerPart(at: Int): Int? {
+            val from = (chosen[at] - 6).coerceAtLeast(0)
+            val to = (chosen[at] + 10).coerceAtMost(lineCount - 1)
+            for (k in from..to) {
+                val s = lineAt(k).trim()
+                if (s.isEmpty()) continue
+                if (volumeEndMarker.matches(s)) {
+                    val head = s.substringBefore("完").substringBefore("終").substringBefore("终")
+                    val digits = head.filter { it.isDigit() }
+                    if (digits.isNotEmpty()) return digits.toIntOrNull()
+                    val cn = head.removePrefix("第").removeSuffix("部").removeSuffix("卷").trim()
+                    return parseSimpleCnNumber(cn)
+                }
+            }
+            return null
+        }
+        val firstMarker = markerPart(restarts[0])
+        // 全书统一用「部」或「卷」：只要出现过一次「第N部完」，后面都用部命名
+        val unit = if (firstMarker != null) "部" else "卷"
+        var ordinal = firstMarker ?: 1
+        var label = "第${ordinal}${unit}"
+        var next = 0
+        for (i in chosen.indices) {
+            if (next < restarts.size && i == restarts[next]) {
+                next++
+                ordinal = markerPart(i)?.plus(1) ?: (ordinal + 1)
+                label = "第${ordinal}${unit}"
+            }
+            labels[i] = label
+        }
+        return labels
+    }
+
+    /** 只处理「一二三…十」这类简单汉字数字，用于卷号。 */
+    private fun parseSimpleCnNumber(raw: String): Int? {
+        val map = mapOf('一' to 1, '二' to 2, '三' to 3, '四' to 4, '五' to 5,
+            '六' to 6, '七' to 7, '八' to 8, '九' to 9)
+        if (raw.isEmpty()) return null
+        if (raw == "十") return 10
+        if (raw.length == 1) return map[raw[0]]
+        if (raw.length == 2 && raw[1] == '十') return (map[raw[0]] ?: return null) * 10
+        if (raw.length == 2 && raw[0] == '十') return 10 + (map[raw[1]] ?: return null)
+        if (raw.length == 3 && raw[1] == '十')
+            return (map[raw[0]] ?: return null) * 10 + (map[raw[2]] ?: return null)
+        return null
+    }
+
     private fun peelTrailingUpperTitles(lines: List<String>): Pair<List<String>, List<String>> {
         var end = lines.size
         val peeled = ArrayList<String>()

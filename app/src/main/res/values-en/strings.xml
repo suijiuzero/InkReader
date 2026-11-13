@@ -59,8 +59,8 @@
     <string name="analysis_unnumbered_title">Detect unnumbered Chinese titles</string>
     <string name="analysis_unnumbered_hint">For Chinese story and essay collections: uses isolated short titles, blank lines and body length. Off by default; numbered chapters take priority. Preview and correct inferred titles before importing.</string>
     <string name="analysis_reason_unnumbered">Unnumbered title (inferred from layout; please review)</string>
-    <string name="analysis_model_title">Ink Reader model assistance (experimental)</string>
-    <string name="analysis_model_hint">Runs our trained title classifier on this device. Extra suggestions appear in full-book review and require explicit confirmation before splitting. Off by default; up to 200 per file. No text upload or automatic training on private books.</string>
-    <string name="analysis_model_pending">Model suggestion · confirm before splitting</string>
-    <string name="analysis_model_review">Model suggestions found. Open full-book review to inspect and confirm them.</string>
+    <string name="analysis_model_title">Ink Reader model chapter detection (experimental)</string>
+    <string name="analysis_model_hint">On opening, the on-device model finds headings the rules missed and runs a whole-book structural check (numbering continuity, repeated boilerplate, table-of-contents regions, front/back matter, sentence-ending punctuation). Candidates that pass become chapters directly; the rest still land in full-book review for you to confirm. Everything runs on this device — no text is uploaded, and you can undo at any time.</string>
+    <string name="analysis_model_pending">Ink Reader model · passing candidates are added directly, the rest await confirmation</string>
+    <string name="analysis_model_review">The model added some chapters; other candidates await confirmation in full-book review.</string>
 </resources>

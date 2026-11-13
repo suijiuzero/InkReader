@@ -204,6 +204,8 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
             result += Section(first.takeIf { it.length <= 20 } ?: "前言", omitDuplicateHeaders(listOf(head)), volume)
         }
         var carry = emptyList<Piece>()
+        // 分卷：章号从 1 重新开始即换卷（有些书没有卷标题，只有「第N部完」这类标记）
+        val volumeLabels = ChapterSplitter.volumeLabelsFor(text.lines.size, plan.headings) { text.lines[it] }
         for ((position, start) in plan.headings.withIndex()) {
             ParseCancellation.checkpoint()
             val end = plan.headings.getOrNull(position + 1) ?: text.lines.size
@@ -220,6 +222,7 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
             }
             val rawTitle = text.lines[start].trim()
             ChapterSplitter.extractVolumeTitle(rawTitle)?.let { volume = it }
+            if (volumeLabels[position].isNotBlank()) volume = volumeLabels[position]
             carry.forEach { ChapterSplitter.extractVolumeTitle(text.read(it.start, it.end))?.let { value -> volume = value } }
             val pieces = ArrayList<Piece>()
             if (position == 0 && head != null && (head.length < 200 || plan.mergeLeadingBody)) pieces += head

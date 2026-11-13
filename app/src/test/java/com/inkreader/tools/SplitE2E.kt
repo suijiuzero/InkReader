@@ -32,7 +32,7 @@ object SplitE2E {
         val off = ChapterSplitter.analyze(text, File(args[0]).nameWithoutExtension, base)
         val on = ChapterSplitter.analyze(text, File(args[0]).nameWithoutExtension, withModel)
         val dump = File(args[0]).parentFile.resolve(File(args[0]).nameWithoutExtension + ".parts.txt")
-        dump.writeText(off.parts.mapIndexed { i, p -> "${i + 1}\t${p.content.length}\t${p.title}" }.joinToString("\n"), Charsets.UTF_8)
+        dump.writeText(off.parts.mapIndexed { i, p -> "${i + 1}\t${p.content.length}\t${p.volume}\t${p.title}" }.joinToString("\n"), Charsets.UTF_8)
         println("partsDump -> " + dump.path)
         println("模型关闭: ${off.parts.size} 章")
         println("模型打开: ${on.parts.size} 章")
