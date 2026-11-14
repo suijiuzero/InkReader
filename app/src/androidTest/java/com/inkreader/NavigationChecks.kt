@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Real navigation in a disposable library; never changes the installed user's books. */
 object NavigationChecks {
-    fun run(runner: Instrumentation, context: Context): List<String> {
+    fun run(runner: Instrumentation, context: Context, autoTurnOnly: Boolean = false): List<String> {
         val passed = arrayListOf<String>()
         val activityRef = AtomicReference<MainActivity>()
         val callbacks = object : Application.ActivityLifecycleCallbacks {
@@ -98,6 +98,7 @@ object NavigationChecks {
             same(before, prefix)
         }
         try {
+            if (autoTurnOnly) return ReaderUiChecks.run(runner, activity, container, autoTurnOnly = true)
             runner.runOnMainSync { container.diagnostics.changeEnabled(true) }
             runBlocking {
                 val group = container.repo.createGroup("A navigation group")

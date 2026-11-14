@@ -14,6 +14,13 @@ enum class ReaderTheme { MIST, PAPER, GREEN, INK, NIGHT }
 /** 翻页模式 */
 enum class PageMode { PAGE, SCROLL }
 
+data class AutoTurnOptions(val seconds: Int = 15, val minutes: Int = 0) {
+    companion object {
+        val intervals = 3..60
+        val durations = listOf(0, 5, 10, 15, 30, 45, 60, 90)
+    }
+}
+
 /**
  * 左右翻页时的翻页动画（只作用于 [PageMode.PAGE]）：
  * SLIDE=平移（两页一起动，默认）、COVER=覆盖（新页固定在下层，旧页整页平移离场）、

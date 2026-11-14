@@ -40,4 +40,11 @@
     <string name="reader_split_from_here">新章に分割</string>
     <string name="reader_split_done_toast">ここから次の章に分割しました</string>
     <string name="reader_split_failed_toast">章の先頭または末尾では分割できません</string>
+    <string name="reader_auto_turn">自動ページめくり</string>
+    <string name="reader_auto_turn_stop">自動ページめくりを停止</string>
+    <string name="reader_auto_turn_settings">自動ページめくり設定</string>
+    <string name="reader_auto_turn_interval">めくる間隔 · %1$d 秒</string>
+    <string name="reader_auto_turn_timer">停止タイマー</string>
+    <string name="reader_auto_turn_unlimited">制限なし</string>
+    <string name="reader_auto_turn_minutes">%1$d 分</string>
 </resources>

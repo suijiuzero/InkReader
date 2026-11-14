@@ -140,8 +140,8 @@ class AuditInstrumentation : Instrumentation() {
                 finish(if (report.getInt("failed") == 0) -1 else 0, results)
                 return
             }
-            if (auditArguments?.getString("navigation") == "true") {
-                passed += NavigationChecks.run(this, isolated)
+            if (auditArguments?.getString("navigation") == "true" || auditArguments?.getString("autoTurn") == "true") {
+                passed += NavigationChecks.run(this, isolated, autoTurnOnly = auditArguments?.getString("autoTurn") == "true")
                 results.putString("stream", "PASS ${passed.size} navigation checks\n" + passed.joinToString("\n"))
                 finish(-1, results)
                 return

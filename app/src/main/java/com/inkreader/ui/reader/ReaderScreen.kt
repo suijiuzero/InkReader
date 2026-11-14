@@ -2,6 +2,7 @@ package com.inkreader.ui.reader
 
 import android.app.Activity
 import android.content.Intent
+import android.os.SystemClock
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -15,6 +16,7 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
@@ -62,6 +64,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -77,6 +80,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -87,6 +91,11 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFontFamilyResolver
 import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.platform.LocalWindowInfo
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.compose.currentStateAsState
 import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
@@ -154,7 +163,8 @@ fun ReaderScreen(
     onOpenMarks: (Long, String) -> Unit,
     onOpenEditor: (Long, String) -> Unit,
     onOpenDetail: (Long) -> Unit,
-    onGoShelf: () -> Unit
+    onGoShelf: () -> Unit,
+    isCurrentReader: Boolean = true
 ) {
     val scope = rememberCoroutineScope()
     val session = remember(bookId) { ReaderSession(container, bookId, scope) }
@@ -166,6 +176,14 @@ fun ReaderScreen(
     var showSettings by remember { mutableStateOf(false) }
     var showSearch by remember { mutableStateOf(false) }
     var showTts by remember { mutableStateOf(false) }
+    var showAutoTurnSettings by remember { mutableStateOf(false) }
+    var autoTurn by remember(session) { mutableStateOf(false) }
+    var autoTurnOptions by remember { mutableStateOf(container.prefs.loadAutoTurn()) }
+    var stopAt by remember(session) { mutableStateOf<Long?>(null) }
+    val autoProgress = remember(session) { mutableFloatStateOf(0f) }
+    var touching by remember(session) { mutableStateOf(false) }
+    val scrollState = rememberLazyListState()
+    var pagerMoving by remember(session) { mutableStateOf(false) }
     var selection by remember { mutableStateOf<Selection?>(null) }
     // 长按建立选区时的「锚点词范围」，拖动扩选时以它为基准调整另一
     var selAnchor by remember { mutableStateOf<Pair<Int, Int>?>(null) }
@@ -181,7 +199,23 @@ fun ReaderScreen(
     fun turn(delta: Int) {
         val layered = session.prefs.pageMode == PageMode.PAGE &&
             session.prefs.pageAnimation.isLayeredFlip
-        if (layered) curlState.animateTurn(delta) else session.turnPage(delta)
+        if (session.prefs.pageMode == PageMode.SCROLL) {
+            if (scrollState.isScrollInProgress) return
+            if (delta > 0 && !scrollState.canScrollForward) {
+                session.nextChapter()
+            } else if (delta < 0 && !scrollState.canScrollBackward) {
+                session.prevChapter()
+            } else {
+                val layout = scrollState.layoutInfo
+                val height = layout.viewportEndOffset - layout.viewportStartOffset
+                if (height > 0) scope.launch { scrollState.animateScrollBy(height * 0.85f * delta) }
+            }
+        } else if (!layered || session.pages.isEmpty()) {
+            session.requestPageTurn(delta)
+        } else if (!session.changingChapter) {
+            if (curlState.canTurn(delta)) curlState.animateTurn(delta)
+            else if (!curlState.busy && session.hasLoadedNextNeighbor && delta > 0) session.nextChapter()
+        }
     }
 
     /**
@@ -190,6 +224,7 @@ fun ReaderScreen(
      * 以前不等落库就刷新，书架读到的还是旧位置，下次进书就回到「上一次进入时的位置」。
      */
     fun leaveReader(navigate: () -> Unit) {
+        autoTurn = false
         scope.launch {
             session.saveProgress()
             session.flushProgress()
@@ -208,7 +243,7 @@ fun ReaderScreen(
 
     // 音量键翻页：阅读器在前台、且工具栏是收起状态时才接管
     // 呼出顶栏/底栏说明用户正在「操作」，这时音量键应该照常调音量
-    val chromeNow = rememberUpdatedState(chrome || showToc || showSettings || showSearch || showTts || selection != null)
+    val chromeNow = rememberUpdatedState(chrome || showToc || showSettings || showSearch || showTts || showAutoTurnSettings || selection != null)
     DisposableEffect(session) {
         container.readerKeyHandler = { code ->
             if (!session.prefs.volumeKeyTurn || chromeNow.value) {
@@ -293,6 +328,62 @@ fun ReaderScreen(
         }
     }
 
+    val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
+    val inForeground = isCurrentReader && lifecycle.isAtLeast(Lifecycle.State.RESUMED)
+    val windowFocused = LocalWindowInfo.current.isWindowFocused
+    val view = LocalView.current
+    val autoReading = autoTurn && inForeground
+    DisposableEffect(view, autoReading) {
+        val wasOn = view.keepScreenOn
+        if (autoReading) view.keepScreenOn = true
+        onDispose { if (autoReading) view.keepScreenOn = wasOn }
+    }
+    LaunchedEffect(autoTurn, stopAt, inForeground) {
+        val deadline = stopAt ?: return@LaunchedEffect
+        if (autoTurn && inForeground) {
+            delay((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
+            autoTurn = false
+        }
+    }
+    val pageMode = session.prefs.pageMode == PageMode.PAGE
+    val atBookEnd = !session.hasNextNeighbor && if (pageMode) {
+        session.pages.isNotEmpty() && session.pageIndex == session.pages.lastIndex
+    } else {
+        !scrollState.canScrollForward
+    }
+    val contentReady = !session.loading && session.currentChapter != null &&
+        (if (pageMode) session.pages.isNotEmpty() else scrollState.layoutInfo.visibleItemsInfo.isNotEmpty())
+    val emptyChapter = session.chapterText.isBlank() &&
+        (if (pageMode) session.pages.isEmpty() else session.blocks.isEmpty())
+    val waitingForNeighbor = session.hasNextNeighbor && !session.hasLoadedNextNeighbor &&
+        if (pageMode) session.pageIndex == session.pages.lastIndex else !scrollState.canScrollForward
+    val moving = session.changingChapter || touching || curlState.busy || pagerMoving || session.pageTurn != null || scrollState.isScrollInProgress
+    val readingVisible = autoReading && windowFocused && !chromeNow.value && !(tts.active && tts.bookId == bookId)
+    val canCount = readingVisible && contentReady && !moving && !waitingForNeighbor
+    val canLeaveBlankChapter = readingVisible && emptyChapter && !moving && !session.loading && session.currentChapter != null
+    LaunchedEffect(canCount, canLeaveBlankChapter, session.chapterIndex,
+        session.currentOffset(), atBookEnd, session.prefs.pageAnimation, pageMode, autoTurnOptions.seconds) {
+        autoProgress.floatValue = 0f
+        if (!canCount && !canLeaveBlankChapter) return@LaunchedEffect
+        // Monotonic time also works when Android disables or scales UI animations.
+        val startedAt = SystemClock.elapsedRealtime()
+        val interval = autoTurnOptions.seconds * 1000L
+        do {
+            withFrameNanos { }
+            autoProgress.floatValue = ((SystemClock.elapsedRealtime() - startedAt).toFloat() / interval).coerceAtMost(1f)
+        } while (autoProgress.floatValue < 1f)
+        autoProgress.floatValue = 0f
+        if (!autoTurn || touching || session.changingChapter) return@LaunchedEffect
+        if (stopAt?.let { SystemClock.elapsedRealtime() >= it } == true ||
+            atBookEnd || emptyChapter && !session.hasNextNeighbor) {
+            autoTurn = false
+        } else if (emptyChapter) {
+            session.nextChapter()
+        } else {
+            turn(1)
+        }
+    }
+
     // 屏幕亮度
     val activity = ctx as? Activity
     ReaderDiagnostics(activity, container.diagnostics)
@@ -341,7 +432,16 @@ fun ReaderScreen(
         // 这样点开/收起工具栏不会改变正文区尺寸、也就不会触发重新分页。
         val headBarHeight = ReaderHeadBarHeight
 
-        Box(Modifier.fillMaxSize().background(p.background)) {
+        val observeReadingTouches = if (autoTurn) Modifier.pointerInput(session) {
+            try {
+                awaitPointerEventScope {
+                    while (true) touching = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }
+                }
+            } finally {
+                touching = false
+            }
+        } else Modifier
+        Box(Modifier.fillMaxSize().background(p.background).then(observeReadingTouches)) {
             if (session.loading) {
                 InkLoading()
             } else if (session.book == null) {
@@ -358,7 +458,7 @@ fun ReaderScreen(
                 // 常驻页眉（收起工具栏时可见）：返回首页 + 第几章 章节名
                 // 分页模式下页眉画在每一页里（翻页时跟着整页走），这里不再重复画。
                 AnimatedVisibility(
-                    visible = !chrome && prefs.pageMode != PageMode.PAGE,
+                    visible = !chrome && !autoTurn && prefs.pageMode != PageMode.PAGE,
                     enter = fadeIn(tween(180)),
                     exit = fadeOut(tween(180)),
                     modifier = Modifier.align(Alignment.TopCenter)
@@ -446,6 +546,7 @@ fun ReaderScreen(
                         if (prefs.pageMode != PageMode.PAGE) {
                             ScrollingBody(
                                 session = session,
+                                listState = scrollState,
                                 style = bodyStyle,
                                 blockStyler = blockStyler,
                                 measurer = measurer,
@@ -469,6 +570,7 @@ fun ReaderScreen(
                     PagedBody(
                         session = session,
                         curlState = curlState,
+                        onMoving = { pagerMoving = it },
                         style = bodyStyle,
                         blockStyler = blockStyler,
                         measurer = measurer,
@@ -484,7 +586,17 @@ fun ReaderScreen(
                         onHandleDrag = onHandleDragCb,
                         onTag = { onTagGesture() },
                         barsVisible = !chrome,
+                        showReadingHeader = !autoTurn,
                         onBack = backToShelf
+                    )
+                }
+
+                if (canCount) {
+                    AutoTurnLine(
+                        progress = autoProgress,
+                        modifier = Modifier.fillMaxSize().padding(
+                            top = topInset + headBarHeight + 10.dp, bottom = bottomInset + 40.dp
+                        )
                     )
                 }
 
@@ -495,6 +607,13 @@ fun ReaderScreen(
                     tagged = session.currentPageTag() != null,
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
+
+                if (autoTurn && !chrome && selection == null) {
+                    AutoTurnFooterButton(
+                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset),
+                        onClick = { showAutoTurnSettings = true }
+                    )
+                }
 
                 // 打标/ 取消标签后的短暂提示
                 tagHint?.let { hint ->
@@ -562,6 +681,13 @@ fun ReaderScreen(
                         exit = shrinkVertically(tween(160), shrinkTowards = Alignment.Bottom) + fadeOut(tween(160))
                     ) {
                         ReaderBottomBar(
+                            autoTurning = autoTurn,
+                            onAutoTurn = {
+                                autoTurn = !autoTurn
+                                stopAt = autoTurnOptions.deadline(autoTurn)
+                                if (autoTurn) chrome = false
+                            },
+                            onAutoTurnSettings = { showAutoTurnSettings = true },
                             chapterIndex = session.chapterIndex,
                             chapterCount = session.chapters.size,
                             chapterTitleOf = { i -> session.chapters.getOrNull(i)?.title ?: "" },
@@ -703,12 +829,31 @@ fun ReaderScreen(
                 }
             )
         }
+        if (showAutoTurnSettings) {
+            AutoTurnSettingsDialog(
+                options = autoTurnOptions,
+                onDismiss = { showAutoTurnSettings = false },
+                onStop = if (autoTurn) {
+                    {
+                        autoTurn = false
+                        stopAt = null
+                        showAutoTurnSettings = false
+                    }
+                } else null
+            ) { options ->
+                if (options.minutes != autoTurnOptions.minutes) stopAt = options.deadline(autoTurn)
+                autoTurnOptions = options
+                container.prefs.saveAutoTurn(options)
+                showAutoTurnSettings = false
+            }
+        }
         if (showTts) {
             TtsSheet(
                 session = session,
                 state = tts,
                 onDismiss = { showTts = false },
                 onStart = { offset, sleep ->
+                    autoTurn = false
                     showTts = false
                     com.inkreader.tts.TtsService.startReading(
                         ctx, bookId, session.chapterIndex, offset, sleep
@@ -728,6 +873,7 @@ fun ReaderScreen(
 private fun PagedBody(
     session: ReaderSession,
     curlState: CurlState,
+    onMoving: (Boolean) -> Unit,
     style: TextStyle,
     blockStyler: BlockStyler,
     measurer: TextMeasurer,
@@ -744,6 +890,7 @@ private fun PagedBody(
     onTag: () -> Unit,
     /** 页内自带的页眉页脚是否可见（工具栏展开时让位给完整顶栏/底栏） */
     barsVisible: Boolean,
+    showReadingHeader: Boolean,
     onBack: () -> Unit
 ) {
     val p = LocalInkPalette.current
@@ -787,6 +934,7 @@ private fun PagedBody(
             onHandleDrag = onHandleDrag,
             onTag = onTag,
             barsVisible = barsVisible,
+            showReadingHeader = showReadingHeader,
             onBack = onBack
         )
         return
@@ -807,30 +955,30 @@ private fun PagedBody(
             }
         }
 
-        // 排版参数变化、跳转、章节重排后把 pager 对齐到会话认定的位置
-        LaunchedEffect(session.currentEntryIndex, session.pagerEntries.size) {
-            val target = session.currentEntryIndex.coerceIn(0, (session.pagerEntries.size - 1).coerceAtLeast(0))
-            if (pagerState.currentPage != target) pagerState.scrollToPage(target)
-        }
-
         val anim = session.prefs.pageAnimation
-
-        // 对齐 pager 与会话认定的位置：
-        // · 用户主动翻页（点击左右边缘 / 音量键）→ 带动画滑过去；
-        // · 跳转、改排版重排 → 直接对齐，不做动画。
-        var animatedSerial by remember { mutableIntStateOf(session.turnSerial) }
-        LaunchedEffect(session.currentEntryIndex, session.pagerEntries.size, session.turnSerial) {
-            val target = session.currentEntryIndex.coerceIn(0, (session.pagerEntries.size - 1).coerceAtLeast(0))
-            if (pagerState.currentPage != target) {
-                val userTurn = session.turnSerial != animatedSerial
-                animatedSerial = session.turnSerial
-                if (userTurn && anim != PageAnimation.NONE) {
-                    pagerState.animateScrollToPage(target)
-                } else {
-                    pagerState.scrollToPage(target)
+        val requestedTurn = session.pageTurn
+        LaunchedEffect(pagerState, requestedTurn, session.currentEntryIndex, anim) {
+            if (requestedTurn != null) {
+                try {
+                    if (requestedTurn.chapter == session.chapterIndex &&
+                        requestedTurn.fromEntry == pagerState.settledPage &&
+                        !pagerState.isScrollInProgress &&
+                        requestedTurn.targetEntry in session.pagerEntries.indices) {
+                        if (anim == PageAnimation.NONE) pagerState.scrollToPage(requestedTurn.targetEntry)
+                        else pagerState.animateScrollToPage(requestedTurn.targetEntry)
+                    }
+                } finally {
+                    session.finishPageTurn(requestedTurn)
                 }
-            } else {
-                animatedSerial = session.turnSerial
+            } else if (!pagerState.isScrollInProgress && pagerState.currentPage != session.currentEntryIndex) {
+                pagerState.scrollToPage(session.currentEntryIndex)
+            }
+        }
+        LaunchedEffect(pagerState) {
+            try {
+                snapshotFlow { pagerState.isScrollInProgress }.collect(onMoving)
+            } finally {
+                onMoving(false)
             }
         }
 
@@ -870,7 +1018,7 @@ private fun PagedBody(
                 onExtend = onExtend,
                 onHandleDrag = onHandleDrag,
                 onTag = onTag,
-                headerVisible = barsVisible,
+                headerVisible = barsVisible && showReadingHeader,
                 footerVisible = barsVisible,
                 onBack = onBack,
                 withPull = true,
@@ -1024,6 +1172,7 @@ private fun CurlPagedBody(
     onHandleDrag: (Int, Int) -> Unit,
     onTag: () -> Unit,
     barsVisible: Boolean,
+    showReadingHeader: Boolean,
     onBack: () -> Unit
 ) {
     val p = LocalInkPalette.current
@@ -1111,7 +1260,7 @@ private fun CurlPagedBody(
                         selection = selection, ttsChapter = ttsChapter, ttsStart = ttsStart,
                         ttsEnd = ttsEnd, onTap = onTap, onSelect = onSelect, onExtend = onExtend,
                         onHandleDrag = onHandleDrag, onTag = onTag, withPull = false, tagEnabled = false,
-                        headerVisible = barsVisible, footerVisible = barsVisible, onBack = onBack
+                        headerVisible = barsVisible && showReadingHeader, footerVisible = barsVisible, onBack = onBack
                     )
                 }
             }
@@ -1128,7 +1277,7 @@ private fun CurlPagedBody(
                         selection = selection, ttsChapter = ttsChapter, ttsStart = ttsStart,
                         ttsEnd = ttsEnd, onTap = onTap, onSelect = onSelect, onExtend = onExtend,
                         onHandleDrag = onHandleDrag, onTag = onTag, withPull = false, tagEnabled = false,
-                        headerVisible = barsVisible, footerVisible = barsVisible, onBack = onBack
+                        headerVisible = barsVisible && showReadingHeader, footerVisible = barsVisible, onBack = onBack
                     )
                 }
             }
@@ -1141,7 +1290,7 @@ private fun CurlPagedBody(
                 ttsEnd = ttsEnd, onTap = onTap, onSelect = onSelect, onExtend = onExtend,
                 onHandleDrag = onHandleDrag, onTag = onTag, withPull = true,
                 tagEnabled = !curlState.busy,
-                headerVisible = barsVisible, footerVisible = barsVisible && selection == null,
+                headerVisible = barsVisible && showReadingHeader, footerVisible = barsVisible && selection == null,
                 onBack = onBack
             )
         }
@@ -1450,6 +1599,7 @@ private fun PageContent(
 @Composable
 private fun ScrollingBody(
     session: ReaderSession,
+    listState: androidx.compose.foundation.lazy.LazyListState,
     style: TextStyle,
     blockStyler: BlockStyler,
     measurer: TextMeasurer,
@@ -1466,7 +1616,6 @@ private fun ScrollingBody(
 ) {
     val p = LocalInkPalette.current
     val density = LocalDensity.current
-    val listState = rememberLazyListState()
     val layoutKey = remember(style, density, paraGapDp, session.prefs.firstLineIndent) { Any() }
     val layouts = remember(layoutKey) { mutableStateMapOf<Pair<Int, Int>, TextLayoutResult>() }
     val textTops = remember(layoutKey) { mutableStateMapOf<Pair<Int, Int>, Float>() }

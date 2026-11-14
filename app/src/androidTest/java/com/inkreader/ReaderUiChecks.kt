@@ -15,7 +15,7 @@ import com.inkreader.ui.theme.InkTheme
 import kotlinx.coroutines.runBlocking
 
 object ReaderUiChecks {
-    fun run(runner: Instrumentation, activity: MainActivity, container: AppContainer): List<String> {
+    fun run(runner: Instrumentation, activity: MainActivity, container: AppContainer, autoTurnOnly: Boolean = false): List<String> {
         val passed = ArrayList<String>()
         val book = runBlocking {
             val id = container.repo.createManualBook("阅读界面隔离测试", "")
@@ -33,6 +33,7 @@ object ReaderUiChecks {
             return output
         }
         fun find(text: String): AccessibilityNodeInfo? {
+            if (autoTurnOnly && android.os.Build.VERSION.SDK_INT >= 33) runner.uiAutomation.clearCache()
             val visible = nodes(runner.uiAutomation.rootInActiveWindow).filter {
                 it.isVisibleToUser && it.packageName?.toString() == runner.targetContext.packageName
             }
@@ -83,6 +84,15 @@ object ReaderUiChecks {
                 runner.uiAutomation.injectInputEvent(event, true); event.recycle()
             }
         }
+        fun tapReaderBody() {
+            val area = Rect().also { runner.uiAutomation.rootInActiveWindow.getBoundsInScreen(it) }
+            val y = nodes(runner.uiAutomation.rootInActiveWindow).asSequence()
+                .filter { it.isVisibleToUser && it.text?.contains("测试锚点") == true }
+                .map { Rect().also(it::getBoundsInScreen).exactCenterY() }
+                .filter { it > area.top + area.height() * .20f && it < area.top + area.height() * .65f }
+                .minByOrNull { kotlin.math.abs(it - area.exactCenterY()) } ?: area.exactCenterY()
+            tap(area.exactCenterX(), y)
+        }
         fun clickReaderControl(label: String) {
             var lastToggle = SystemClock.elapsedRealtime() - 1200
             await("Reader control did not become actionable: $label") {
@@ -91,26 +101,65 @@ object ReaderUiChecks {
                 if (node?.refresh() == true && node.performAction(AccessibilityNodeInfo.ACTION_CLICK)) true
                 else {
                     if (SystemClock.elapsedRealtime() - lastToggle >= 1200) {
-                        val area = Rect().also { runner.uiAutomation.rootInActiveWindow.getBoundsInScreen(it) }
-                        tap(area.exactCenterX(), area.exactCenterY())
+                        tapReaderBody()
                         lastToggle = SystemClock.elapsedRealtime()
                     }
                     false
                 }
             }
         }
-        fun mount(mode: PageMode, chapter: Int = 0, offset: Int = 0) {
+        fun mount(mode: PageMode, chapter: Int = 0, offset: Int = 0, animation: PageAnimation = PageAnimation.NONE) {
             runner.runOnMainSync {
                 activity.setContent { InkTheme(readerTheme = ReaderTheme.MIST) { androidx.compose.material3.Text("prepare-reader") } }
-                container.prefs.save(ReaderPrefs(pageMode = mode, pageAnimation = PageAnimation.NONE, volumeKeyTurn = true))
+                container.prefs.save(ReaderPrefs(pageMode = mode, pageAnimation = animation, volumeKeyTurn = true))
                 activity.setContent { InkTheme(readerTheme = ReaderTheme.MIST) {
-                    androidx.compose.runtime.key(mode, chapter, offset) {
+                    androidx.compose.runtime.key(mode, chapter, offset, animation) {
                         ReaderScreen(container, book, chapter, offset, {}, { _, _ -> }, { _, _ -> }, {}, {})
                     }
                 } }
             }
             Thread.sleep(700)
             await("Reader did not mount") { container.readerKeyHandler != null }
+        }
+        if (autoTurnOnly) {
+            val context = runner.targetContext
+            container.prefs.saveAutoTurn(AutoTurnOptions(seconds = 3))
+            val modes = PageAnimation.entries.map { PageMode.PAGE to it } + (PageMode.SCROLL to PageAnimation.NONE)
+            for ((mode, animation) in modes) {
+                mount(mode, animation = animation)
+                await("Reader body not ready") { find("第1段测试锚点") != null }
+                runner.sendStatus(0, android.os.Bundle().apply { putString("stream", "Testing auto turn in $mode/$animation\n") })
+                if (animation == PageAnimation.SLIDE) {
+                    clickReaderControl(context.getString(R.string.reader_auto_turn_settings))
+                    click(context.getString(R.string.reader_auto_turn_minutes, 5))
+                    click(context.getString(R.string.action_done))
+                    check(container.prefs.loadAutoTurn() == AutoTurnOptions(seconds = 3, minutes = 5))
+                }
+                clickReaderControl(context.getString(R.string.reader_auto_turn))
+                await("Auto turn did not advance in $mode/$animation") {
+                    runBlocking { container.repo.book(book)!!.lastCharOffset > 0 }
+                }
+                await("Toolbar remained open in $mode/$animation") {
+                    find(context.getString(R.string.reader_auto_turn_settings)) == null &&
+                        find(context.getString(R.string.reader_auto_turn)) != null
+                }
+                click(context.getString(R.string.reader_auto_turn))
+                await("Footer did not open auto turn settings") {
+                    find(context.getString(R.string.reader_auto_turn_settings)) != null
+                }
+                click(context.getString(R.string.reader_auto_turn_stop))
+                await("Auto turn did not stop in $mode/$animation") {
+                    find(context.getString(R.string.reader_auto_turn)) == null
+                }
+                // Let the progress writer finish saving any scroll or turn that was already underway.
+                Thread.sleep(950)
+                fun savedPosition() = runBlocking { container.repo.book(book)!!.let { it.lastChapterIndex to it.lastCharOffset } }
+                val stoppedPosition = savedPosition()
+                Thread.sleep(3500)
+                check(savedPosition() == stoppedPosition) { "Position moved after stopping in $mode/$animation" }
+                passed += "auto turn advances and stops in $mode/$animation"
+            }
+            return passed
         }
         mount(PageMode.PAGE)
         var lastTurn = 0L

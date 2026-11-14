@@ -41,4 +41,11 @@
     <string name="reader_split_from_here">Split chapter</string>
     <string name="reader_split_done_toast">Split into a new chapter from here</string>
     <string name="reader_split_failed_toast">Cannot split at the very start or end of a chapter</string>
+    <string name="reader_auto_turn">Auto page turn</string>
+    <string name="reader_auto_turn_stop">Stop auto page turn</string>
+    <string name="reader_auto_turn_settings">Auto page turn settings</string>
+    <string name="reader_auto_turn_interval">Page interval · %1$d sec</string>
+    <string name="reader_auto_turn_timer">Stop timer</string>
+    <string name="reader_auto_turn_unlimited">No timer</string>
+    <string name="reader_auto_turn_minutes">%1$d min</string>
 </resources>

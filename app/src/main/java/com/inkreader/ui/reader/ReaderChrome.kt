@@ -119,6 +119,9 @@ fun ReaderTopBar(
 
 @Composable
 fun ReaderBottomBar(
+    autoTurning: Boolean,
+    onAutoTurn: () -> Unit,
+    onAutoTurnSettings: () -> Unit,
     chapterIndex: Int,
     chapterCount: Int,
     chapterTitleOf: (Int) -> String,
@@ -140,6 +143,20 @@ fun ReaderBottomBar(
             .background(p.background)
     ) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(p.divider))
+        Row(
+            Modifier.fillMaxWidth().padding(top = 4.dp),
+            horizontalArrangement = Arrangement.Center,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            InkTextButton(
+                stringResource(if (autoTurning) R.string.reader_auto_turn_stop else R.string.reader_auto_turn),
+                onClick = onAutoTurn
+            )
+            InkIconButton(
+                R.drawable.ic_settings, stringResource(R.string.reader_auto_turn_settings),
+                onClick = onAutoTurnSettings, size = 18
+            )
+        }
         ChapterScrubber(
             chapterIndex = chapterIndex,
             chapterCount = chapterCount,

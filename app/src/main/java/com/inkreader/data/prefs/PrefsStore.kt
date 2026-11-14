@@ -27,6 +27,15 @@ class PrefsStore(context: Context) {
     private val sp: SharedPreferences =
         context.applicationContext.getSharedPreferences("ink_prefs", Context.MODE_PRIVATE)
 
+    fun loadAutoTurn() = com.inkreader.data.model.AutoTurnOptions(
+        seconds = sp.getInt("auto_turn_seconds", 15).coerceIn(com.inkreader.data.model.AutoTurnOptions.intervals),
+        minutes = sp.getInt("auto_turn_minutes", 0).takeIf { it in com.inkreader.data.model.AutoTurnOptions.durations } ?: 0
+    )
+
+    fun saveAutoTurn(options: com.inkreader.data.model.AutoTurnOptions) {
+        sp.edit().putInt("auto_turn_seconds", options.seconds).putInt("auto_turn_minutes", options.minutes).apply()
+    }
+
     fun load(): ReaderPrefs = ReaderPrefs(
         fontSize = sp.getFloat(K_SIZE, 19f),
         lineHeight = sp.getFloat(K_LH, 1.75f),

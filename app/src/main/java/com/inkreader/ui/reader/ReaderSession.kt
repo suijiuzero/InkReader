@@ -115,7 +115,7 @@ class ReaderSession(
     )
 
     private var prevChapter: CachedChapter? = null
-    private var nextChapter: CachedChapter? = null
+    private var nextChapter by mutableStateOf<CachedChapter?>(null)
 
     /** 分页模式的页槽（含邻章衔接页） */
     var pagerEntries by mutableStateOf<List<PagerEntry>>(emptyList())
@@ -150,6 +150,8 @@ class ReaderSession(
     private val neighborRequests = HashSet<Pair<Long, Int>>()
     private var chapterLoadJob: Job? = null
     private var chapterGeneration = 0L
+    var changingChapter by mutableStateOf(false)
+        private set
     private var layoutGeneration = 0L
     private val neighborJobs = ArrayList<Job>()
 
@@ -271,6 +273,7 @@ class ReaderSession(
         private set
     private var searchJob: Job? = null
 
+    val hasLoadedNextNeighbor: Boolean get() = nextChapter?.index == chapterIndex + 1
     val hasPrevNeighbor: Boolean get() = chapters.isNotEmpty() && chapterIndex > 0
     val hasNextNeighbor: Boolean get() = chapterIndex < chapters.lastIndex
 
@@ -321,68 +324,74 @@ class ReaderSession(
     ) {
         val chs = chapters
         if (chs.isEmpty() || index !in chs.indices) return
+        pageTurn = null
         chapterLoadJob?.cancel()
         paginationJob?.cancel()
         val generation = ++chapterGeneration
+        changingChapter = true
         chapterLoadJob = scope.launch(errors) {
-            val startedAt = android.os.SystemClock.elapsedRealtime()
-            val ch = chs[index]
-            val loadLayout = layoutGeneration
+            try {
+                val startedAt = android.os.SystemClock.elapsedRealtime()
+                val ch = chs[index]
+                val loadLayout = layoutGeneration
 
-            // 邻章缓存命中就直接复用正文与分块，跨章切换才不会卡顿
-            val cached = when (index) {
-                prevChapter?.index -> prevChapter
-                nextChapter?.index -> nextChapter
-                else -> null
+                // 邻章缓存命中就直接复用正文与分块，跨章切换才不会卡顿
+                val cached = when (index) {
+                    prevChapter?.index -> prevChapter
+                    nextChapter?.index -> nextChapter
+                    else -> null
+                }
+                val oldIndex = chapterIndex
+                val oldTitle = currentChapter?.title ?: ""
+                val oldText = chapterText
+                val oldBlocks = blocks
+                val oldPages = pages
+
+                val text = cached?.text ?: repo.chapterText(ch)
+                val blks = cached?.blocks ?: Paginator.richBlocks(
+                    text,
+                    if (text.isEmpty()) null else repo.chapterRich(ch, text.length)
+                )
+                val loadedMarks = repo.marks(bookId)
+                if (!isActive || generation != chapterGeneration || chapters !== chs) return@launch
+
+                if (oldIndex != index) { pages = emptyList(); pageIndex = 0 }
+                chapterIndex = index
+                chapterText = text
+                blocks = blks
+                scrollOffset = offset.coerceAtLeast(0)
+                jumpRequest = offset.coerceAtLeast(0)
+                marks = loadedMarks
+                pendingOffset = offset.coerceAtLeast(0)
+
+                if (cached != null && loadLayout == layoutGeneration && cached.pagesComplete && cached.pages.isNotEmpty()) {
+                    pages = cached.pages
+                    pageIndex = Paginator.pageForOffset(cached.pages, offset.coerceIn(0, text.length))
+                        .coerceIn(0, cached.pages.lastIndex)
+                    pendingOffset = null
+                } else if (andPaginate) {
+                    repaginate(keepOffset = offset.coerceAtLeast(0))
+                }
+
+                // 把刚离开的章节直接变成邻章缓存：来回翻章都不用重新解析
+                // discardOldCache=true 时不缓存旧章——拆章后旧章正文已变，缓存会导致往回滑时串正文
+                if (!discardOldCache && loadLayout == layoutGeneration && oldPages.isNotEmpty() && oldIndex != index) {
+                    val old = CachedChapter(oldIndex, oldTitle, oldText, oldBlocks, oldPages, true)
+                    if (index == oldIndex + 1) prevChapter = old
+                    else if (index == oldIndex - 1) nextChapter = old
+                }
+                if (prevChapter?.index != index - 1) prevChapter = null
+                if (nextChapter?.index != index + 1) nextChapter = null
+
+                rebuildPager()
+                rebuildFlow()
+                loadNeighbors()
+                container.diagnostics.record(com.inkreader.data.diagnostics.UsageDiagnostics.Event.CHAPTER_READY,
+                    mapOf("durationMs" to (android.os.SystemClock.elapsedRealtime() - startedAt), "characters" to text.length, "blocks" to blks.size))
+                saveProgress()
+            } finally {
+                if (generation == chapterGeneration) changingChapter = false
             }
-            val oldIndex = chapterIndex
-            val oldTitle = currentChapter?.title ?: ""
-            val oldText = chapterText
-            val oldBlocks = blocks
-            val oldPages = pages
-
-            val text = cached?.text ?: repo.chapterText(ch)
-            val blks = cached?.blocks ?: Paginator.richBlocks(
-                text,
-                if (text.isEmpty()) null else repo.chapterRich(ch, text.length)
-            )
-            val loadedMarks = repo.marks(bookId)
-            if (!isActive || generation != chapterGeneration || chapters !== chs) return@launch
-
-            if (oldIndex != index) { pages = emptyList(); pageIndex = 0 }
-            chapterIndex = index
-            chapterText = text
-            blocks = blks
-            scrollOffset = offset.coerceAtLeast(0)
-            jumpRequest = offset.coerceAtLeast(0)
-            marks = loadedMarks
-            pendingOffset = offset.coerceAtLeast(0)
-
-            if (cached != null && loadLayout == layoutGeneration && cached.pagesComplete && cached.pages.isNotEmpty()) {
-                pages = cached.pages
-                pageIndex = Paginator.pageForOffset(cached.pages, offset.coerceIn(0, text.length))
-                    .coerceIn(0, cached.pages.lastIndex)
-                pendingOffset = null
-            } else if (andPaginate) {
-                repaginate(keepOffset = offset.coerceAtLeast(0))
-            }
-
-            // 把刚离开的章节直接变成邻章缓存：来回翻章都不用重新解析
-            // discardOldCache=true 时不缓存旧章——拆章后旧章正文已变，缓存会导致往回滑时串正文
-            if (!discardOldCache && loadLayout == layoutGeneration && oldPages.isNotEmpty() && oldIndex != index) {
-                val old = CachedChapter(oldIndex, oldTitle, oldText, oldBlocks, oldPages, true)
-                if (index == oldIndex + 1) prevChapter = old
-                else if (index == oldIndex - 1) nextChapter = old
-            }
-            if (prevChapter?.index != index - 1) prevChapter = null
-            if (nextChapter?.index != index + 1) nextChapter = null
-
-            rebuildPager()
-            rebuildFlow()
-            loadNeighbors()
-            container.diagnostics.record(com.inkreader.data.diagnostics.UsageDiagnostics.Event.CHAPTER_READY,
-                mapOf("durationMs" to (android.os.SystemClock.elapsedRealtime() - startedAt), "characters" to text.length, "blocks" to blks.size))
-            saveProgress()
         }
     }
 
@@ -771,54 +780,26 @@ class ReaderSession(
         loadChapter(index, offset)
     }
 
-    /**
-     * 「用户主动翻页」的请求序号（点击左右边缘、音量键）。
-     * 每翻一次自增，pager 看到它变了就用带动画的翻页，而不是直接对齐 —— 跳转、重排仍然直接对齐。
-     */
-    var turnSerial by mutableIntStateOf(0)
+    class PageTurn(val chapter: Int, val fromEntry: Int, val targetEntry: Int)
+
+    var pageTurn by mutableStateOf<PageTurn?>(null)
         private set
 
-    /**
-     * 翻一页（点击屏幕左右边缘、音量键用）。跨章节时自动接上：往后翻到下一章开头，
-     * 往前翻回到上一章最后一页——和手势滑动是同一套逻辑。
-     */
-    fun turnPage(delta: Int) {
-        if (prefs.pageMode == PageMode.SCROLL) {
-            requestScrollScreens(delta * 0.85f)
-            return
-        }
-        if (pages.isEmpty()) return
-        val target = pageIndex + delta
-        turnSerial++
-        when {
-            target in pages.indices -> {
-                pageIndex = target
-                saveProgress()
-            }
-
-            target > pages.lastIndex -> if (hasNextNeighbor) loadChapter(chapterIndex + 1, 0)
-
-            else -> {
-                val prev = prevChapter
-                if (prev != null && prev.index == chapterIndex - 1 && prev.pages.isNotEmpty()) {
-                    loadChapter(prev.index, prev.pages.last().startOffset)
-                } else if (hasPrevNeighbor) {
-                    loadChapter(chapterIndex - 1, 0)
-                }
+    fun requestPageTurn(delta: Int) {
+        if (chapterLoadJob?.isActive == true || pageTurn != null) return
+        val target = currentEntryIndex + delta
+        if (pages.isNotEmpty() && pagerEntries.getOrNull(target)?.page != null) {
+            pageTurn = PageTurn(chapterIndex, currentEntryIndex, target)
+        } else if (pages.isNotEmpty() || chapterText.isBlank()) {
+            if (delta > 0 && hasNextNeighbor) loadChapter(chapterIndex + 1, 0)
+            if (delta < 0 && hasPrevNeighbor) {
+                loadChapter(chapterIndex - 1, prevChapter?.pages?.lastOrNull()?.startOffset ?: 0)
             }
         }
     }
 
-    /** 滚动模式下的「按屏滚动」请求，单位是屏（由列表按视口高度换算成像素） */
-    var scrollByScreens by mutableStateOf<Float?>(null)
-        private set
-
-    fun requestScrollScreens(screens: Float) {
-        scrollByScreens = screens
-    }
-
-    fun consumeScrollScreens() {
-        scrollByScreens = null
+    fun finishPageTurn(request: PageTurn) {
+        if (pageTurn === request) pageTurn = null
     }
 
     fun nextChapter() = gotoChapter(chapterIndex + 1)

@@ -509,7 +509,8 @@ fun InkRoot(container: AppContainer = InkApp.instance.container) {
                             onOpenMarks = { id, title -> push(Dest.Marks(id, title)) },
                             onOpenEditor = { chapterId, title -> push(Dest.Editor(dest.bookId, chapterId, title)) },
                             onOpenDetail = { openDuringLibraryTask(Dest.Detail(it), it) },
-                            onGoShelf = { popToShelf() }
+                            onGoShelf = { popToShelf() },
+                            isCurrentReader = entry.id == currentEntry.id
                         )
 
                         is Dest.Editor -> EditorScreen(
