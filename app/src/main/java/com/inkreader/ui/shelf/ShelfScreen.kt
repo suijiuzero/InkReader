@@ -162,6 +162,7 @@ fun ShelfScreen(
     onPickFiles: (() -> Unit)? = null
 ) {
     val lib = container.library
+    val entries = remember(lib.books, lib.groups, lib.sort) { shelfEntries(lib.books, lib.groups, lib.sort) }
     val p = LocalInkPalette.current
     val ctx = LocalContext.current
     val selected = remember { mutableStateListOf<Long>() }
@@ -221,6 +222,10 @@ fun ShelfScreen(
      * 统一入口：用 AOSP 文档选择器选文件（意图显式指向 documentsui，找不到则退回系统默认）。
      */
     fun launchPicker(retry: Boolean = false) {
+        if (lib.resplitting) {
+            lib.showResplitProgress()
+            return
+        }
         if (!retry && onPickFiles != null) { onPickFiles(); return }
         val now = System.currentTimeMillis()
         container.prefs.pickerLaunchedAt = now
@@ -332,7 +337,7 @@ fun ShelfScreen(
     Column(Modifier.fillMaxSize().background(p.background)) {
         InkTopBar(
             title = stringResource(R.string.app_name),
-            subtitle = if (lib.books.isEmpty()) stringResource(R.string.shelf_empty_subtitle)
+            subtitle = if (entries.isEmpty()) stringResource(R.string.shelf_empty_subtitle)
             else pluralStringResource(R.plurals.shelf_count_hint, lib.books.size, lib.books.size),
             actions = {
                 InkIconButton(R.drawable.ic_search, stringResource(R.string.shelf_search_books), { onOpenSearch() })
@@ -421,7 +426,7 @@ fun ShelfScreen(
                         Text(lib.resplitStage, color = p.textSecondary, fontSize = 12.sp,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                     }
-                    InkTextButton(stringResource(R.string.recovery_cancel), onClick = lib::cancelResplit)
+                    InkTextButton(stringResource(R.string.action_cancel), onClick = lib::cancelResplit)
                 }
                 InkProgress(lib.resplitFraction, Modifier.fillMaxWidth())
             }
@@ -443,11 +448,8 @@ fun ShelfScreen(
         }
         Box(Modifier.fillMaxSize()) {
             when {
-                // 重新分章期间列表可能是空的：不要显示整屏转圈（看起来就是白屏），
-                // 让上方的进度卡片/横幅继续可见。
-                lib.resplitting && lib.books.isEmpty() -> Box(Modifier.fillMaxSize()) {}
                 lib.loading && lib.books.isEmpty() -> InkLoading()
-                lib.books.isEmpty() -> EmptyState(
+                entries.isEmpty() -> EmptyState(
                     iconRes = R.drawable.ic_book,
                     title = stringResource(R.string.shelf_empty_title),
                     hint = stringResource(R.string.shelf_empty_hint),
@@ -462,29 +464,25 @@ fun ShelfScreen(
 
                 lib.view == ShelfView.GRID -> BookGrid(
                     state = gridState,
-                    books = lib.ungrouped,
+                    entries = entries,
                     selected = selected,
-                    onOpen = { b -> onOpenBook(b.id, b.lastChapterIndex, b.lastCharOffset) },
+                    onOpen = { b -> if (b.id != lib.resplitBookId) onOpenBook(b.id, -1, 0) else lib.showResplitProgress() },
                     onLongPress = { b ->
                         if (selected.contains(b.id)) selected.remove(b.id) else selected.add(b.id)
                     },
-                    onDetail = { onOpenDetail(it) },
-                    groups = sortGroups(lib),
-                    groupBooks = { gid -> lib.booksOf(gid) },
+                    onDetail = { if (it != lib.resplitBookId) onOpenDetail(it) else lib.showResplitProgress() },
                     onOpenGroup = onOpenGroup
                 )
 
                 else -> BookList(
                     state = listState,
-                    books = lib.ungrouped,
+                    entries = entries,
                     selected = selected,
-                    onOpen = { b -> onOpenBook(b.id, b.lastChapterIndex, b.lastCharOffset) },
+                    onOpen = { b -> if (b.id != lib.resplitBookId) onOpenBook(b.id, -1, 0) else lib.showResplitProgress() },
                     onLongPress = { b ->
                         if (selected.contains(b.id)) selected.remove(b.id) else selected.add(b.id)
                     },
-                    onDetail = { onOpenDetail(it) },
-                    groups = sortGroups(lib),
-                    groupBooks = { gid -> lib.booksOf(gid) },
+                    onDetail = { if (it != lib.resplitBookId) onOpenDetail(it) else lib.showResplitProgress() },
                     onOpenGroup = onOpenGroup
                 )
             }
@@ -535,24 +533,20 @@ fun ShelfScreen(
                 }
             }
 
-            // 导入进度
             if (lib.importing && !lib.importInBackground) {
-                ImportOverlay(lib.importStage, lib.importFraction, lib::pauseImport, lib::backgroundImport)
-        if (lib.resplitting && !lib.resplitInBackground) {
-            ImportOverlay(
-                stage = lib.resplitStage.ifBlank { lib.resplitTitle },
-                fraction = lib.resplitFraction,
-                onPause = lib::cancelResplit,
-                onBackground = lib::backgroundResplit
-            )
-        }
+                ImportOverlay(stringResource(R.string.shelf_importing), lib.importStage,
+                    lib.importFraction, stringResource(R.string.recovery_cancel), lib::pauseImport, lib::backgroundImport)
+            }
+            if (lib.resplitting && !lib.resplitInBackground) {
+                ImportOverlay(stringResource(R.string.detail_resplit_book), lib.resplitStage,
+                    lib.resplitFraction, stringResource(R.string.action_cancel), lib::cancelResplit, lib::backgroundResplit)
             }
         }
     }
 
     var showRecovery by remember { mutableStateOf(true) }
     LaunchedEffect(lib.recoveryAvailable, lib.importing) { if (lib.recoveryAvailable && !lib.importing) showRecovery = true }
-    if (lib.recoveryAvailable && !lib.importing && showRecovery && !showImportDialog) {
+    if (lib.recoveryAvailable && !lib.importing && !lib.resplitting && showRecovery && !showImportDialog) {
         InkDialogShell(onDismiss = { showRecovery = false }, title = stringResource(R.string.recovery_title), buttons = {
             Row(horizontalArrangement = Arrangement.End) {
                 InkTextButton(stringResource(R.string.recovery_discard)) { showRecovery = false; lib.discardImport() }
@@ -675,32 +669,15 @@ private fun FloatingAction(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
-/** 分组参与排序：取组内最近一次阅读/添加时间，点开组内任意书该组会前移。 */
-private fun sortGroups(lib: com.inkreader.LibraryStore): List<BookGroup> {
-    fun activity(g: BookGroup): Long =
-        lib.booksOf(g.id).maxOfOrNull { maxOf(it.lastReadAt, it.createdAt) } ?: 0L
-    fun progress(g: BookGroup): Float =
-        lib.booksOf(g.id).maxOfOrNull { it.displayProgress } ?: 0f
-    return when (lib.sort) {
-        com.inkreader.data.model.ShelfSort.RECENT,
-        com.inkreader.data.model.ShelfSort.ADDED -> lib.groups.sortedByDescending { activity(it) }
-        com.inkreader.data.model.ShelfSort.PROGRESS -> lib.groups.sortedByDescending { progress(it) }
-        com.inkreader.data.model.ShelfSort.TITLE -> lib.groups.sortedBy { it.name }
-    }
-}
-
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 private fun BookGrid(
     state: LazyGridState,
-    books: List<Book>,
+    entries: List<ShelfEntry>,
     selected: List<Long>,
     onOpen: (Book) -> Unit,
     onLongPress: (Book) -> Unit,
     onDetail: (Long) -> Unit,
-    groups: List<BookGroup> = emptyList(),
-    groupBooks: (Long) -> List<Book> = { emptyList() },
     onOpenGroup: (Long) -> Unit = {}
 ) {
     val p = LocalInkPalette.current
@@ -713,10 +690,12 @@ private fun BookGrid(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        items(groups, key = { "g${it.id}" }) { g ->
-            GroupCard(group = g, books = groupBooks(g.id)) { onOpenGroup(g.id) }
-        }
-        items(books, key = { it.id }) { b ->
+        items(entries, key = { it.key }) { entry ->
+            if (entry is ShelfEntry.Group) {
+                GroupCard(group = entry.group, books = entry.books) { onOpenGroup(entry.group.id) }
+                return@items
+            }
+            val b = (entry as ShelfEntry.Single).book
             val isSelected = selected.contains(b.id)
             Column(
                 Modifier
@@ -782,13 +761,11 @@ private fun BookGrid(
 @Composable
 private fun BookList(
     state: LazyListState,
-    books: List<Book>,
+    entries: List<ShelfEntry>,
     selected: List<Long>,
     onOpen: (Book) -> Unit,
     onLongPress: (Book) -> Unit,
     onDetail: (Long) -> Unit,
-    groups: List<BookGroup> = emptyList(),
-    groupBooks: (Long) -> List<Book> = { emptyList() },
     onOpenGroup: (Long) -> Unit = {}
 ) {
     val p = LocalInkPalette.current
@@ -799,10 +776,12 @@ private fun BookList(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         modifier = Modifier.fillMaxSize()
     ) {
-        items(groups, key = { "g${it.id}" }) { g ->
-            GroupRow(group = g, books = groupBooks(g.id)) { onOpenGroup(g.id) }
-        }
-        items(books, key = { it.id }) { b ->
+        items(entries, key = { it.key }) { entry ->
+            if (entry is ShelfEntry.Group) {
+                GroupRow(group = entry.group, books = entry.books) { onOpenGroup(entry.group.id) }
+                return@items
+            }
+            val b = (entry as ShelfEntry.Single).book
             val isSelected = selected.contains(b.id)
             Row(
                 Modifier
@@ -964,10 +943,10 @@ private fun SelectionBar(
 }
 
 @Composable
-private fun ImportOverlay(stage: String, fraction: Float, onPause: () -> Unit, onBackground: () -> Unit) {
+private fun ImportOverlay(title: String, stage: String, fraction: Float, cancelLabel: String, onPause: () -> Unit, onBackground: () -> Unit) {
     val p = LocalInkPalette.current
     Box(
-        Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
+        Modifier.fillMaxSize().background(p.scrim).clickable(indication = null, interactionSource = null) {},
         contentAlignment = Alignment.Center
     ) {
         Column(
@@ -979,7 +958,7 @@ private fun ImportOverlay(stage: String, fraction: Float, onPause: () -> Unit, o
                 .padding(22.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            SectionLabel(stringResource(R.string.shelf_importing))
+            SectionLabel(title)
             Spacer(Modifier.height(16.dp))
             Text(
                 text = if (stage.isBlank()) stringResource(R.string.action_loading) else stage,
@@ -999,7 +978,7 @@ private fun ImportOverlay(stage: String, fraction: Float, onPause: () -> Unit, o
                 color = p.textFaint
             )
             Row(verticalAlignment = Alignment.CenterVertically) {
-                InkTextButton(stringResource(R.string.recovery_cancel), onClick = onPause)
+                InkTextButton(cancelLabel, onClick = onPause)
                 Spacer(Modifier.width(12.dp))
                 InkTextButton(stringResource(R.string.import_background), onClick = onBackground)
             }

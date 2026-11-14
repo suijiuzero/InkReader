@@ -100,7 +100,7 @@ object NavigationChecks {
         try {
             runner.runOnMainSync { container.diagnostics.changeEnabled(true) }
             runBlocking {
-                val group = container.repo.createGroup("Nav group")
+                val group = container.repo.createGroup("A navigation group")
                 repeat(72) { i ->
                     val id = container.repo.createManualBook("Nav book %03d".format(i), "")
                     container.repo.saveChapterText(container.repo.chapters(id).single(), "NAVIGATION_BODY $i. ".repeat(100))
@@ -188,7 +188,7 @@ object NavigationChecks {
             var registry = SaveableStateRegistry(null) { true }
             mountSavedRoot(registry)
             Thread.sleep(1000)
-            click("Nav group")
+            click("A navigation group")
             scroll(2)
             openAndReturn("Nav book")
             val group = positions("Nav book")

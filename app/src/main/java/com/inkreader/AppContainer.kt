@@ -16,8 +16,10 @@ import com.inkreader.data.model.SplitMode
 import com.inkreader.data.model.SplitOptions
 import com.inkreader.data.prefs.PrefsStore
 import com.inkreader.data.repo.BookRepository
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 
@@ -113,36 +115,46 @@ class LibraryStore(
         private set
     var resplitTitle by mutableStateOf("")
         private set
+    var resplitBookId by mutableStateOf<Long?>(null)
+        private set
     var resplitStage by mutableStateOf("")
         private set
     var resplitFraction by mutableStateOf(0f)
         private set
-    private var resplitJob: kotlinx.coroutines.Job? = null
+    private var resplitJob: Job? = null
     fun backgroundResplit() { if (resplitting) resplitInBackground = true }
     fun showResplitProgress() { resplitInBackground = false }
     fun cancelResplit() { resplitJob?.cancel() }
 
-    fun startResplit(
-        bookId: Long,
-        title: String,
-        options: com.inkreader.data.model.SplitOptions,
-        onDone: (Int) -> Unit = {}
-    ) {
-        if (resplitting) return
+    fun startResplit(bookId: Long, title: String, options: SplitOptions): Boolean {
+        if (resplitting || importing) return false
         resplitInBackground = false
         resplitting = true
+        resplitBookId = bookId
         resplitTitle = title
         resplitFraction = 0f
         resplitStage = appContext.getString(R.string.repo_stage_resplit)
         resplitJob = scope.launch {
-            val count = runCatching {
-                repo.resplitBook(bookId, options) { f -> resplitFraction = f }
-            }.getOrElse { -2 }
-            resplitting = false
-            resplitInBackground = false
-            refresh()
-            onDone(count)
+            try {
+                val count = repo.resplitBook(bookId, options) { resplitFraction = it }
+                toast = if (count < 0) appContext.getString(R.string.detail_resplit_too_large)
+                    else appContext.getString(R.string.detail_resplit_done_toast, count)
+            } catch (e: CancellationException) {
+                toast = appContext.getString(R.string.operation_cancelled)
+                throw e
+            } catch (e: Exception) {
+                toast = appContext.getString(
+                    R.string.detail_resplit_failed,
+                    e.localizedMessage ?: appContext.getString(R.string.action_unknown_error)
+                )
+            } finally {
+                resplitting = false
+                resplitInBackground = false
+                refresh()
+                resplitBookId = null
+            }
         }
+        return true
     }
 
     var recoveryAvailable by mutableStateOf(false)
@@ -163,21 +175,36 @@ class LibraryStore(
         private set
     var toast by mutableStateOf<String?>(null)
 
+    private var refreshJob: Job? = null
+    private var refreshGeneration = 0
+
     init {
         refresh()
     }
 
     fun refresh() {
-        // 重新分章会长时间占住数据库写入；此时再读书架会把 UI 卡成空白页，
-        // 直接沿用当前列表，等分章结束后由 startResplit 的 onDone 再刷一次。
-        if (resplitting) return
-        scope.launch {
+        // Keep an existing shelf on screen; the task will refresh it again on completion.
+        if (resplitting && books.isNotEmpty()) return
+        val generation = ++refreshGeneration
+        refreshJob?.cancel()
+        refreshJob = scope.launch {
             loading = true
-            books = repo.books(sort)
-            groups = repo.groups()
-            recoveryAvailable = repo.hasIncompleteImport()
-            syncUiTheme()
-            loading = false
+            try {
+                val updatedBooks = repo.books(sort)
+                val updatedGroups = repo.groups()
+                val recovery = repo.hasIncompleteImport()
+                if (generation != refreshGeneration) return@launch
+                books = updatedBooks
+                groups = updatedGroups
+                recoveryAvailable = recovery
+                syncUiTheme()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                if (generation == refreshGeneration) toast = appContext.getString(R.string.action_unknown_error)
+            } finally {
+                if (generation == refreshGeneration) loading = false
+            }
         }
     }
 
@@ -212,7 +239,7 @@ class LibraryStore(
         resume: Boolean = false,
         onDone: (Long?) -> Unit = {}
     ) {
-        if (importing || uris.isEmpty() && !resume) return
+        if (importing || resplitting || uris.isEmpty() && !resume) return
         com.inkreader.ui.component.PickerTrace.log(
             appContext,
             "import.start n=${uris.size} mode=$mode split=${splitOptions.mode} uris=${uris.joinToString { it.scheme + ":" + it.lastPathSegment?.takeLast(24) }}"

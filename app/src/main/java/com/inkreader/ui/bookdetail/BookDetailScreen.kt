@@ -143,7 +143,7 @@ fun BookDetailScreen(
 
     // 长按拖动排序：正在拖的章节、拖动开始时的顺序、手指在列表内的绝对 Y、按下时手指落在卡片内的高度（像素）
     var dragChapterId by remember { mutableStateOf<Long?>(null) }
-    var dragStartIds by remember { mutableStateOf<List<Long>>(emptyList()) }
+    var dragStartChapters by remember { mutableStateOf<List<Chapter>>(emptyList()) }
     var dragFingerY by remember { mutableFloatStateOf(0f) }
     var dragGrab by remember { mutableFloatStateOf(0f) }
     /** 换位后的滚动锚点修复是否正在跑（一次只允许一个，别和边缘自动滚打架） */
@@ -162,10 +162,7 @@ fun BookDetailScreen(
     var dragVolume by remember { mutableStateOf<String?>(null) }
     var dragVolumeY by remember { mutableStateOf(0f) }
     var dragVolumeGrab by remember { mutableStateOf(0f) }
-    var dragVolumeHover by remember { mutableStateOf<String?>(null) }
     var dragRowBase by remember { mutableStateOf(0) }
-    var dragVolumeStartOrder by remember { mutableStateOf<List<String>>(emptyList()) }
-    var pendingVolumeFix by remember { mutableStateOf<Pair<Long, String>?>(null) }
     var confirmDeleteBook by remember { mutableStateOf(false) }
     var showMore by remember { mutableStateOf(false) }
     var newChapterTitle by remember { mutableStateOf("") }
@@ -191,18 +188,32 @@ fun BookDetailScreen(
     }
     LaunchedEffect(bookId) { reload() }
 
-    fun endChapterDrag() {
+    fun endDrag(save: Boolean) {
         val moved = dragChapterId
+        if (moved == null && dragVolume == null) return
         dragChapterId = null
+        dragVolume = null
         dragFingerY = 0f
         dragGrab = 0f
-        if (moved == null) return
-        val ids = chapters.map { it.id }
-        if (ids == dragStartIds) return
+        val before = dragStartChapters
+        val after = chapters
+        dragStartChapters = emptyList()
+        if (!save || busy) {
+            chapters = before
+            return
+        }
+        if (before == after) return
+        val previousVolume = before.firstOrNull { it.id == moved }?.volume
+        val volumeChange = after.firstOrNull { it.id == moved && it.volume != previousVolume }
+            ?.let { it.id to it.volume }
+        busy = true
         scope.launch {
-            container.repo.reorderChapters(bookId, ids)
-            chapters = container.repo.chapters(bookId)
-            book = container.repo.book(bookId)
+            try {
+                container.repo.reorderChapters(bookId, after.map { it.id }, volumeChange)
+            } finally {
+                busy = false
+                reload()
+            }
         }
     }
 
@@ -248,11 +259,8 @@ fun BookDetailScreen(
         list.add(to, list.removeAt(from))
         // 跨卷拖动：落到别的卷里就把卷标记改成目标卷的，否则章节会挂在原卷头下面「跑错位置」
         val movedChapter = list[to]
-        val targetVolume = list.getOrNull(to - 1)?.volume ?: list.getOrNull(to + 1)?.volume ?: ""
-        if (movedChapter.volume != targetVolume) {
-            list[to] = movedChapter.copy(volume = targetVolume)
-            pendingVolumeFix = movedChapter.id to targetVolume
-        }
+        val targetVolume = chapters[to].volume
+        if (movedChapter.volume != targetVolume) list[to] = movedChapter.copy(volume = targetVolume)
         chapters = list
         // 一次只跑一个锚点修复：拖动帧循环里每帧都会调到这里，
         // 并发发起 scrollToItem 会和边缘自动滚的 scrollBy 互相取消。
@@ -599,23 +607,23 @@ fun BookDetailScreen(
                                 .pointerInput(Unit) {
                                     detectDragGesturesAfterLongPress(
                                         onDragStart = { pos ->
+                                            if (busy) return@detectDragGesturesAfterLongPress
                                             val hit = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
                                                 pos.y >= info.offset && pos.y <= info.offset + info.size
                                             } ?: return@detectDragGesturesAfterLongPress
                                             val key = hit.key
                                             // 卷头也可以长按拖动：整卷一起移动
                                             if (key is String && key.startsWith("vol:")) {
-                                                val name = key.removePrefix("vol:")
+                                                val name = key.substringAfter(':').substringAfter(':')
                                                 dragVolume = name
-                                                dragVolumeStartOrder = chapterVolumeOrder(chapters)
-                                                dragVolumeHover = name
+                                                dragStartChapters = chapters
                                                 dragVolumeY = pos.y
                                                 dragVolumeGrab = pos.y - hit.offset
                                                 return@detectDragGesturesAfterLongPress
                                             }
                                             if (key !is Long) return@detectDragGesturesAfterLongPress
                                             dragChapterId = key
-                                            dragStartIds = chapters.map { it.id }
+                                            dragStartChapters = chapters
                                             dragFingerY = pos.y
                                             dragGrab = pos.y - hit.offset
                                             // 列表里现在是「卷头 + 章节」混排，锚点回滚必须按行下标换算，
@@ -631,12 +639,11 @@ fun BookDetailScreen(
                                                 dragVolumeY += amount.y
                                                 val hover = listState.layoutInfo.visibleItemsInfo.firstOrNull { info ->
                                                     val k = info.key
-                                                    k is String && dragVolumeY >= info.offset && dragVolumeY <= info.offset + info.size
+                                                    k is String && k.startsWith("vol:") && dragVolumeY >= info.offset && dragVolumeY <= info.offset + info.size
                                                 }?.key as? String
                                                 if (hover != null) {
-                                                    val name = hover.removePrefix("vol:")
+                                                    val name = hover.substringAfter(':').substringAfter(':')
                                                     if (name != vol) reorderVolumeLocal(vol, name)
-                                                    dragVolumeHover = name
                                                 }
                                             } else if (dragChapterId != null) {
                                                 change.consume()
@@ -644,41 +651,11 @@ fun BookDetailScreen(
                                                 dragHitTest()
                                             }
                                         },
-                                        onDragEnd = {
-                                            pendingVolumeFix?.let { (id, volume) ->
-                                                pendingVolumeFix = null
-                                                scope.launch { container.repo.setVolumeOfChapter(id, volume) }
-                                            }
-                                            val vol = dragVolume
-                                            val target = dragVolumeHover
-                                            dragVolume = null
-                                            dragVolumeHover = null
-                                            if (vol != null) {
-                                                // 拖动过程中已经实时换位，松手把当前顺序落库即可。
-                                                // 只要顺序变过就写库（不能再用 target != vol 判断：
-                                                // 悬停目标常常就是自己，会导致退了再进顺序没保存）。
-                                                val changedOrder = chapterVolumeOrder(chapters) != dragVolumeStartOrder
-                                                if (!busy && changedOrder) {
-                                                    val ids = chapters.map { it.id }
-                                                    busy = true
-                                                    scope.launch {
-                                                        container.repo.reorderChapters(bookId, ids)
-                                                        chapters = container.repo.chapters(bookId)
-                                                        book = container.repo.book(bookId)
-                                                        container.library.refresh()
-                                                        busy = false
-                                                    }
-                                                }
-                                            } else endChapterDrag()
-                                        },
-                                        onDragCancel = {
-                                            dragVolume = null
-                                            dragVolumeHover = null
-                                            endChapterDrag()
-                                        }
+                                        onDragEnd = { endDrag(save = true) },
+                                        onDragCancel = { endDrag(save = false) }
                                     )
                                 },
-                            userScrollEnabled = dragChapterId == null,
+                            userScrollEnabled = dragChapterId == null && dragVolume == null,
                             contentPadding = PaddingValues(
                                 start = 20.dp,
                                 end = 20.dp,
@@ -779,7 +756,7 @@ fun BookDetailScreen(
                             items(volumeRows, key = { row ->
                                 when (row) {
                                     is ChapterRow.Item -> row.chapter.id
-                                    is ChapterRow.Volume -> "vol:" + row.name
+                                    is ChapterRow.Volume -> "vol:${row.firstChapterId}:${row.name}"
                                 }
                             }) { row ->
                                 if (row is ChapterRow.Volume) {
@@ -984,40 +961,6 @@ fun BookDetailScreen(
                 }
             }
         }
-        val lib = container.library
-        if (lib.resplitting && !lib.resplitInBackground) {
-            Box(Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
-                contentAlignment = Alignment.Center) {
-                Column(
-                    Modifier.width(270.dp).clip(RoundedCornerShape(18.dp)).background(p.surfaceHigh)
-                        .border(1.dp, p.divider, RoundedCornerShape(18.dp)).padding(22.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    SectionLabel(stringResource(R.string.detail_resplit_book))
-                    Spacer(Modifier.height(14.dp))
-                    Text(
-                        text = lib.resplitStage.ifBlank { stringResource(R.string.action_loading) },
-                        style = InkType.Caption.copy(fontSize = 12.5.sp),
-                        color = p.textSecondary, maxLines = 2, overflow = TextOverflow.Ellipsis
-                    )
-                    Spacer(Modifier.height(14.dp))
-                    InkProgress(lib.resplitFraction, Modifier.fillMaxWidth())
-                    Spacer(Modifier.height(9.dp))
-                    Text("${(lib.resplitFraction * 100).toInt()}%",
-                        style = InkType.Caption.copy(fontSize = 11.sp), color = p.textFaint)
-                    Spacer(Modifier.height(10.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        InkTextButton(stringResource(R.string.recovery_cancel), onClick = lib::cancelResplit)
-                        Spacer(Modifier.width(12.dp))
-                        InkTextButton(stringResource(R.string.import_background)) {
-                            lib.backgroundResplit()
-                            onBack()
-                        }
-                    }
-                }
-            }
-        }
-
         if (exporting) {
             Box(
                 Modifier.fillMaxSize().background(p.scrim).clickable(enabled = false) {},
@@ -1423,77 +1366,20 @@ fun BookDetailScreen(
                     }
                     InkTextButton(stringResource(R.string.detail_resplit_confirm)) {
                         if (preparing) return@InkTextButton
-                        showResplitDialog = false
-                        // 与导入一致：立刻回到书架，进度卡片在书架上显示，「后台运行」按钮在卡片上
-                        container.library.startResplit(
-                            bookId,
-                            book?.title.orEmpty(),
-                            SplitOptions(
+                        val started = container.library.startResplit(
+                            bookId, book?.title.orEmpty(), manualOptions.copy(
                                 mode = resplitMode,
                                 cleanWatermark = cleanWatermark,
                                 detectUnnumberedTitles = unnumberedTitles,
                                 modelSuggestions = modelSuggestions,
                                 customPattern = customPattern.trim(),
-                                useSavedCorrections = useMemory,
-                                ignoredHeadingLines = manualOptions.ignoredHeadingLines
+                                useSavedCorrections = useMemory
                             )
-                        ) { count ->
-                            Toast.makeText(
-                                ctx,
-                                if (count < 0) ctx.getString(R.string.detail_resplit_too_large)
-                                else ctx.getString(R.string.detail_resplit_done_toast, count),
-                                Toast.LENGTH_SHORT
-                            ).show()
-                            reload()
+                        )
+                        if (started) {
+                            showResplitDialog = false
+                            onGoShelf()
                         }
-                        return@InkTextButton
-                        busy = true; detailProgress = 0f; detailStage = ctx.getString(R.string.detail_resplit_book)
-                        detailTask = scope.launch { try {
-                            // 兜住异常：失败要么是「书太大」（仓库返回 -1），要么是仓库抛错，
-                            // 两种都不能让 busy 卡住，也不能把异常漏到没有处理器的 Main 作用域里
-                            val count = runCatching {
-                                container.repo.resplitBook(
-                                    bookId,
-                                    SplitOptions(
-                                        mode = resplitMode,
-                                        cleanWatermark = cleanWatermark,
-                                        detectUnnumberedTitles = unnumberedTitles, modelSuggestions = modelSuggestions,
-                                        customPattern = customPattern.trim(), useSavedCorrections = useMemory,
-                                        ignoredHeadingLines = manualOptions.ignoredHeadingLines,
-                                        forcedHeadingLines = manualOptions.forcedHeadingLines,
-                                        sourceFingerprint = manualOptions.sourceFingerprint
-                                    )
-                                ) { detailProgress = it }
-                            }.getOrElse { e ->
-                                if (e is kotlinx.coroutines.CancellationException) throw e
-                                busy = false
-                                Toast.makeText(
-                                    ctx,
-                                    ctx.getString(
-                                        R.string.detail_resplit_failed,
-                                        e.message ?: ctx.getString(R.string.action_unknown_error)
-                                    ),
-                                    Toast.LENGTH_LONG
-                                ).show()
-                                return@launch
-                            }
-                            reload()
-                            container.library.refresh()
-                            busy = false
-                            Toast.makeText(
-                                ctx,
-                                if (count < 0) {
-                                    ctx.getString(R.string.detail_resplit_too_large)
-                                } else {
-                                    ctx.getString(R.string.detail_resplit_done_toast, count)
-                                },
-                                Toast.LENGTH_SHORT
-                            ).show()
-                        } catch (e: kotlinx.coroutines.CancellationException) {
-                            reload(); container.library.refresh()
-                            Toast.makeText(ctx, ctx.getString(R.string.operation_cancelled), Toast.LENGTH_LONG).show()
-                            throw e
-                        } finally { busy = false; detailProgress = null } }
                     }
                 }
             }
@@ -1670,7 +1556,7 @@ private fun MenuRow(icon: Int, label: String, danger: Boolean = false, onClick: 
 
 /** 章节管理列表的一行：卷头或章节。 */
 private sealed interface ChapterRow {
-    data class Volume(val name: String, val count: Int) : ChapterRow
+    data class Volume(val name: String, val count: Int, val firstChapterId: Long) : ChapterRow
     data class Item(val index: Int, val chapter: Chapter) : ChapterRow
 }
 
@@ -1685,7 +1571,7 @@ private fun chapterRows(chapters: List<Chapter>, collapsed: Set<String>): List<C
         val vol = chapters[i].volume
         var j = i
         while (j < chapters.size && chapters[j].volume == vol) j++
-        if (vol.isNotBlank()) rows.add(ChapterRow.Volume(vol, j - i))
+        if (vol.isNotBlank()) rows.add(ChapterRow.Volume(vol, j - i, chapters[i].id))
         if (vol.isBlank() || vol !in collapsed) {
             for (k in i until j) rows.add(ChapterRow.Item(k, chapters[k]))
         }
@@ -1697,8 +1583,8 @@ private fun chapterRows(chapters: List<Chapter>, collapsed: Set<String>): List<C
 /** 卷的出现顺序（去重），用于「并入上一卷/下一卷」。 */
 private fun chapterVolumeOrder(chapters: List<Chapter>): List<String> {
     val out = ArrayList<String>()
-    for (c in chapters) if (c.volume.isNotBlank() && out.lastOrNull() != c.volume) out.add(c.volume)
-    return out
+    for (c in chapters) if (c.volume.isNotBlank()) out.add(c.volume)
+    return out.distinct()
 }
 
 @Composable

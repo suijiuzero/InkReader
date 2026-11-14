@@ -2,6 +2,7 @@ package com.inkreader.parse
 
 import com.inkreader.data.model.SplitMode
 import com.inkreader.data.model.SplitOptions
+import java.nio.file.Files
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -69,5 +70,28 @@ class ChapterSplitterRobustnessTest {
         val parts = ChapterSplitter.split(sb.toString(), options = SplitOptions(mode = SplitMode.SMART))
         assertTrue("同样的章名不该切出空章", parts.all { it.content.isNotBlank() })
         assertTrue("章数不应多于实际章节", parts.size <= 4)
+    }
+
+    @Test fun oversizedChapterKeepsPrefaceAndIgnoresVolumeLookingCodeAndIgnoredBoundaries() {
+        val prefix = "这是短前言。"
+        val chapter = "第一章 归来"
+        val ignoredTitle = "第二部 样本"
+        val raw = listOf(prefix, chapter, body.repeat(2600), "```", "第一部 示例", "```", ignoredTitle, body.repeat(2600))
+            .joinToString("\n\n")
+        val options = SplitOptions(cleanWatermark = false, stripLeadingTitle = false, ignoredHeadingLines = setOf(13))
+        val text = ChapterSplitter.normalize(raw)
+        val parts = ChapterSplitter.split(text, options = options)
+        val joined = parts.joinToString("") { it.content }
+        assertTrue(parts.size > 1)
+        assertEquals(setOf(chapter), parts.map { it.title.substringBefore("（") }.toSet())
+        assertTrue(joined.startsWith(prefix))
+        assertTrue(joined.contains("第一部 示例"))
+        assertTrue(joined.contains(ignoredTitle))
+        val directory = Files.createTempDirectory("ink-oversized-chapter").toFile()
+        try {
+            IndexedTxtStore(directory).withDocument("oversized.txt", options, { text.byteInputStream() }) { doc ->
+                assertEquals(parts, doc.sections.map { ChapterSplitter.Part(it.title, doc.body(it), it.volume) })
+            }
+        } finally { directory.deleteRecursively() }
     }
 }

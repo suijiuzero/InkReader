@@ -1,5 +1,7 @@
 package com.inkreader.parse
 
+import com.inkreader.data.model.SplitOptions
+import java.nio.file.Files
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -24,5 +26,25 @@ class DenseTocTest {
             titles.joinToString("\n\n") { "$it\n\n$body" })
         assertEquals(titles, parts.map { it.title })
         assertTrue(parts.all { it.content.contains(body) })
+    }
+
+    @Test fun standaloneContentsWithVolumeBannersKeepsAllEntriesAsText() {
+        val raw = buildString {
+            appendLine("目录")
+            for (volume in 1..2) {
+                appendLine("第${volume}卷 远方")
+                for (number in 1..100) appendLine("第${number}章 标题 ……… ${number * 3}")
+            }
+        }.trimEnd()
+        val options = SplitOptions(cleanWatermark = false, stripLeadingTitle = false)
+        val parts = ChapterSplitter.split(raw, options = options)
+        assertEquals(listOf(raw), parts.map { it.content })
+        assertEquals(200, ChapterSplitter.analyze(raw, options = options).skippedTocEntries)
+        val directory = Files.createTempDirectory("ink-contents-only").toFile()
+        try {
+            IndexedTxtStore(directory).withDocument("contents.txt", options, { raw.byteInputStream() }) { doc ->
+                assertEquals(listOf(raw), doc.sections.map(doc::body))
+            }
+        } finally { directory.deleteRecursively() }
     }
 }

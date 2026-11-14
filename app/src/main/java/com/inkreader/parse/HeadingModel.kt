@@ -7,7 +7,8 @@ import kotlin.math.exp
 internal object HeadingModel {
     data class Suggestion(val index: Int, val score: Double)
     private val coefficients = HeadingModelWeights.coefficients.copyOf()
-    val available = HeadingModelWeights.features == HeadingModelWeights.features &&
+    val available = (HeadingModelWeights.features == HeadingFeatures.namesV2 ||
+        HeadingModelWeights.features == HeadingFeatures.names) &&
         coefficients.size == HeadingModelWeights.features.size + 1 && coefficients.all { it.isFinite() } &&
         HeadingModelWeights.threshold.isFinite() && HeadingModelWeights.threshold in 0.0..1.0
 
@@ -22,28 +23,16 @@ internal object HeadingModel {
         return 1.0 / (1.0 + exp(-value.coerceIn(-40.0, 40.0)))
     }
 
-    /**
-     * 低门槛打分：返回分数 >= [floor] 的候选（行号 → 分数）。
-     * 结构校验的 R2（编号链补漏）需要看到阈值以下的候选，否则永远补不回来。
-     */
-    fun scoredCandidates(lines: List<String>, fenced: BooleanArray, excluded: Set<Int>,
-                         floor: Double = 0.25): Map<Int, Double> {
-        if (!available) return emptyMap()
+    fun suggest(lines: List<String>, fenced: BooleanArray, excluded: Set<Int>): List<Suggestion> {
+        if (!available) return emptyList()
         val features = HeadingFeatures(lines)
-        val out = LinkedHashMap<Int, Double>()
+        val best = PriorityQueue<Suggestion>(compareBy<Suggestion> { it.score }.thenByDescending { it.index })
         for ((position, i) in features.candidates.withIndex()) {
             if (position and 255 == 0) ParseCancellation.checkpoint()
             if (fenced[i] || i in excluded) continue
             val vector = if (usesV2) features.at32(i) else features.at(i)
             val score = score(vector) ?: continue
-            if (score >= floor) out[i] = score
-        }
-        return out
-    }
-
-    fun suggest(lines: List<String>, fenced: BooleanArray, excluded: Set<Int>): List<Suggestion> {
-        val best = PriorityQueue<Suggestion>(compareBy<Suggestion> { it.score }.thenByDescending { it.index })
-        for ((i, score) in scoredCandidates(lines, fenced, excluded, HeadingModelWeights.threshold)) {
+            if (score < HeadingModelWeights.threshold) continue
             best += Suggestion(i, score)
             if (best.size > 200) best.poll()
         }

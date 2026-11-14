@@ -3,6 +3,7 @@ package com.inkreader.ui.reader
 import android.app.Activity
 import android.content.Intent
 import android.net.Uri
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animate
@@ -183,6 +184,28 @@ fun ReaderScreen(
         if (layered) curlState.animateTurn(delta) else session.turnPage(delta)
     }
 
+    /**
+     * 离开阅读器前统一保存进度。
+     * 顺序很关键：先存进度 → **等它真正落库** → 再刷新书架 → 才返回。
+     * 以前不等落库就刷新，书架读到的还是旧位置，下次进书就回到「上一次进入时的位置」。
+     */
+    fun leaveReader(navigate: () -> Unit) {
+        scope.launch {
+            session.saveProgress()
+            session.flushProgress()
+            container.library.refresh()
+            navigate()
+        }
+    }
+
+    fun exitToShelf() = leaveReader(onGoShelf)
+
+    fun openBookDetail() = leaveReader { onOpenDetail(bookId) }
+
+    // 系统返回手势 / 返回键：和页内返回按钮走同一条路（保存进度 + 刷新书架 + 退出），
+    // 否则手势返回会跳过存进度与刷新，书架停留在陈旧位置。
+    BackHandler { leaveReader(onBack) }
+
     // 音量键翻页：阅读器在前台、且工具栏是收起状态时才接管
     // 呼出顶栏/底栏说明用户正在「操作」，这时音量键应该照常调音量
     val chromeNow = rememberUpdatedState(chrome || showToc || showSettings || showSearch || showTts || selection != null)
@@ -348,11 +371,7 @@ fun ReaderScreen(
                         } else {
                             session.currentChapter?.title ?: (session.book?.title ?: "")
                         },
-                        onBack = {
-                            session.saveProgress()
-                            container.library.refresh()
-                            onGoShelf()
-                        }
+                        onBack = { exitToShelf() }
                     )
                 }
 
@@ -402,11 +421,7 @@ fun ReaderScreen(
                         }
                     }
                 }
-                val backToShelf: () -> Unit = {
-                    session.saveProgress()
-                    container.library.refresh()
-                    onGoShelf()
-                }
+                val backToShelf: () -> Unit = { exitToShelf() }
 
                 // 正文区域：这一层只负责「量出正文区尺寸」（分页按它算），不负责画。
                 // 画在全屏层里 —— 分页模式下每一页自带页眉页脚，翻页时整屏一起走，
@@ -525,24 +540,14 @@ fun ReaderScreen(
                     ReaderTopBar(
                         bookTitle = session.book?.title ?: "",
                         chapterTitle = session.currentChapter?.title ?: "",
-                        onTitleClick = {
-                            session.saveProgress()
-                            container.library.refresh()
-                            onOpenDetail(bookId)
-                        },
+                        onTitleClick = { openBookDetail() },
                         onBack = {
                             // 顶栏这个「<」是「返回首页」（书架），不是回上一级
-                            session.saveProgress()
-                            container.library.refresh()
-                            onGoShelf()
+                            exitToShelf()
                         },
                         onToc = { showToc = true },
                         // 右上角三点：直接进章节管
-                        onMore = {
-                            session.saveProgress()
-                            container.library.refresh()
-                            onOpenDetail(bookId)
-                        }
+                        onMore = { openBookDetail() }
                     )
                 }
 
@@ -675,9 +680,7 @@ fun ReaderScreen(
                 },
                 onOpenDetail = {
                     showSettings = false
-                    session.saveProgress()
-                    container.library.refresh()
-                    onOpenDetail(bookId)
+                    openBookDetail()
                 },
                 onEditChapter = {
                     val ch = session.currentChapter ?: return@ReaderSettingsSheet

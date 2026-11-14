@@ -100,20 +100,34 @@ class BookRepository(context: Context) {
     }
     suspend fun prepareResplitSource(bookId: Long, options: SplitOptions): ResplitSource {
         var created: BookSource? = null
-        try { return bookWrite(bookId) { runInterruptible {
-        val source = BookSource.create(File(appContext.cacheDir, "resplit-source"), bookId, db.chaptersOf(bookId), files).also { created = it }
         try {
-            var selected = options.copy(stripLeadingTitle = false, textEncoding = "UTF-8", sourceFingerprint = source.fingerprint,
-                reconstructedFirstTitle = db.chaptersOf(bookId).firstOrNull()?.title.orEmpty())
-            if (options.useSavedCorrections) indexedTxt.withDocument(source.file.name, selected, { source.file.inputStream() }) { document ->
-                val memory = ChapterCorrections.resolve(document.text.lines, corrections.load(bookId))
-                selected = selected.copy(
-                    ignoredHeadingLines = (memory.ignored - options.forcedHeadingLines) + options.ignoredHeadingLines,
-                    forcedHeadingLines = (memory.confirmed - options.ignoredHeadingLines) + options.forcedHeadingLines)
+            return bookWrite(bookId) {
+                runInterruptible {
+                    val chapters = db.chaptersOf(bookId)
+                    val source = BookSource.create(File(appContext.cacheDir, "resplit-source"), bookId, chapters, files)
+                    created = source
+                    var selected = options.copy(
+                        stripLeadingTitle = false,
+                        textEncoding = "UTF-8",
+                        sourceFingerprint = source.fingerprint,
+                        reconstructedFirstTitle = chapters.firstOrNull()?.title.orEmpty()
+                    )
+                    if (options.useSavedCorrections) {
+                        indexedTxt.withDocument(source.file.name, selected, { source.file.inputStream() }) { document ->
+                            val memory = ChapterCorrections.resolve(document.text.lines, corrections.load(bookId))
+                            selected = selected.copy(
+                                ignoredHeadingLines = (memory.ignored - options.forcedHeadingLines) + options.ignoredHeadingLines,
+                                forcedHeadingLines = (memory.confirmed - options.ignoredHeadingLines) + options.forcedHeadingLines
+                            )
+                        }
+                    }
+                    ResplitSource(source, selected)
+                }
             }
-            ResplitSource(source, selected)
-        } catch (t: Throwable) { source.close(); throw t }
-        } } } catch (t: Throwable) { created?.close(); throw t }
+        } catch (t: Throwable) {
+            created?.close()
+            throw t
+        }
     }
     suspend fun savedCorrectionCount(bookId: Long): Int = withContext(Dispatchers.IO) { corrections.load(bookId).size }
     suspend fun clearRecognitionMemory(bookId: Long) = bookWrite(bookId) { corrections.clear(bookId) }
@@ -1125,8 +1139,8 @@ class BookRepository(context: Context) {
                 db.reindexChapters(bookId, remaining.map { it.id })
                 db.getBook(bookId)?.let { book ->
                     when {
-                        book.lastChapterIndex == currIdx -> db.updateProgress(bookId, currIdx - 1, book.lastCharOffset + shift, book.progress)
-                        book.lastChapterIndex > currIdx -> db.updateProgress(bookId, book.lastChapterIndex - 1, book.lastCharOffset, book.progress)
+                        book.lastChapterIndex == currIdx -> db.updateProgress(bookId, currIdx - 1, book.lastCharOffset + shift, book.progress, recordRead = false)
+                        book.lastChapterIndex > currIdx -> db.updateProgress(bookId, book.lastChapterIndex - 1, book.lastCharOffset, book.progress, recordRead = false)
                     }
                 }
                 refreshStats(bookId)
@@ -1259,10 +1273,10 @@ class BookRepository(context: Context) {
             refreshStats(bookId)
             db.getBook(bookId)?.let { b ->
                 when {
-                    b.lastChapterIndex > currIdx -> db.updateProgress(bookId, b.lastChapterIndex + 1, b.lastCharOffset, b.progress)
+                    b.lastChapterIndex > currIdx -> db.updateProgress(bookId, b.lastChapterIndex + 1, b.lastCharOffset, b.progress, recordRead = false)
                     b.lastChapterIndex == currIdx && b.lastCharOffset >= splitOffset ->
-                        db.updateProgress(bookId, currIdx + 1, (b.lastCharOffset - bodyShiftFromSplit).coerceIn(0, secondBody.length), b.progress)
-                    b.lastChapterIndex == currIdx -> db.updateProgress(bookId, currIdx, b.lastCharOffset.coerceAtMost(firstText.length), b.progress)
+                        db.updateProgress(bookId, currIdx + 1, (b.lastCharOffset - bodyShiftFromSplit).coerceIn(0, secondBody.length), b.progress, recordRead = false)
+                    b.lastChapterIndex == currIdx -> db.updateProgress(bookId, currIdx, b.lastCharOffset.coerceAtMost(firstText.length), b.progress, recordRead = false)
                 }
             }
             insertedId
@@ -1290,22 +1304,21 @@ class BookRepository(context: Context) {
 
     private fun resplitInternal(bookId: Long, options: SplitOptions, onProgress: (Float) -> Unit): Int {
         val book = db.getBook(bookId) ?: return 0
-        // 重新分章只认「导入时的原始章节顺序」（按自增 id），不看用户在章节管理里
-        // 拖动卷/章之后的顺序：否则把第一卷移到第二卷之后，重分章会按错乱的正文顺序切。
-        val oldChapters = db.chaptersOf(bookId).sortedBy { it.id }
+        // The current index is the book's order. Inserted and split chapters can have newer IDs
+        // than the chapters that follow them; preview and apply must use the same sequence.
+        val oldChapters = db.chaptersOf(bookId)
         if (oldChapters.isEmpty()) return 0
-        val oldMarks = db.marksOf(bookId)
         val charBudget = minOf(MAX_RESPLIT_CHARS.toLong(), Runtime.getRuntime().maxMemory() / 48).coerceAtLeast(1)
 
         val estimated = oldChapters.sumOf { it.charCount.toLong() + it.title.length + 4 }
-        if (estimated > charBudget || oldChapters.any { files.file(it.fileName).length() > charBudget * 4 }) {
+        if (options.sourceFingerprint.isNotEmpty() || estimated > charBudget || oldChapters.any { files.file(it.fileName).length() > charBudget * 4 }) {
             return undo.prepare(bookId).use { pending ->
-                val count = StreamingResplit(appContext, db, files, corrections).run(book, oldChapters, options, onProgress)
-                pending.commit(); count
+                StreamingResplit(appContext, db, files, corrections).run(book, oldChapters, options, pending::commit, onProgress)
             }
         }
 
         // 旧锚点以实际正文为基准，标题的插入也计入坐标；上限在每次追加前检查。
+        val oldMarks = db.marksOf(bookId)
         val fullSb = StringBuilder()
         val oldChapterGlobalStarts = IntArray(oldChapters.size)
         val oldRich = ArrayList<Pair<Int, RichChapter>>()
@@ -1333,13 +1346,6 @@ class BookRepository(context: Context) {
             return -1
         }
 
-        if (options.sourceFingerprint.isNotEmpty()) {
-            val digest = java.security.MessageDigest.getInstance("SHA-256")
-            java.security.DigestOutputStream(object : java.io.OutputStream() { override fun write(b: Int) = Unit }, digest)
-                .writer(Charsets.UTF_8).use { it.write(fullText) }
-            val hash = digest.digest().joinToString("") { "%02x".format(java.util.Locale.ROOT, it.toInt() and 255) }
-            require(hash == options.sourceFingerprint) { "Source changed; reopen recognition center" }
-        }
         // 2. 用新策略重新切分
         val normalized = ChapterSplitter.normalize(fullText)
         val memory = if (options.useSavedCorrections) ChapterCorrections.resolve(normalized.split('\n'), corrections.load(bookId)) else null
@@ -1413,6 +1419,7 @@ class BookRepository(context: Context) {
             wdb.delete("chapters", "book_id=?", arrayOf(bookId.toString()))
             var totalChars = 0
             newChapList.forEachIndexed { i, nc ->
+                com.inkreader.parse.ParseCancellation.checkpoint()
                 val newId = db.insertChapter(
                     Chapter(
                         bookId = bookId,
@@ -1445,7 +1452,8 @@ class BookRepository(context: Context) {
 
             val oldPosition = oldChapterGlobalStarts.getOrElse(book.lastChapterIndex) { 0 } + book.lastCharOffset
             val (safeLastChap, safeOffset) = TextRemap.locate(mappings, oldPosition)
-            db.updateProgress(bookId, safeLastChap, safeOffset, book.progress)
+            db.updateProgress(bookId, safeLastChap, safeOffset, book.progress, recordRead = false)
+            com.inkreader.parse.ParseCancellation.checkpoint()
         }
         } catch (t: Throwable) {
             // 事务没成：新章节都还没入库，它们刚写下的正文文件全是孤儿，清掉
@@ -1453,8 +1461,8 @@ class BookRepository(context: Context) {
             throw t
         }
 
-        oldChapters.forEach { files.deleteChapter(it.fileName) }
         pending.commit()
+        oldChapters.forEach { files.deleteChapter(it.fileName) }
         if (options.rememberCorrections && (options.ignoredHeadingLines.isNotEmpty() || options.forcedHeadingLines.isNotEmpty())) runCatching { corrections.save(bookId, "",
             ChapterCorrections.captureChoices(normalized.split('\n'), effectiveOptions.ignoredHeadingLines, effectiveOptions.forcedHeadingLines)) }
         onProgress(1f)
@@ -1587,35 +1595,28 @@ class BookRepository(context: Context) {
         refreshStats(bookId)
     }
 
-    /** 把单章的卷标记改成 [volume]（拖动章节跨卷时用）。 */
     suspend fun setVolumeOfChapter(chapterId: Long, volume: String) = withContext(Dispatchers.IO) {
         chapterBook(chapterId)?.let { id -> bookWrite(id) { db.updateChapterVolume(chapterId, volume) } }
     }
 
-    /** 把某一卷整体改名；[to] 为空表示清除卷标记（章节保留）。 */
-    suspend fun setChapterVolume(bookId: Long, from: String, to: String): Int = withContext(Dispatchers.IO) {
+    /** Rename or merge a named volume without exposing partial membership updates. */
+    suspend fun setChapterVolume(bookId: Long, from: String, to: String): Int = bookWrite(bookId) {
         val targets = db.chaptersOf(bookId).filter { it.volume == from }
-        targets.forEach { db.updateChapterVolume(it.id, to) }
+        db.inTransaction { targets.forEach { db.updateChapterVolume(it.id, to) } }
         targets.size
     }
 
-    /** 把 [volume] 整卷移动到 [target] 卷之前；[target] 为空表示移到全书末尾。 */
-    suspend fun moveVolumeBefore(bookId: Long, volume: String, target: String?) {
+    /** Move all runs of the named volume as a unit. Null moves it to the end. */
+    suspend fun moveVolumeBefore(bookId: Long, volume: String, target: String?) = bookWrite(bookId) {
+        if (volume == target) return@bookWrite
         val all = db.chaptersOf(bookId)
-        val blocks = ArrayList<Pair<String, MutableList<Long>>>()
-        for (c in all) {
-            val last = blocks.lastOrNull()
-            if (last != null && last.first == c.volume) last.second.add(c.id)
-            else blocks.add(c.volume to mutableListOf(c.id))
-        }
-        val from = blocks.indexOfFirst { it.first == volume }
-        if (from < 0) return
-        val block = blocks.removeAt(from)
-        val at = if (target == null) blocks.size
-        else blocks.indexOfFirst { it.first == target }.let { if (it < 0) blocks.size else it }
-        if (at == from) return
-        blocks.add(at, block)
-        reorderChapters(bookId, blocks.flatMap { it.second })
+        val moved = all.filter { it.volume == volume }
+        if (moved.isEmpty()) return@bookWrite
+        val remaining = all.filterNot { it.volume == volume }.toMutableList()
+        val at = if (target == null) remaining.size else remaining.indexOfFirst { it.volume == target }
+        if (at < 0) return@bookWrite
+        remaining.addAll(at, moved)
+        reorderChaptersLocked(bookId, remaining.map { it.id }, null)
     }
 
     suspend fun renameChapter(chapterId: Long, title: String) = withContext(Dispatchers.IO) {
@@ -1623,46 +1624,35 @@ class BookRepository(context: Context) {
     }
 
     suspend fun moveChapter(bookId: Long, chapterId: Long, delta: Int) = bookWrite(bookId) {
-        val (curId, curIdx) = currentChapterId(bookId)
-        val list = db.chaptersOf(bookId).toMutableList()
-        val from = list.indexOfFirst { it.id == chapterId }
+        val order = db.chaptersOf(bookId).map { it.id }.toMutableList()
+        val from = order.indexOf(chapterId)
         if (from < 0) return@bookWrite
         val to = from + delta
-        if (to !in list.indices) return@bookWrite
-        val item = list.removeAt(from)
-        list.add(to, item)
-        val oldIdx = item.indexInBook
-        val newIdx = to
-        // 章节编号与批注章号一起改：只改一半会让高亮/笔记落到别的章上
-        db.inTransaction {
-            db.reindexChapters(bookId, list.map { it.id })
-            db.marksOf(bookId)
-                .filter { it.chapterIndex in minOf(oldIdx, newIdx)..maxOf(oldIdx, newIdx) }
-                .forEach { m ->
-                    val shifted = if (m.chapterIndex == oldIdx) newIdx
-                    else if (oldIdx < newIdx) m.chapterIndex - 1 else m.chapterIndex + 1
-                    db.updateMark(m.copy(chapterIndex = shifted))
-                }
-        }
-        reanchorLastChapter(bookId, curId, curIdx)
-        refreshStats(bookId)
+        if (to !in order.indices || to == from) return@bookWrite
+        order.add(to, order.removeAt(from))
+        reorderChaptersLocked(bookId, order, null)
     }
 
-    suspend fun reorderChapters(bookId: Long, orderedIds: List<Long>) = bookWrite(bookId) {
+    suspend fun reorderChapters(
+        bookId: Long, orderedIds: List<Long>, volumeChange: Pair<Long, String>? = null
+    ) = bookWrite(bookId) { reorderChaptersLocked(bookId, orderedIds, volumeChange) }
+
+    private fun reorderChaptersLocked(bookId: Long, orderedIds: List<Long>, volumeChange: Pair<Long, String>?) {
         val (curId, curIdx) = currentChapterId(bookId)
         val old = db.chaptersOf(bookId).associate { it.id to it.indexInBook }
         require(orderedIds.size == old.size && orderedIds.toSet() == old.keys) { "Chapter order must contain this book exactly once" }
         val newPos = orderedIds.withIndex().associate { (i, id) -> (old[id] ?: -1) to i }
+        require(volumeChange == null || volumeChange.first in old) { "Chapter must belong to this book" }
         // 同上：编号与批注章号必须同一事务
         db.inTransaction {
+            volumeChange?.let { (id, volume) -> db.updateChapterVolume(id, volume) }
             db.reindexChapters(bookId, orderedIds)
             db.marksOf(bookId).forEach { m ->
                 val np = newPos[m.chapterIndex]
                 if (np != null && np != m.chapterIndex) db.updateMark(m.copy(chapterIndex = np))
             }
+            reanchorLastChapter(bookId, curId, curIdx)
         }
-        reanchorLastChapter(bookId, curId, curIdx)
-        refreshStats(bookId)
     }
 
     /** 保存章节正文（编辑器） */
@@ -1685,7 +1675,7 @@ class BookRepository(context: Context) {
                         snippet = if (end > start) text.substring(start, end).take(200) else mark.snippet))
                 }
                 db.getBook(chapter.bookId)?.takeIf { it.lastChapterIndex == current.indexInBook }?.let { book ->
-                    db.updateProgress(book.id, book.lastChapterIndex, change.offset(book.lastCharOffset), book.progress)
+                    db.updateProgress(book.id, book.lastChapterIndex, change.offset(book.lastCharOffset), book.progress, recordRead = false)
                 }
                 refreshStats(chapter.bookId)
             }
@@ -1724,9 +1714,9 @@ class BookRepository(context: Context) {
         if (list.isEmpty()) return
         val idx = prevChapterId?.let { id -> list.indexOfFirst { it.id == id } } ?: -1
         if (idx >= 0) {
-            if (idx != b.lastChapterIndex) db.updateProgress(bookId, idx, b.lastCharOffset, b.progress)
+            if (idx != b.lastChapterIndex) db.updateProgress(bookId, idx, b.lastCharOffset, b.progress, recordRead = false)
         } else {
-            db.updateProgress(bookId, fallbackIndex.coerceIn(0, list.lastIndex), 0, b.progress)
+            db.updateProgress(bookId, fallbackIndex.coerceIn(0, list.lastIndex), 0, b.progress, recordRead = false)
         }
     }
 

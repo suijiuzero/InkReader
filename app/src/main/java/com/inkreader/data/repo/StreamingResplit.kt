@@ -20,7 +20,10 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
         }
         fun array() = values.copyOf(size)
     }
-    fun run(book: Book, chapters: List<Chapter>, options: SplitOptions, progress: (Float) -> Unit): Int {
+    fun run(
+        book: Book, chapters: List<Chapter>, options: SplitOptions,
+        onCommitted: () -> Unit = {}, progress: (Float) -> Unit
+    ): Int {
         val root = File(context.cacheDir, "resplit-source").apply { mkdirs() }
         val temporary = ArrayList<File>()
         try { BookSource.create(root, book.id, chapters, files).use { source ->
@@ -77,7 +80,6 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
                             while (pieces.firstOrNull()?.literal?.isBlank() == true) pieces.removeAt(0)
                             while (pieces.lastOrNull()?.literal?.isBlank() == true) pieces.removeAt(pieces.lastIndex)
                         }
-                        if (pieces.isEmpty()) pieces += PreparedTxt.Piece(0, 0, section.title)
                         section.copy(title = if (options.mode == SplitMode.PER_FILE) book.title else section.title, pieces = pieces)
                     }
                     val output = PreparedTxt(clean, document.encoding, source.fingerprint,
@@ -133,6 +135,7 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
                             db.writableDatabase.delete("chapters", "book_id=?", arrayOf(book.id.toString()))
                             var total = 0L
                             sections.forEachIndexed { i, section ->
+                                checkpoint()
                                 check(db.insertChapter(Chapter(bookId = book.id, indexInBook = i, title = section.title,
                                     fileName = staged[i], charCount = section.length, sourceName = book.title, volume = section.volume)) > 0)
                                 total += section.length
@@ -153,10 +156,11 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
                                 }
                             }
                             val (chapter, offset) = origins.locate(mapped(book.lastChapterIndex, book.lastCharOffset))
-                            db.updateProgress(book.id, chapter, offset, book.progress)
+                            db.updateProgress(book.id, chapter, offset, book.progress, recordRead = false)
                             checkpoint()
                         }
                         committed = true
+                        onCommitted()
                         chapters.forEach { files.deleteChapter(it.fileName) }
                         if (options.rememberCorrections && (options.ignoredHeadingLines.isNotEmpty() || options.forcedHeadingLines.isNotEmpty())) runCatching { corrections.save(book.id, source.fingerprint,
                             ChapterCorrections.captureChoices(original.lines, effective.ignoredHeadingLines, effective.forcedHeadingLines)) }

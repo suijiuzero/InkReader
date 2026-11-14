@@ -204,7 +204,8 @@ fun SearchScreen(
                             book = b,
                             onClick = {
                                 keyboard?.hide(); focusManager.clearFocus()
-                                onOpenBook(b.id, b.lastChapterIndex, b.lastCharOffset)
+                                // -1 = 阅读器打开时从数据库读最新进度（搜索页缓存可能过时）
+                                onOpenBook(b.id, -1, 0)
                             },
                             onLongClick = { keyboard?.hide(); focusManager.clearFocus(); onOpenDetail(b.id) }
                         )

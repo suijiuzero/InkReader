@@ -913,6 +913,13 @@ class ReaderSession(
         progressWriter.submit(ProgressRequest(position, token))
     }
 
+    /**
+     * 等待排队中的进度写入真正落到数据库。
+     * 退出阅读器回书架前必须调用：否则书架紧接着的 refresh() 会读到旧进度，
+     * 下次进书就回到「上一次进入时的位置」而不是最后读到的位置。
+     */
+    suspend fun flushProgress() = progressWriter.awaitIdle()
+
     // ==================== 偏好 ====================
 
     fun updatePrefs(transform: (ReaderPrefs) -> ReaderPrefs, persist: Boolean = true) {

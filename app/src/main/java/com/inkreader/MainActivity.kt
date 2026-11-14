@@ -378,13 +378,20 @@ fun InkRoot(container: AppContainer = InkApp.instance.container) {
         while (backStack.size > 1) pop()
     }
 
+    fun openDuringLibraryTask(dest: Dest, bookId: Long) {
+        if (container.library.resplitBookId == bookId) {
+            popToShelf()
+            container.library.showResplitProgress()
+        } else push(dest)
+    }
+
     LaunchedEffect(container.pendingOpenBook) {
         val id = container.pendingOpenBook ?: return@LaunchedEffect
         container.pendingOpenBook = null
         val state = TtsBus.state.value
         popToShelf()
-        push(Dest.Reader(id, if (state.active && state.bookId == id) state.chapterIndex else -1,
-            if (state.active && state.bookId == id) state.sentenceStart.coerceAtLeast(0) else 0))
+        openDuringLibraryTask(Dest.Reader(id, if (state.active && state.bookId == id) state.chapterIndex else -1,
+            if (state.active && state.bookId == id) state.sentenceStart.coerceAtLeast(0) else 0), id)
     }
 
     BackHandler(enabled = backStack.size > 1) { pop() }
@@ -415,8 +422,8 @@ fun InkRoot(container: AppContainer = InkApp.instance.container) {
                     when (dest) {
                         is Dest.Shelf -> ShelfScreen(
                             container = container,
-                            onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
-                            onOpenDetail = { push(Dest.Detail(it)) },
+                            onOpenBook = { bookId, chapter, offset -> openDuringLibraryTask(Dest.Reader(bookId, chapter, offset), bookId) },
+                            onOpenDetail = { openDuringLibraryTask(Dest.Detail(it), it) },
                             onOpenMarks = { id, title -> push(Dest.Marks(id, title)) },
                             onOpenGroup = { push(Dest.Group(it)) },
                             onOpenSearch = { push(Dest.Search) },
@@ -435,16 +442,16 @@ fun InkRoot(container: AppContainer = InkApp.instance.container) {
                         is Dest.Search -> SearchScreen(
                             container = container,
                             onBack = { pop() },
-                            onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
-                            onOpenDetail = { push(Dest.Detail(it)) }
+                            onOpenBook = { bookId, chapter, offset -> openDuringLibraryTask(Dest.Reader(bookId, chapter, offset), bookId) },
+                            onOpenDetail = { openDuringLibraryTask(Dest.Detail(it), it) }
                         )
 
                         is Dest.Group -> GroupScreen(
                             container = container,
                             groupId = dest.groupId,
                             onBack = { pop() },
-                            onOpenBook = { bookId, chapter, offset -> push(Dest.Reader(bookId, chapter, offset)) },
-                            onOpenDetail = { push(Dest.Detail(it)) }
+                            onOpenBook = { bookId, chapter, offset -> openDuringLibraryTask(Dest.Reader(bookId, chapter, offset), bookId) },
+                            onOpenDetail = { openDuringLibraryTask(Dest.Detail(it), it) }
                         )
 
                         is Dest.Detail -> BookDetailScreen(
@@ -501,7 +508,7 @@ fun InkRoot(container: AppContainer = InkApp.instance.container) {
                             onBack = { pop() },
                             onOpenMarks = { id, title -> push(Dest.Marks(id, title)) },
                             onOpenEditor = { chapterId, title -> push(Dest.Editor(dest.bookId, chapterId, title)) },
-                            onOpenDetail = { push(Dest.Detail(it)) },
+                            onOpenDetail = { openDuringLibraryTask(Dest.Detail(it), it) },
                             onGoShelf = { popToShelf() }
                         )
 

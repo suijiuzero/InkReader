@@ -99,6 +99,12 @@ class AuditInstrumentation : Instrumentation() {
                 finish(-1, results)
                 return
             }
+            if (auditArguments?.getString("resplitBackground") == "true") {
+                passed += ImportBackgroundChecks.run(this, isolated, resplit = true)
+                results.putString("stream", passed.joinToString("\n"))
+                finish(-1, results)
+                return
+            }
             if (auditArguments?.getString("largeImportUi") == "true") {
                 passed += ImportBackgroundChecks.run(this, isolated)
                 results.putString("stream", "PASS ${passed.size} background import checks\n" + passed.joinToString("\n"))

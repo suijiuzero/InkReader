@@ -9,6 +9,8 @@ internal object DuplicateChapterHeadings {
     private val prefix = Regex("^(?:第\\s*[0-9零〇一二三四五六七八九十百千万萬两兩壹贰貳叁參肆伍陆陸柒捌玖拾佰仟]{1,10}\\s*([章回话話节節])|(?i:chapter|chap|episode|ep)\\.?\\s+[0-9IVXLCDM]+)(.*)$")
     private val subpart = Regex(".*[（(\\[【].*[）)\\]】]$")
     private val contentMarkers = setOf("正文", "正文内容", "正文內容", "章节正文", "章節正文")
+    private fun isContentMarker(raw: String): Boolean = raw in contentMarkers ||
+        raw.removeSurrounding("「", "」") in contentMarkers
     private val metadata = Regex("(?i)^(?:作者|著者|author|by)\\s*[:：].{1,40}$")
     private fun info(raw: String): Info? {
         if (raw.length !in 1..80 || raw.last() in "。！？；，!?;：:") return null
@@ -54,7 +56,7 @@ internal object DuplicateChapterHeadings {
                         } else {
                             // Allow explicit author/book/content labels between header copies; retain these lines in the body.
                             chars += raw.length; proseLines++
-                            if ((raw != bookLabel && !metadata.matches(raw) && raw !in contentMarkers) || raw.length > 60 || chars > 100 || proseLines > 3 || raw.any { it in "。！？；，!?;" } ||
+                            if ((raw != bookLabel && !metadata.matches(raw) && !isContentMarker(raw)) || raw.length > 60 || chars > 100 || proseLines > 3 || raw.any { it in "。！？；，!?;" } ||
                                 ChapterSplitter.extractVolumeTitle(raw) != null || index in selected) break
                         }
                     }

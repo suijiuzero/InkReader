@@ -224,12 +224,12 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
         writableDatabase.update("books", cv, "id=?", arrayOf(id.toString()))
     }
 
-    fun updateProgress(id: Long, chapterIndex: Int, charOffset: Int, progress: Float) {
+    fun updateProgress(id: Long, chapterIndex: Int, charOffset: Int, progress: Float, recordRead: Boolean = true) {
         val cv = ContentValues().apply {
             put("last_chapter", chapterIndex)
             put("last_offset", charOffset)
             put("progress", progress.toDouble())
-            put("last_read", System.currentTimeMillis())
+            if (recordRead) put("last_read", System.currentTimeMillis())
         }
         writableDatabase.update("books", cv, "id=?", arrayOf(id.toString()))
     }
@@ -375,7 +375,7 @@ class InkDb(context: Context) : SQLiteOpenHelper(context.applicationContext, DB_
                 db.update(
                     "chapters",
                     ContentValues().apply { put("idx", i) },
-                    "id=?", arrayOf(id.toString())
+                    "book_id=? AND id=?", arrayOf(bookId.toString(), id.toString())
                 )
             }
             db.setTransactionSuccessful()

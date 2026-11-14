@@ -206,6 +206,7 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
         var carry = emptyList<Piece>()
         // 分卷：章号从 1 重新开始即换卷（有些书没有卷标题，只有「第N部完」这类标记）
         val volumeLabels = ChapterSplitter.volumeLabelsFor(text.lines.size, plan.headings) { text.lines[it] }
+        val useRestartLabels = volumeLabels.any { it.isNotEmpty() }
         for ((position, start) in plan.headings.withIndex()) {
             ParseCancellation.checkpoint()
             val end = plan.headings.getOrNull(position + 1) ?: text.lines.size
@@ -221,44 +222,21 @@ class PreparedTxt(val text: IndexedText, val encoding: CharsetDetector.Result, v
                 if (peeled.isEmpty() || stop == start + 1) { stop = end; peeled.clear() }
             }
             val rawTitle = text.lines[start].trim()
-            ChapterSplitter.extractVolumeTitle(rawTitle)?.let { volume = it }
-            if (volumeLabels[position].isNotBlank()) volume = volumeLabels[position]
-            carry.forEach { ChapterSplitter.extractVolumeTitle(text.read(it.start, it.end))?.let { value -> volume = value } }
+            if (useRestartLabels) {
+                volume = volumeLabels[position]
+            } else {
+                ChapterSplitter.extractVolumeTitle(rawTitle)?.let { volume = it }
+                carry.forEach { ChapterSplitter.extractVolumeTitle(text.read(it.start, it.end))?.let { value -> volume = value } }
+            }
             val pieces = ArrayList<Piece>()
             if (position == 0 && head != null && (head.length < 200 || plan.mergeLeadingBody)) pieces += head
             if (carry.isNotEmpty()) {
                 if (pieces.isNotEmpty()) pieces += literal("\n\n")
                 pieces += joined(carry, "\n")
             }
-            val prefix = if (carry.isNotEmpty()) pieces.toList() else joined(pieces)
-            pieces.clear()
-            pieces += prefix
             range(start + 1, stop)?.let { if (pieces.isNotEmpty()) pieces += literal("\n\n"); pieces += it }
             val section = Section(if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(rawTitle) else rawTitle, omitDuplicateHeaders(pieces), volume)
-            // 与 ChapterSplitter.assembleParts 保持一致：
-            // 超长章先按部级标题（上部/下部/第X部）切，剩余仍超长才按字数切。
-            if (section.length > ChapterSplitter.MAX_CHAPTER_CHARS) {
-                val cuts = (start + 1 until stop).filter {
-                    ChapterSplitter.extractVolumeTitle(text.lines[it]) != null
-                }
-                if (cuts.isEmpty()) {
-                    result += chunks(section, ChapterSplitter.MAX_CHAPTER_CHARS, true)
-                } else {
-                    val bounds = listOf(start) + cuts + listOf(stop)
-                    for (bi in 0 until bounds.size - 1) {
-                        val a = bounds[bi]
-                        val b = bounds[bi + 1]
-                        val subTitle = if (a == start) section.title else text.lines[a].trim()
-                        val pieces2 = ArrayList<Piece>()
-                        range(a + 1, b)?.let { pieces2 += it }
-                        val sub = Section(
-                            if (options.cleanWatermark) ChapterSplitter.cleanChapterTitle(subTitle) else subTitle,
-                            omitDuplicateHeaders(pieces2), volume)
-                        if (sub.length > ChapterSplitter.MAX_CHAPTER_CHARS)
-                            result += chunks(sub, ChapterSplitter.MAX_CHAPTER_CHARS, true) else result += sub
-                    }
-                }
-            } else result += section
+            result += chunks(section, ChapterSplitter.MAX_CHAPTER_CHARS, true)
             carry = peeled.map { Piece(text.starts[it], text.ends[it]) }
         }
         return result

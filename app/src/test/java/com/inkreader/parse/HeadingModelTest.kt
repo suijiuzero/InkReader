@@ -44,7 +44,8 @@ class HeadingModelTest {
         assertNull(HeadingModel.score(doubleArrayOf(1.0), doubleArrayOf(0.0, Double.POSITIVE_INFINITY)))
         assertEquals(0.5, HeadingModel.score(doubleArrayOf(0.0), doubleArrayOf(0.0, 0.0))!!, 0.0)
         val features = HeadingFeatures(listOf("夜行", "", "完整的正文。".repeat(60)))
-        assertTrue(HeadingModel.score(features.at(0))!! in 0.0..1.0)
+        val vector = if (HeadingModelWeights.features == HeadingFeatures.namesV2) features.at32(0) else features.at(0)
+        assertTrue(HeadingModel.score(vector)!! in 0.0..1.0)
     }
     @Test fun suggestionsRespectCodeFencesAndExplicitModes() {
         val text = "```\n夜行\n\n" + "完整的正文。".repeat(80) + "\n```"

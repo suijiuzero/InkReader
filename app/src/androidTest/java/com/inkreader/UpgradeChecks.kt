@@ -124,6 +124,76 @@ object UpgradeChecks {
             repo.deleteBook(id)
             JSONObject().put("previousUndoKept", true).put("orphanFiles", 0)
         }
+        test("reordered resplit rejects stale preview and preserves chapter text and anchors") {
+            val id = repo.createManualBook("resplit-order-check", "")
+            try {
+                val first = repo.chapters(id).single()
+                repo.renameChapter(first.id, "第1章 First")
+                val secondId = repo.addEmptyChapter(id, "第2章 Second")
+                val source = "Reading anchor. ".repeat(30).trimEnd()
+                repo.saveChapterText(repo.chapters(id).first(), source)
+                val other = "Other chapter. ".repeat(30).trimEnd()
+                repo.saveChapterText(repo.chapters(id).last(), other)
+                repo.addMark(Mark(bookId = id, chapterIndex = 0, startOffset = 8, endOffset = 14))
+                repo.updateProgress(id, 0, 8, .4f)
+                val before = repo.book(id)!!
+                val initial = repo.chapters(id)
+                val options = SplitOptions(mode = SplitMode.CUSTOM, customPattern = "^第[12]章.*", cleanWatermark = false)
+                val staleOptions = repo.prepareResplitSource(id, options).use { it.options }
+
+                val reordered = listOf(secondId, first.id)
+                val volumeChange = first.id to "Test volume"
+                repo.db.writableDatabase.execSQL(
+                    "CREATE TRIGGER reject_volume_reorder BEFORE UPDATE OF idx ON chapters " +
+                        "WHEN NEW.book_id=$id BEGIN SELECT RAISE(ABORT, 'injected reorder failure'); END"
+                )
+                try {
+                    check(runCatching { repo.reorderChapters(id, reordered, volumeChange) }.isFailure)
+                } finally {
+                    repo.db.writableDatabase.execSQL("DROP TRIGGER reject_volume_reorder")
+                }
+                check(repo.chapters(id) == initial && repo.book(id) == before)
+                check(repo.marks(id).single().chapterIndex == 0)
+
+                repo.reorderChapters(id, reordered, volumeChange)
+                val moved = repo.chapters(id)
+                check(moved.map { it.id } == reordered && moved.last().volume == "Test volume")
+                check(repo.marks(id).single().chapterIndex == 1)
+                check(repo.book(id)!!.let { it.lastChapterIndex == 1 && it.lastReadAt == before.lastReadAt })
+                val rejected = runCatching { repo.resplitBook(id, staleOptions) }.exceptionOrNull()
+                check(rejected is IllegalArgumentException && repo.chapters(id) == moved)
+                check(!repo.undoAvailable(id))
+
+                val currentOptions = repo.prepareResplitSource(id, options).use { it.options }
+                check(repo.resplitBook(id, currentOptions) == 2 && repo.undoAvailable(id))
+                val chapters = repo.chapters(id)
+                check(chapters.map { repo.chapterText(it) } == listOf(other, source))
+                val mark = repo.marks(id).single()
+                check(mark.chapterIndex == 1 && mark.startOffset == 8 && mark.endOffset == 14)
+                check(repo.book(id)!!.let {
+                    it.lastChapterIndex == 1 && it.lastCharOffset == 8 && it.lastReadAt == before.lastReadAt
+                })
+                JSONObject().put("stalePreviewRejected", true).put("anchorsPreserved", true)
+            } finally {
+                repo.deleteBook(id)
+            }
+        }
+        test("disk resplit preserves empty chapter without copying its title into its body") {
+            val id = repo.createManualBook("resplit-empty-check", "")
+            try {
+                repo.renameChapter(repo.chapters(id).single().id, "第1章 Empty")
+                val second = repo.addEmptyChapter(id, "第2章 Body")
+                val body = "Preserved text. ".repeat(30).trimEnd()
+                repo.saveChapterText(repo.chapters(id).last().also { check(it.id == second) }, body)
+                val options = SplitOptions(mode = SplitMode.CUSTOM, customPattern = "^第[12]章.*", cleanWatermark = false)
+                val confirmed = repo.prepareResplitSource(id, options).use { it.options }
+                check(repo.resplitBook(id, confirmed) == 2)
+                check(repo.chapters(id).map { repo.chapterText(it) } == listOf("", body))
+                JSONObject().put("emptyBodyPreserved", true)
+            } finally {
+                repo.deleteBook(id)
+            }
+        }
         test("disk resplit preserves unicode annotations rich styles progress and source validation") {
             val id = repo.createManualBook("stream-resplit", "")
             val chapter = repo.chapters(id).single()
@@ -164,7 +234,8 @@ object UpgradeChecks {
             check(File(context.filesDir, "chapters").listFiles().orEmpty().map { it.name }.toSet() == filesBefore)
             val count = engine.run(repo.book(id)!!, listOf(old), SplitOptions(cleanWatermark = false)) {}
             val result = repo.chapters(id)
-            check(count > 60 && result.size == count)
+            val chapterLimit = com.inkreader.parse.ChapterSplitter.MAX_CHAPTER_CHARS
+            check(count > 2 && result.size == count && result.all { it.charCount in 1..chapterLimit })
             check(repo.chapterText(result.last()).endsWith("保留尾巴TAIL_END"))
             val mark = repo.marks(id).single()
             val selected = repo.chapterText(result[mark.chapterIndex]).substring(mark.startOffset, mark.endOffset)

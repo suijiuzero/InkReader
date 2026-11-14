@@ -23,10 +23,10 @@ import java.util.Locale
 internal object HeadingStructureFilter {
 
     private val boiler = Regex(
-        "(?i)^\\s*(author|title|language|release date|credits|produced by|contents|" +
+        "(?i)^\\s*(?:start\\s*:|(?:author|title|language|release date|credits|produced by|contents|" +
             "table of contents|illustration|copyright|isbn|transcriber|editor|translator|" +
-            "most recently updated|updated|ebook|project gutenberg|start:|end of the project|" +
-            "full licen[cs]e)\\b"
+            "most recently updated|updated|ebook|project gutenberg|end of the project|" +
+            "full licen[cs]e)\\b)"
     )
     private val endMark = Regex("(?i)(?:[終终完]\\s*[。.]?|\\bthe end\\b)\\s*$")
 
@@ -169,9 +169,19 @@ internal object HeadingStructureFilter {
         // R5 相邻去重
         val out = ArrayList<Int>()
         for (i in keep.sorted()) {
-            if (out.isNotEmpty() && i - out.last() <= ADJACENT) {
-                if ((scored[i] ?: 0.0) > (scored[out.last()] ?: 0.0)) out[out.size - 1] = i
-                continue
+            val previous = out.lastOrNull()
+            if (previous != null && i - previous <= ADJACENT) {
+                val first = lines[previous]
+                val second = lines[i]
+                val a = numberOf(first)
+                val b = numberOf(second)
+                val differentLevels = (ChapterSplitter.extractVolumeTitle(first) == null) !=
+                    (ChapterSplitter.extractVolumeTitle(second) == null)
+                val differentNumbers = a != null && b != null && a != b
+                if (!differentLevels && !differentNumbers) {
+                    if ((scored[i] ?: 0.0) > (scored[previous] ?: 0.0)) out[out.lastIndex] = i
+                    continue
+                }
             }
             out.add(i)
         }
