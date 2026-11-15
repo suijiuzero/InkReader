@@ -30,6 +30,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.inkreader.R
@@ -46,12 +47,13 @@ internal fun AutoTurnOptions.deadline(running: Boolean): Long? =
     if (running && minutes > 0) SystemClock.elapsedRealtime() + minutes * 60_000L else null
 
 @Composable
-internal fun AutoTurnLine(progress: FloatState, modifier: Modifier) {
+internal fun AutoTurnLine(progress: FloatState, readingTop: Dp, modifier: Modifier) {
     val palette = LocalInkPalette.current
     val color = palette.textSecondary
     val shade = if (palette.isDark) Color.Gray.copy(alpha = .045f) else Color.Black.copy(alpha = .045f)
     Canvas(modifier) {
-        val y = size.height * progress.floatValue.coerceIn(0f, 1f)
+        val startY = readingTop.toPx().coerceIn(0f, size.height)
+        val y = startY + (size.height - startY) * progress.floatValue.coerceIn(0f, 1f)
         drawRect(color = shade, size = Size(size.width, y))
         val head = Offset(5.dp.toPx(), y)
         drawLine(

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.displayCutout
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
@@ -72,7 +73,11 @@ fun ReaderTopBar(
     onTitleClick: () -> Unit
 ) {
     val p = LocalInkPalette.current
-    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topInset = maxOf(
+        WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
+        WindowInsets.displayCutout.asPaddingValues().calculateTopPadding(),
+        12.dp
+    )
     Column(
         Modifier
             .fillMaxWidth()

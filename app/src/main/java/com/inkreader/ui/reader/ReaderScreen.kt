@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.inkreader.ui.reader
 
 import android.app.Activity
@@ -37,7 +39,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsIgnoringVisibility
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -333,6 +337,16 @@ fun ReaderScreen(
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     val view = LocalView.current
     val autoReading = autoTurn && inForeground
+    val footerStatus = rememberReaderFooterStatus(inForeground)
+    val window = (ctx as? Activity)?.window
+    val hideStatusBar = inForeground && !showSettings
+    DisposableEffect(window, view, hideStatusBar) {
+        if (window == null || !hideStatusBar) return@DisposableEffect onDispose {}
+        val controller = WindowCompat.getInsetsController(window, view)
+        val statusBars = WindowInsetsCompat.Type.statusBars()
+        controller.hide(statusBars)
+        onDispose { controller.show(statusBars) }
+    }
     DisposableEffect(view, autoReading) {
         val wasOn = view.keepScreenOn
         if (autoReading) view.keepScreenOn = true
@@ -426,7 +440,7 @@ fun ReaderScreen(
                     TextMeasurer(resolver, density, direction, 0)
                 }
         }
-        val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+        val topInset = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
         val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
         // 常驻页眉的高度：正文区永远给它留出位置（无论页眉是否正在显示），
         // 这样点开/收起工具栏不会改变正文区尺寸、也就不会触发重新分页。
@@ -458,7 +472,7 @@ fun ReaderScreen(
                 // 常驻页眉（收起工具栏时可见）：返回首页 + 第几章 章节名
                 // 分页模式下页眉画在每一页里（翻页时跟着整页走），这里不再重复画。
                 AnimatedVisibility(
-                    visible = !chrome && !autoTurn && prefs.pageMode != PageMode.PAGE,
+                    visible = !chrome && prefs.pageMode != PageMode.PAGE,
                     enter = fadeIn(tween(180)),
                     exit = fadeOut(tween(180)),
                     modifier = Modifier.align(Alignment.TopCenter)
@@ -586,7 +600,8 @@ fun ReaderScreen(
                         onHandleDrag = onHandleDragCb,
                         onTag = { onTagGesture() },
                         barsVisible = !chrome,
-                        showReadingHeader = !autoTurn,
+                        footerStatus = footerStatus,
+                        drawPageFooter = !autoTurn,
                         onBack = backToShelf
                     )
                 }
@@ -594,26 +609,20 @@ fun ReaderScreen(
                 if (canCount) {
                     AutoTurnLine(
                         progress = autoProgress,
-                        modifier = Modifier.fillMaxSize().padding(
-                            top = topInset + headBarHeight + 10.dp, bottom = bottomInset + 40.dp
-                        )
+                        readingTop = topInset + headBarHeight + 10.dp,
+                        modifier = Modifier.fillMaxSize().padding(bottom = bottomInset + 40.dp)
                     )
                 }
 
                 // 页脚（分页模式下页脚同样画在每一页里）
                 ReaderFooter(
                     session = session,
-                    visible = !chrome && selection == null && prefs.pageMode != PageMode.PAGE,
+                    visible = !chrome && selection == null && (autoTurn || prefs.pageMode != PageMode.PAGE),
                     tagged = session.currentPageTag() != null,
+                    footerStatus = footerStatus,
+                    onAutoTurnSettings = if (autoTurn) ({ showAutoTurnSettings = true }) else null,
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
-
-                if (autoTurn && !chrome && selection == null) {
-                    AutoTurnFooterButton(
-                        modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomInset),
-                        onClick = { showAutoTurnSettings = true }
-                    )
-                }
 
                 // 打标/ 取消标签后的短暂提示
                 tagHint?.let { hint ->
@@ -890,7 +899,8 @@ private fun PagedBody(
     onTag: () -> Unit,
     /** 页内自带的页眉页脚是否可见（工具栏展开时让位给完整顶栏/底栏） */
     barsVisible: Boolean,
-    showReadingHeader: Boolean,
+    footerStatus: ReaderFooterStatus,
+    drawPageFooter: Boolean,
     onBack: () -> Unit
 ) {
     val p = LocalInkPalette.current
@@ -934,7 +944,8 @@ private fun PagedBody(
             onHandleDrag = onHandleDrag,
             onTag = onTag,
             barsVisible = barsVisible,
-            showReadingHeader = showReadingHeader,
+            footerStatus = footerStatus,
+            drawPageFooter = drawPageFooter,
             onBack = onBack
         )
         return
@@ -1018,8 +1029,9 @@ private fun PagedBody(
                 onExtend = onExtend,
                 onHandleDrag = onHandleDrag,
                 onTag = onTag,
-                headerVisible = barsVisible && showReadingHeader,
-                footerVisible = barsVisible,
+                footerStatus = footerStatus,
+                headerVisible = barsVisible,
+                footerVisible = barsVisible && drawPageFooter,
                 onBack = onBack,
                 withPull = true,
                 tagEnabled = tagEnabled
@@ -1057,12 +1069,13 @@ private fun PageSheet(
     onTag: () -> Unit,
     headerVisible: Boolean,
     footerVisible: Boolean,
+    footerStatus: ReaderFooterStatus,
     onBack: () -> Unit,
     withPull: Boolean,
     tagEnabled: Boolean
 ) {
     val p = LocalInkPalette.current
-    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topInset = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val marginDp = session.prefs.margin.dp
     val isCurrent = entry.isCurrentChapter && entry.localPageIndex == session.pageIndex
@@ -1131,6 +1144,7 @@ private fun PageSheet(
                 tagged = tagged,
                 marginDp = marginDp,
                 accent = p.accent,
+                footerStatus = footerStatus,
                 modifier = Modifier.align(Alignment.BottomCenter)
             )
         }
@@ -1172,7 +1186,8 @@ private fun CurlPagedBody(
     onHandleDrag: (Int, Int) -> Unit,
     onTag: () -> Unit,
     barsVisible: Boolean,
-    showReadingHeader: Boolean,
+    footerStatus: ReaderFooterStatus,
+    drawPageFooter: Boolean,
     onBack: () -> Unit
 ) {
     val p = LocalInkPalette.current
@@ -1260,7 +1275,8 @@ private fun CurlPagedBody(
                         selection = selection, ttsChapter = ttsChapter, ttsStart = ttsStart,
                         ttsEnd = ttsEnd, onTap = onTap, onSelect = onSelect, onExtend = onExtend,
                         onHandleDrag = onHandleDrag, onTag = onTag, withPull = false, tagEnabled = false,
-                        headerVisible = barsVisible && showReadingHeader, footerVisible = barsVisible, onBack = onBack
+                        footerStatus = footerStatus,
+                        headerVisible = barsVisible, footerVisible = barsVisible && drawPageFooter, onBack = onBack
                     )
                 }
             }
@@ -1277,7 +1293,8 @@ private fun CurlPagedBody(
                         selection = selection, ttsChapter = ttsChapter, ttsStart = ttsStart,
                         ttsEnd = ttsEnd, onTap = onTap, onSelect = onSelect, onExtend = onExtend,
                         onHandleDrag = onHandleDrag, onTag = onTag, withPull = false, tagEnabled = false,
-                        headerVisible = barsVisible && showReadingHeader, footerVisible = barsVisible, onBack = onBack
+                        footerStatus = footerStatus,
+                        headerVisible = barsVisible, footerVisible = barsVisible && drawPageFooter, onBack = onBack
                     )
                 }
             }
@@ -1290,7 +1307,8 @@ private fun CurlPagedBody(
                 ttsEnd = ttsEnd, onTap = onTap, onSelect = onSelect, onExtend = onExtend,
                 onHandleDrag = onHandleDrag, onTag = onTag, withPull = true,
                 tagEnabled = !curlState.busy,
-                headerVisible = barsVisible && showReadingHeader, footerVisible = barsVisible && selection == null,
+                footerStatus = footerStatus,
+                headerVisible = barsVisible, footerVisible = barsVisible && drawPageFooter && selection == null,
                 onBack = onBack
             )
         }
@@ -1473,7 +1491,7 @@ private fun ChapterHeading(number: Int, title: String, modifier: Modifier = Modi
 @Composable
 private fun ReadingHeaderBar(title: String, onBack: () -> Unit, backEnabled: Boolean = true) {
     val p = LocalInkPalette.current
-    val topInset = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val topInset = WindowInsets.statusBarsIgnoringVisibility.asPaddingValues().calculateTopPadding()
     Row(
         Modifier
             .fillMaxWidth()
@@ -2200,6 +2218,8 @@ private fun ReaderFooter(
     session: ReaderSession,
     visible: Boolean,
     tagged: Boolean,
+    footerStatus: ReaderFooterStatus,
+    onAutoTurnSettings: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val p = LocalInkPalette.current
@@ -2218,7 +2238,9 @@ private fun ReaderFooter(
             fallbackProgress = session.bookProgress(),
             tagged = tagged,
             marginDp = session.prefs.margin.dp,
-            accent = p.accent
+            accent = p.accent,
+            footerStatus = footerStatus,
+            onAutoTurnSettings = onAutoTurnSettings
         )
     }
 }
@@ -2237,42 +2259,48 @@ private fun PageFooterBar(
     tagged: Boolean,
     marginDp: Dp,
     accent: Color,
+    footerStatus: ReaderFooterStatus,
+    onAutoTurnSettings: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val p = LocalInkPalette.current
     val bottomInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     Row(
-        modifier
+        modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = bottomInset + 12.dp)
-            .padding(horizontal = marginDp + 2.dp),
+            .padding(bottom = bottomInset)
+            .padding(horizontal = (marginDp + 2.dp).coerceAtMost(28.dp))
+            .height(40.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (tagged) {
-            InkIcon(
-                R.drawable.ic_bookmark,
-                stringResource(R.string.reader_page_tagged),
-                tint = accent.copy(alpha = 0.85f),
-                size = 11
+        Row(
+            modifier = Modifier.weight(1f),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (tagged) {
+                InkIcon(R.drawable.ic_bookmark, stringResource(R.string.reader_page_tagged), tint = accent, size = 11)
+                Spacer(Modifier.width(4.dp))
+            }
+            val hasPageCount = pageNo > 0 && total > 0
+            val percent = if (hasPageCount) pageNo.toFloat() / total else fallbackProgress
+            Text(
+                text = if (hasPageCount) "$pageNo/$total  ${(percent * 100).toInt()}%" else "${(percent * 100).toInt()}%",
+                style = InkType.Caption.copy(fontSize = 10.sp),
+                color = p.textSecondary,
+                maxLines = 1,
+                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
             )
-            Spacer(Modifier.width(5.dp))
         }
-        Text(
-            text = if (pageNo > 0 && total > 0) "$pageNo/$total" else "—/—",
-            style = InkType.Caption.copy(fontSize = 10.sp),
-            color = p.textFaint,
-            maxLines = 1
-        )
-        Spacer(Modifier.weight(1f))
-        Text(
-            text = if (pageNo > 0 && total > 0) {
-                "${((pageNo.toFloat() / total) * 100).toInt()}%"
-            } else {
-                "${(fallbackProgress * 100).toInt()}%"
-            },
-            style = InkType.Caption.copy(fontSize = 10.sp, fontWeight = FontWeight.Medium),
-            color = accent
-        )
+        if (onAutoTurnSettings != null) {
+            AutoTurnFooterButton(modifier = Modifier, onClick = onAutoTurnSettings)
+        }
+        Row(
+            modifier = Modifier.weight(1f),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            ReaderFooterClockAndBattery(footerStatus)
+        }
     }
 }
 

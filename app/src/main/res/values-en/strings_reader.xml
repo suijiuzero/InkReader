@@ -48,4 +48,6 @@
     <string name="reader_auto_turn_timer">Stop timer</string>
     <string name="reader_auto_turn_unlimited">No timer</string>
     <string name="reader_auto_turn_minutes">%1$d min</string>
+    <string name="reader_battery_level">Battery %1$d%%</string>
+    <string name="reader_battery_unknown">Battery level unavailable</string>
 </resources>

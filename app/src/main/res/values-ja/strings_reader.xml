@@ -47,4 +47,6 @@
     <string name="reader_auto_turn_timer">停止タイマー</string>
     <string name="reader_auto_turn_unlimited">制限なし</string>
     <string name="reader_auto_turn_minutes">%1$d 分</string>
+    <string name="reader_battery_level">バッテリー残量 %1$d%%</string>
+    <string name="reader_battery_unknown">バッテリー残量不明</string>
 </resources>

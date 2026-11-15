@@ -124,10 +124,25 @@ object ReaderUiChecks {
         if (autoTurnOnly) {
             val context = runner.targetContext
             container.prefs.saveAutoTurn(AutoTurnOptions(seconds = 3))
+            fun statusBarIsVisible(): Boolean {
+                var visible = false
+                runner.runOnMainSync {
+                    visible = androidx.core.view.ViewCompat.getRootWindowInsets(activity.window.decorView)
+                        ?.isVisible(androidx.core.view.WindowInsetsCompat.Type.statusBars()) == true
+                }
+                return visible
+            }
             val modes = PageAnimation.entries.map { PageMode.PAGE to it } + (PageMode.SCROLL to PageAnimation.NONE)
             for ((mode, animation) in modes) {
                 mount(mode, animation = animation)
                 await("Reader body not ready") { find("第1段测试锚点") != null }
+                await("Status bar did not hide when opening the reader") { !statusBarIsVisible() }
+                if (animation == PageAnimation.SLIDE) {
+                    clickReaderControl(context.getString(R.string.action_settings))
+                    await("Status bar did not show in reader settings") { statusBarIsVisible() }
+                    click(context.getString(R.string.action_close))
+                    await("Status bar did not hide after closing settings") { !statusBarIsVisible() }
+                }
                 runner.sendStatus(0, android.os.Bundle().apply { putString("stream", "Testing auto turn in $mode/$animation\n") })
                 if (animation == PageAnimation.SLIDE) {
                     clickReaderControl(context.getString(R.string.reader_auto_turn_settings))
@@ -139,6 +154,17 @@ object ReaderUiChecks {
                 await("Auto turn did not advance in $mode/$animation") {
                     runBlocking { container.repo.book(book)!!.lastCharOffset > 0 }
                 }
+                await("Status bar still visible in $mode/$animation") { !statusBarIsVisible() }
+                await("Reading header missing during auto turn in $mode/$animation") {
+                    find(context.getString(R.string.action_back_home)) != null
+                }
+                val battery = android.content.IntentFilter(android.content.Intent.ACTION_BATTERY_CHANGED)
+                val initial = activity.registerReceiver(null, battery)
+                val level = initial?.getIntExtra(android.os.BatteryManager.EXTRA_LEVEL, -1) ?: -1
+                val scale = initial?.getIntExtra(android.os.BatteryManager.EXTRA_SCALE, 0) ?: 0
+                check(scale > 0 && level >= 0)
+                val batteryLabel = context.getString(R.string.reader_battery_level, (level * 100L / scale).toInt())
+                await("Battery missing from the reading footer") { find(batteryLabel) != null }
                 await("Toolbar remained open in $mode/$animation") {
                     find(context.getString(R.string.reader_auto_turn_settings)) == null &&
                         find(context.getString(R.string.reader_auto_turn)) != null
@@ -151,6 +177,7 @@ object ReaderUiChecks {
                 await("Auto turn did not stop in $mode/$animation") {
                     find(context.getString(R.string.reader_auto_turn)) == null
                 }
+                check(!statusBarIsVisible()) { "Status bar returned while still reading in $mode/$animation" }
                 // Let the progress writer finish saving any scroll or turn that was already underway.
                 Thread.sleep(950)
                 fun savedPosition() = runBlocking { container.repo.book(book)!!.let { it.lastChapterIndex to it.lastCharOffset } }
@@ -159,6 +186,19 @@ object ReaderUiChecks {
                 check(savedPosition() == stoppedPosition) { "Position moved after stopping in $mode/$animation" }
                 passed += "auto turn advances and stops in $mode/$animation"
             }
+            runner.runOnMainSync {
+                container.library.applyView(ShelfView.LIST)
+                container.library.refresh()
+                activity.setContent { InkRoot(container) }
+            }
+            await("Status bar did not show on the shelf") {
+                find(context.getString(R.string.shelf_toggle_view)) != null && statusBarIsVisible()
+            }
+            click(context.getString(R.string.action_detail))
+            await("Status bar not visible in chapter management") {
+                find(context.getString(R.string.detail_chapter_management)) != null && statusBarIsVisible()
+            }
+            passed += "status bar hides in the reader and is visible in the library, reader settings and chapter management"
             return passed
         }
         mount(PageMode.PAGE)

@@ -47,4 +47,6 @@
     <string name="reader_auto_turn_timer">定时停止</string>
     <string name="reader_auto_turn_unlimited">不限时</string>
     <string name="reader_auto_turn_minutes">%1$d 分钟</string>
+    <string name="reader_battery_level">电量 %1$d%%</string>
+    <string name="reader_battery_unknown">电量未知</string>
 </resources>
