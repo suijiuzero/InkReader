@@ -79,6 +79,13 @@ Long-press text to extend a selection, highlight, bookmark or annotate. Pull dow
 
 Shelf menu Settings and reader Settings share one global layout: font size, line/paragraph/letter spacing, margins, font, indent, brightness, theme, page mode and animation apply to all books.
 
+## Auto page turn
+
+- Tap the center of the reading area to show the controls, then tap **Auto page turn** above the chapter slider. The gear opens **Auto page turn settings**. Set an interval of **3–60 seconds** and choose **5, 10, 15, 30, 45, 60, or 90 minutes** before stopping, or choose **No timer**.
+- The controls close when auto page turn starts, and the reading header stays visible. A line moves down the page, lightly shading everything above it, including the header. Pages turn with your current setting for slide, cover, fold, or no animation. Scroll mode advances by about one screen. Auto page turn pauses while the app is in the background.
+- Tap **Auto page turn ⌃** in the center of the footer to adjust the timing or select **Stop auto page turn**. The page count and reading percentage are on the left, and the time and battery level are on the right.
+- The phone's status bar hides while you read. It stays visible on the library, settings, and chapter management screens.
+
 ## Read-aloud and computer voices
 
 Open Read aloud in the reader to start from the current page or chapter beginning and adjust rate, pitch and sleep timer. Phone TTS depends on installed engines and language data.
