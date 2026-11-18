@@ -525,7 +525,7 @@ object ChapterSplitter {
             resolvedDecisions += HeadingDecision(line + 1, lines[line].trim(), 90, setOf(HeadingReason.TITLE_SHAPE), true)
         }
         return ChapterPlan(collapsed, resolvedDecisions.sortedBy { it.line }, unresolvedGaps(lines, collapsed).take(100),
-            skippedToc.count { canonical[it].trim() !in tocLabels },
+            skippedToc.count { !isTocLabel(canonical[it]) },
             skippedToc.isNotEmpty() || selected.firstOrNull()?.let { it + 1 in options.ignoredHeadingLines } == true,
             scored.size > 500, scored.map { it.line - 1 },
             scored.filter { !it.accepted || it.score < 74 || HeadingReason.SEQUENCE_ALTERNATIVE in it.reasons ||
@@ -878,12 +878,15 @@ object ChapterSplitter {
         return result
     }
 
-    private val tocLabels = setOf("目录", "目錄", "目次", "Contents", "CONTENTS")
+    private val tocLabels = setOf("目录", "目錄", "目次", "contents", "table of contents")
+
+    private fun isTocLabel(raw: String): Boolean =
+        raw.trim().lowercase(java.util.Locale.ROOT) in tocLabels
     /** A labelled file with only numbered entries and volume banners after the label. */
     private fun standaloneContentsEntries(lines: List<String>, fenced: BooleanArray): Int {
         val label = (0 until minOf(lines.size, 64)).firstOrNull {
             !fenced[it] && lineCharacters(lines, it, trim = true) <= 17 &&
-                (lines[it].trim() in tocLabels || lines[it].trim().equals("Table of Contents", ignoreCase = true))
+                isTocLabel(lines[it])
         } ?: return 0
         var entries = 0
         for (i in label + 1 until lines.size) {
@@ -1508,7 +1511,7 @@ object ChapterSplitter {
 
     private fun dropLeadingToc(lines: List<String>, candidates: List<Int>): List<Int> {
         if (candidates.size < TOC_MIN_LINES) return candidates
-        val explicit = lines.take(256).indexOfFirst { it.trim() in tocLabels }
+        val explicit = lines.take(256).indexOfFirst(::isTocLabel)
         if (candidates.first() > (if (explicit >= 0) 256 else 45)) return candidates
         var end = 1
         while (end < candidates.size) {

@@ -47,4 +47,43 @@ class DenseTocTest {
             }
         } finally { directory.deleteRecursively() }
     }
+
+    @Test fun englishContentsLabelsHaveConsistentCaseHandlingInBothPaths() {
+        val entries = listOf("Chapter 1 Arrival", "Chapter 2 Crossing", "Chapter 3 Return", "Chapter 4 Departure")
+        val options = SplitOptions(cleanWatermark = false, stripLeadingTitle = false)
+        val directory = Files.createTempDirectory("ink-toc-labels").toFile()
+        try {
+            for (label in listOf("Contents", "contents", "CoNtEnTs", "TABLE OF CONTENTS", "Table of Contents")) {
+                val raw = "$label\n\n" + entries.joinToString("\n")
+                val parts = ChapterSplitter.split(raw, options = options)
+                assertEquals(label, listOf(raw), parts.map { it.content })
+                assertEquals(label, 4, ChapterSplitter.analyze(raw, options = options).skippedTocEntries)
+                IndexedTxtStore(directory).withDocument("contents.txt", options, { raw.byteInputStream() }) { doc ->
+                    assertEquals(label, listOf(raw), doc.sections.map(doc::body))
+                }
+            }
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun englishContentsLabelDoesNotSuppressRealBodyOrConfirmedHeadings() {
+        val entries = listOf("Chapter 1 Arrival", "Chapter 2 Crossing", "Chapter 3 Return", "Chapter 4 Departure")
+        val paragraph = "They walked through the gate and watched the river below. ".repeat(15).trim()
+        val options = SplitOptions(cleanWatermark = false, stripLeadingTitle = false)
+        val directory = Files.createTempDirectory("ink-toc-body").toFile()
+        try {
+            for (label in listOf("contents", "Table of Contents")) {
+                val raw = "$label\n\n" + entries.joinToString("\n") + "\n\n" +
+                    entries.joinToString("\n\n") { "$it\n\n$paragraph" }
+                val parts = ChapterSplitter.split(raw, options = options)
+                assertEquals(label, entries, parts.map { it.title })
+                assertTrue(parts.all { it.content.contains(paragraph) })
+                IndexedTxtStore(directory).withDocument("story.txt", options, { raw.byteInputStream() }) { doc ->
+                    assertEquals(label, parts, doc.sections.map { ChapterSplitter.Part(it.title, doc.body(it), it.volume) })
+                }
+                val onlyContents = "$label\n\n" + entries.joinToString("\n")
+                val chosen = options.copy(forcedHeadingLines = setOf(3, 4, 5, 6))
+                assertEquals(label, entries, ChapterSplitter.split(onlyContents, options = chosen).map { it.title })
+            }
+        } finally { directory.deleteRecursively() }
+    }
 }
