@@ -30,7 +30,10 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
             require(options.sourceFingerprint.isEmpty() || options.sourceFingerprint == source.fingerprint) { "Source changed; reopen recognition center" }
             progress(.08f)
             val oldMarks = db.marksOf(book.id)
+            val oldPlain = BooleanArray(chapters.size)
             val rich = chapters.mapIndexed { i, chapter ->
+                oldPlain[i] = !files.hasRich(chapter.fileName)
+                if (oldPlain[i]) return@mapIndexed null
                 val file = files.file(files.richNameOf(chapter.fileName))
                 require(file.length() <= 16L * 1024 * 1024) { "Rich text metadata too large" }
                 RichChapter.decode(files.readRich(chapter.fileName))?.takeIf { it.len == source.lengths[i] }
@@ -102,11 +105,22 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
                     }
                     val hasRich = rich.any { it != null }
                     val staged = ArrayList<String>()
+                    val retained = HashSet<String>()
+                    val outputNames = ArrayList<String>(sections.size)
                     var committed = false
                     try {
                         sections.forEachIndexed { i, section ->
                             checkpoint(); progress(.35f + .5f * i / sections.size)
+                            val previous = chapters.getOrNull(i)?.fileName
+                            if (!hasRich && previous != null && oldPlain[i] &&
+                                section.length <= ChapterSplitter.MAX_CHAPTER_CHARS && section.length == source.lengths[i] &&
+                                previous !in retained && output.body(section) == files.read(previous)) {
+                                retained += previous
+                                outputNames += previous
+                                return@forEachIndexed
+                            }
                             val name = files.newFileName(); staged += name
+                            outputNames += name
                             val count = output.reader(section).use { files.write(name, it) }
                             check(count == section.length)
                             if (hasRich) {
@@ -137,7 +151,7 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
                             sections.forEachIndexed { i, section ->
                                 checkpoint()
                                 check(db.insertChapter(Chapter(bookId = book.id, indexInBook = i, title = section.title,
-                                    fileName = staged[i], charCount = section.length, sourceName = book.title, volume = section.volume)) > 0)
+                                    fileName = outputNames[i], charCount = section.length, sourceName = book.title, volume = section.volume)) > 0)
                                 total += section.length
                             }
                             require(total <= Int.MAX_VALUE)
@@ -161,7 +175,7 @@ class StreamingResplit(private val context: Context, private val db: InkDb,
                         }
                         committed = true
                         onCommitted()
-                        chapters.forEach { files.deleteChapter(it.fileName) }
+                        chapters.forEach { if (it.fileName !in retained) files.deleteChapter(it.fileName) }
                         if (options.rememberCorrections && (options.ignoredHeadingLines.isNotEmpty() || options.forcedHeadingLines.isNotEmpty())) runCatching { corrections.save(book.id, source.fingerprint,
                             ChapterCorrections.captureChoices(original.lines, effective.ignoredHeadingLines, effective.forcedHeadingLines)) }
                         progress(1f)

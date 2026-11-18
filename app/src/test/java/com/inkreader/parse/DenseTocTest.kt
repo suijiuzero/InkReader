@@ -86,4 +86,34 @@ class DenseTocTest {
             }
         } finally { directory.deleteRecursively() }
     }
+
+    @Test fun aLaterContentsListDoesNotHideChaptersThatAlreadyHaveBodyText() {
+        val options = SplitOptions(cleanWatermark = false, stripLeadingTitle = false)
+        val directory = Files.createTempDirectory("ink-late-contents").toFile()
+        try {
+            val fixtures = listOf(
+                Triple("Contents", "Chapter 1 Arrival", "Chapter 2 Crossing") to
+                    listOf("Chapter 3 Archive", "Chapter 4 Garden", "Chapter 5 Mill", "Chapter 6 Station"),
+                Triple("目录", "第一章 抵达", "第二章 渡河") to
+                    listOf("第三章 档案", "第四章 花园", "第五章 磨坊", "第六章 车站")
+            )
+            for ((headings, entries) in fixtures) {
+                val (label, first, second) = headings
+                val body = if (label == "Contents") {
+                    "The group followed the river well past the old bridge. ".repeat(5).trim()
+                } else {
+                    List(8) { "他们沿河而行，在天亮前到达了石桥。" }.joinToString("\n")
+                }
+                val raw = "$first\n\n$body\n\n$second\n\n$body\n\n$label\n\n" + entries.joinToString("\n")
+                val parts = ChapterSplitter.split(raw, options = options)
+                assertEquals(listOf(first, second), parts.map { it.title })
+                assertEquals(body, parts.first().content)
+                assertEquals("$body\n\n$label\n\n" + entries.joinToString("\n"), parts.last().content)
+                assertEquals(4, ChapterSplitter.analyze(raw, options = options).skippedTocEntries)
+                IndexedTxtStore(directory).withDocument("later-contents.txt", options, { raw.byteInputStream() }) { doc ->
+                    assertEquals(parts, doc.sections.map { ChapterSplitter.Part(it.title, doc.body(it), it.volume) })
+                }
+            }
+        } finally { directory.deleteRecursively() }
+    }
 }

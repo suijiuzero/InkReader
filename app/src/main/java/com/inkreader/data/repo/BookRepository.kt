@@ -1321,6 +1321,8 @@ class BookRepository(context: Context) {
         val oldMarks = db.marksOf(bookId)
         val fullSb = StringBuilder()
         val oldChapterGlobalStarts = IntArray(oldChapters.size)
+        val oldLengths = IntArray(oldChapters.size)
+        val oldPlain = BooleanArray(oldChapters.size)
         val oldRich = ArrayList<Pair<Int, RichChapter>>()
         for ((i, ch) in oldChapters.withIndex()) {
             com.inkreader.parse.ParseCancellation.checkpoint()
@@ -1332,8 +1334,12 @@ class BookRepository(context: Context) {
             if (fullSb.isNotEmpty()) fullSb.append("\n\n")
             fullSb.append(heading)
             oldChapterGlobalStarts[i] = fullSb.length
-            RichChapter.decode(files.readRich(ch.fileName))?.takeIf { it.len == body.length }?.let {
-                oldRich += fullSb.length to it
+            oldLengths[i] = body.length
+            oldPlain[i] = !files.hasRich(ch.fileName)
+            if (!oldPlain[i]) {
+                RichChapter.decode(files.readRich(ch.fileName))?.takeIf { it.len == body.length }?.let {
+                    oldRich += fullSb.length to it
+                }
             }
             fullSb.append(body)
         }
@@ -1346,6 +1352,7 @@ class BookRepository(context: Context) {
             return -1
         }
 
+        onProgress(.06f)
         // 2. 用新策略重新切分
         val normalized = ChapterSplitter.normalize(fullText)
         val memory = if (options.useSavedCorrections) ChapterCorrections.resolve(normalized.split('\n'), corrections.load(bookId)) else null
@@ -1353,9 +1360,12 @@ class BookRepository(context: Context) {
             reconstructedFirstTitle = oldChapters.first().title,
             ignoredHeadingLines = (memory?.ignored.orEmpty() - options.forcedHeadingLines) + options.ignoredHeadingLines,
             forcedHeadingLines = (memory?.confirmed.orEmpty() - options.ignoredHeadingLines) + options.forcedHeadingLines)
+        onProgress(.12f)
         val newParts = ChapterSplitter.split(normalized, book.title, effectiveOptions)
         if (newParts.isEmpty()) return oldChapters.size
+        onProgress(.20f)
         val mappings = TextRemap.align(fullText, newParts.map { it.content })
+        onProgress(.24f)
 
         fun mappedRich(text: String, map: IntArray): RichChapter? {
             if (map.isEmpty() || oldRich.isEmpty()) return null
@@ -1398,19 +1408,29 @@ class BookRepository(context: Context) {
 
         val newChapList = ArrayList<NewChapData>(newParts.size)
         val stagedFiles = ArrayList<String>()
+        val retainedFiles = HashSet<String>()
         try {
         for ((i, p) in newParts.withIndex()) {
             com.inkreader.parse.ParseCancellation.checkpoint()
             onProgress(.3f + .55f * i / newParts.size)
             // 已落盘的是显示正文，绝不能再次解释为 Markdown。
             val body = ChapterBody(p.content, mappedRich(p.content, mappings[i]))
-            val fn = files.newFileName()
-            stagedFiles += fn
-            writeChapter(fn, body)
+            // Keep the existing file only when the complete plain body is identical.
+            // Retained files never enter the rollback list for newly staged writes.
+            val sameFile = oldChapters.getOrNull(i)?.fileName?.takeIf {
+                body.rich == null && oldPlain[i] && oldLengths[i] == body.text.length &&
+                    fullText.regionMatches(oldChapterGlobalStarts[i], body.text, 0, body.text.length) &&
+                    retainedFiles.add(it)
+            }
+            val fn = sameFile ?: files.newFileName().also {
+                stagedFiles += it
+                writeChapter(it, body)
+            }
             val chTitle = p.title.ifBlank { appContext.getString(R.string.label_chapter_n, i + 1) }
             val vol = ChapterSplitter.detectVolumeFromChapter(chTitle, body.text, p.volume)
             newChapList += NewChapData(chTitle, fn, body.text, vol, mappings[i])
         }
+        onProgress(.85f)
 
         // 4. 在单个事务中替换章节并迁移所有批注
         db.inTransaction {
@@ -1462,7 +1482,7 @@ class BookRepository(context: Context) {
         }
 
         pending.commit()
-        oldChapters.forEach { files.deleteChapter(it.fileName) }
+        oldChapters.forEach { if (it.fileName !in retainedFiles) files.deleteChapter(it.fileName) }
         if (options.rememberCorrections && (options.ignoredHeadingLines.isNotEmpty() || options.forcedHeadingLines.isNotEmpty())) runCatching { corrections.save(bookId, "",
             ChapterCorrections.captureChoices(normalized.split('\n'), effectiveOptions.ignoredHeadingLines, effectiveOptions.forcedHeadingLines)) }
         onProgress(1f)

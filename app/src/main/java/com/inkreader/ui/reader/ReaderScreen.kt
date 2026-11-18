@@ -4,7 +4,6 @@ package com.inkreader.ui.reader
 
 import android.app.Activity
 import android.content.Intent
-import android.os.SystemClock
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
@@ -68,7 +67,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -84,7 +82,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -181,11 +178,7 @@ fun ReaderScreen(
     var showSearch by remember { mutableStateOf(false) }
     var showTts by remember { mutableStateOf(false) }
     var showAutoTurnSettings by remember { mutableStateOf(false) }
-    var autoTurn by remember(session) { mutableStateOf(false) }
-    var autoTurnOptions by remember { mutableStateOf(container.prefs.loadAutoTurn()) }
-    var stopAt by remember(session) { mutableStateOf<Long?>(null) }
-    val autoProgress = remember(session) { mutableFloatStateOf(0f) }
-    var touching by remember(session) { mutableStateOf(false) }
+    val autoTurn = remember(session) { ReaderAutoTurnState(container.prefs.loadAutoTurn()) }
     val scrollState = rememberLazyListState()
     var pagerMoving by remember(session) { mutableStateOf(false) }
     var selection by remember { mutableStateOf<Selection?>(null) }
@@ -228,7 +221,7 @@ fun ReaderScreen(
      * 以前不等落库就刷新，书架读到的还是旧位置，下次进书就回到「上一次进入时的位置」。
      */
     fun leaveReader(navigate: () -> Unit) {
-        autoTurn = false
+        autoTurn.stop()
         scope.launch {
             session.saveProgress()
             session.flushProgress()
@@ -336,7 +329,7 @@ fun ReaderScreen(
     val inForeground = isCurrentReader && lifecycle.isAtLeast(Lifecycle.State.RESUMED)
     val windowFocused = LocalWindowInfo.current.isWindowFocused
     val view = LocalView.current
-    val autoReading = autoTurn && inForeground
+    val autoReading = autoTurn.running && inForeground
     val footerStatus = rememberReaderFooterStatus(inForeground)
     val window = (ctx as? Activity)?.window
     val hideStatusBar = inForeground && !showSettings
@@ -346,18 +339,6 @@ fun ReaderScreen(
         val statusBars = WindowInsetsCompat.Type.statusBars()
         controller.hide(statusBars)
         onDispose { controller.show(statusBars) }
-    }
-    DisposableEffect(view, autoReading) {
-        val wasOn = view.keepScreenOn
-        if (autoReading) view.keepScreenOn = true
-        onDispose { if (autoReading) view.keepScreenOn = wasOn }
-    }
-    LaunchedEffect(autoTurn, stopAt, inForeground) {
-        val deadline = stopAt ?: return@LaunchedEffect
-        if (autoTurn && inForeground) {
-            delay((deadline - SystemClock.elapsedRealtime()).coerceAtLeast(0L))
-            autoTurn = false
-        }
     }
     val pageMode = session.prefs.pageMode == PageMode.PAGE
     val atBookEnd = !session.hasNextNeighbor && if (pageMode) {
@@ -371,32 +352,12 @@ fun ReaderScreen(
         (if (pageMode) session.pages.isEmpty() else session.blocks.isEmpty())
     val waitingForNeighbor = session.hasNextNeighbor && !session.hasLoadedNextNeighbor &&
         if (pageMode) session.pageIndex == session.pages.lastIndex else !scrollState.canScrollForward
-    val moving = session.changingChapter || touching || curlState.busy || pagerMoving || session.pageTurn != null || scrollState.isScrollInProgress
+    val moving = session.changingChapter || autoTurn.touching || curlState.busy || pagerMoving || session.pageTurn != null || scrollState.isScrollInProgress
     val readingVisible = autoReading && windowFocused && !chromeNow.value && !(tts.active && tts.bookId == bookId)
     val canCount = readingVisible && contentReady && !moving && !waitingForNeighbor
     val canLeaveBlankChapter = readingVisible && emptyChapter && !moving && !session.loading && session.currentChapter != null
-    LaunchedEffect(canCount, canLeaveBlankChapter, session.chapterIndex,
-        session.currentOffset(), atBookEnd, session.prefs.pageAnimation, pageMode, autoTurnOptions.seconds) {
-        autoProgress.floatValue = 0f
-        if (!canCount && !canLeaveBlankChapter) return@LaunchedEffect
-        // Monotonic time also works when Android disables or scales UI animations.
-        val startedAt = SystemClock.elapsedRealtime()
-        val interval = autoTurnOptions.seconds * 1000L
-        do {
-            withFrameNanos { }
-            autoProgress.floatValue = ((SystemClock.elapsedRealtime() - startedAt).toFloat() / interval).coerceAtMost(1f)
-        } while (autoProgress.floatValue < 1f)
-        autoProgress.floatValue = 0f
-        if (!autoTurn || touching || session.changingChapter) return@LaunchedEffect
-        if (stopAt?.let { SystemClock.elapsedRealtime() >= it } == true ||
-            atBookEnd || emptyChapter && !session.hasNextNeighbor) {
-            autoTurn = false
-        } else if (emptyChapter) {
-            session.nextChapter()
-        } else {
-            turn(1)
-        }
-    }
+    ReaderAutoTurnEffect(autoTurn, session, inForeground, canCount, canLeaveBlankChapter,
+        atBookEnd, emptyChapter, ::turn)
 
     // 屏幕亮度
     val activity = ctx as? Activity
@@ -446,16 +407,7 @@ fun ReaderScreen(
         // 这样点开/收起工具栏不会改变正文区尺寸、也就不会触发重新分页。
         val headBarHeight = ReaderHeadBarHeight
 
-        val observeReadingTouches = if (autoTurn) Modifier.pointerInput(session) {
-            try {
-                awaitPointerEventScope {
-                    while (true) touching = awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }
-                }
-            } finally {
-                touching = false
-            }
-        } else Modifier
-        Box(Modifier.fillMaxSize().background(p.background).then(observeReadingTouches)) {
+        Box(Modifier.fillMaxSize().background(p.background).then(autoTurn.observeTouches())) {
             if (session.loading) {
                 InkLoading()
             } else if (session.book == null) {
@@ -601,14 +553,14 @@ fun ReaderScreen(
                         onTag = { onTagGesture() },
                         barsVisible = !chrome,
                         footerStatus = footerStatus,
-                        drawPageFooter = !autoTurn,
+                        drawPageFooter = !autoTurn.running,
                         onBack = backToShelf
                     )
                 }
 
                 if (canCount) {
                     AutoTurnLine(
-                        progress = autoProgress,
+                        progress = autoTurn.progress,
                         readingTop = topInset + headBarHeight + 10.dp,
                         modifier = Modifier.fillMaxSize().padding(bottom = bottomInset + 40.dp)
                     )
@@ -617,10 +569,10 @@ fun ReaderScreen(
                 // 页脚（分页模式下页脚同样画在每一页里）
                 ReaderFooter(
                     session = session,
-                    visible = !chrome && selection == null && (autoTurn || prefs.pageMode != PageMode.PAGE),
+                    visible = !chrome && selection == null && (autoTurn.running || prefs.pageMode != PageMode.PAGE),
                     tagged = session.currentPageTag() != null,
                     footerStatus = footerStatus,
-                    onAutoTurnSettings = if (autoTurn) ({ showAutoTurnSettings = true }) else null,
+                    onAutoTurnSettings = if (autoTurn.running) ({ showAutoTurnSettings = true }) else null,
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
 
@@ -690,11 +642,10 @@ fun ReaderScreen(
                         exit = shrinkVertically(tween(160), shrinkTowards = Alignment.Bottom) + fadeOut(tween(160))
                     ) {
                         ReaderBottomBar(
-                            autoTurning = autoTurn,
+                            autoTurning = autoTurn.running,
                             onAutoTurn = {
-                                autoTurn = !autoTurn
-                                stopAt = autoTurnOptions.deadline(autoTurn)
-                                if (autoTurn) chrome = false
+                                autoTurn.toggle()
+                                if (autoTurn.running) chrome = false
                             },
                             onAutoTurnSettings = { showAutoTurnSettings = true },
                             chapterIndex = session.chapterIndex,
@@ -840,18 +791,16 @@ fun ReaderScreen(
         }
         if (showAutoTurnSettings) {
             AutoTurnSettingsDialog(
-                options = autoTurnOptions,
+                options = autoTurn.options,
                 onDismiss = { showAutoTurnSettings = false },
-                onStop = if (autoTurn) {
+                onStop = if (autoTurn.running) {
                     {
-                        autoTurn = false
-                        stopAt = null
+                        autoTurn.stop()
                         showAutoTurnSettings = false
                     }
                 } else null
             ) { options ->
-                if (options.minutes != autoTurnOptions.minutes) stopAt = options.deadline(autoTurn)
-                autoTurnOptions = options
+                autoTurn.updateOptions(options)
                 container.prefs.saveAutoTurn(options)
                 showAutoTurnSettings = false
             }
@@ -862,7 +811,7 @@ fun ReaderScreen(
                 state = tts,
                 onDismiss = { showTts = false },
                 onStart = { offset, sleep ->
-                    autoTurn = false
+                    autoTurn.stop()
                     showTts = false
                     com.inkreader.tts.TtsService.startReading(
                         ctx, bookId, session.chapterIndex, offset, sleep

@@ -133,6 +133,11 @@ class FileStore(context: Context) {
     fun readRich(txtName: String): String =
         runCatching { AtomicFile(file(richNameOf(txtName))).openRead().bufferedReader(Charsets.UTF_8).use { it.readText() } }.getOrDefault("")
 
+    fun hasRich(txtName: String): Boolean {
+        val rich = file(richNameOf(txtName))
+        return rich.isFile || File(rich.path + ".bak").isFile
+    }
+
     fun deleteRich(txtName: String) {
         runCatching { AtomicFile(file(richNameOf(txtName))).delete() }
     }

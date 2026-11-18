@@ -4,14 +4,10 @@ package com.inkreader.parse
 object SequencePlanner {
     data class Choice(val rejected: Set<Int>, val review: Set<Int>)
     private val segment = Regex("[（(\\[][上中下一二三四五六七八九十0-9]+[）)\\]]\\s*$")
-    fun resolve(lines: List<String>, decisions: List<HeadingDecision>): Choice {
+    fun resolve(lines: List<String>, decisions: List<HeadingDecision>, bodyLengths: LongArray? = null): Choice {
         val nodes = decisions.filter { it.accepted }.sortedBy { it.line }
         if (nodes.size < 4) return Choice(emptySet(), emptySet())
-        val prefix = LongArray(lines.size + 1)
-        for (i in lines.indices) {
-            if (i and 511 == 0) ParseCancellation.checkpoint()
-            prefix[i + 1] = prefix[i] + ((lines as? SizedLines)?.characters(i, true) ?: lines[i].trim().length)
-        }
+        val prefix = bodyLengths ?: ChapterSplitter.trimmedLengthPrefix(lines)
         val orders = nodes.map { ChapterSplitter.chapterOrderFromTitle(it.title)?.takeIf { n -> n in 1..10000000 } }
         val rejected = HashSet<Int>(); val review = HashSet<Int>()
         var start = 1

@@ -27,6 +27,15 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
         private val preferenceKeys = setOf("font_size", "line_height", "para_spacing", "font", "theme", "page_mode", "page_animation",
             "margin", "volume_key_turn", "tag_sound", "chapter_flash", "indent", "brightness", "letter_spacing", "shelf_sort", "shelf_view", "tts_rate", "tts_pitch", "tts_timer")
         private fun checkpoint() { if (Thread.currentThread().isInterrupted) throw java.util.concurrent.CancellationException() }
+
+        private fun MessageDigest.finishHex(): String = buildString(64) {
+            val digits = "0123456789abcdef"
+            for (byte in digest()) {
+                val value = byte.toInt() and 255
+                append(digits[value ushr 4])
+                append(digits[value and 15])
+            }
+        }
     }
     private val notes = File(context.filesDir, "recognition-notes")
     private fun rows(table: String, where: String = "", args: Array<String>? = null): JSONArray = JSONArray().also { out ->
@@ -54,15 +63,17 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
             require(bookId == null || books.length() == 1)
             val entries = JSONObject()
             ZipOutputStream(output.buffered()).use { zip ->
+                val buffer = ByteArray(32768)
+                val hash = MessageDigest.getInstance("SHA-256")
                 fun add(name: String, file: File) {
                     checkpoint(); require(pathPattern.matches(name))
-                    zip.putNextEntry(ZipEntry(name)); val hash = MessageDigest.getInstance("SHA-256"); var size = 0L
-                    AtomicFile(file).openRead().use { input -> val buffer = ByteArray(32768)
+                    zip.putNextEntry(ZipEntry(name)); var size = 0L
+                    AtomicFile(file).openRead().use { input ->
                         while (true) { checkpoint(); val n = input.read(buffer); if (n < 0) break
                             hash.update(buffer, 0, n); zip.write(buffer, 0, n); size += n }
                     }
                     zip.closeEntry()
-                    entries.put(name, JSONObject().put("bytes", size).put("sha256", hash.digest().joinToString("") { "%02x".format(java.util.Locale.ROOT, it.toInt() and 255) }))
+                    entries.put(name, JSONObject().put("bytes", size).put("sha256", hash.finishHex()))
                 }
                 for (i in 0 until books.length()) {
                     val book = books.getJSONObject(i); val id = book.getLong("id")
@@ -118,17 +129,18 @@ class LibraryArchive(private val context: Context, private val db: InkDb, privat
             val hashes = HashMap<String, Pair<Long, String>>(); var total = 0L
             ZipInputStream(input.buffered()).use { zip ->
                 val buffer = ByteArray(32768)
+                val hash = MessageDigest.getInstance("SHA-256")
                 while (true) {
                     checkpoint(); val entry = zip.nextEntry ?: break
                     require(pathPattern.matches(entry.name) && !entry.isDirectory && entry.name !in hashes && hashes.size < 100000) { "Invalid archive entry" }
                     val target = File(staging, entry.name); check(target.parentFile!!.isDirectory || target.parentFile!!.mkdirs())
-                    val hash = MessageDigest.getInstance("SHA-256"); var size = 0L
+                    var size = 0L
                     target.outputStream().use { output -> while (true) {
                         checkpoint(); val n = zip.read(buffer); if (n < 0) break; size += n; total += n
                         require(total <= MAX_BYTES && size <= 256L * 1024 * 1024 && (entry.name != "library.json" || size <= 16 * 1024 * 1024)) { "Archive exceeds budget" }
                         output.write(buffer, 0, n); hash.update(buffer, 0, n)
                     } }
-                    hashes[entry.name] = size to hash.digest().joinToString("") { "%02x".format(java.util.Locale.ROOT, it.toInt() and 255) }
+                    hashes[entry.name] = size to hash.finishHex()
                     zip.closeEntry()
                 }
             }

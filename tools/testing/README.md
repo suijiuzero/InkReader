@@ -1,5 +1,17 @@
 # 模拟器测试工具
 
+## 大书导入和重新分章基线
+
+安装同一次构建的主包和测试包后，在专用模拟器运行：
+
+```powershell
+adb -s emulator-5554 shell am instrument -w -r -e largeImport true com.inkreader.test/com.inkreader.AuditInstrumentation
+```
+
+测试生成长行和短行两份约 13 MB 的 TXT，各 1320 章。输出记录首次预览、重复预览、预览后导入及重新分章的耗时。内存约每 100 毫秒取样，包括 Java 堆使用量和进程 PSS，用于比较样点峰值。导入及重新分章后逐章校验标题和正文。比较版本时使用相同模拟器配置、测试参数和样本顺序，并避免同时构建或跑其他测试。
+
+使用 `-e largeImportStyle short -e resplitRepeats 2` 可单独复测短行样本。输出的 `progressElapsedMs` 是各处理阶段完成时距启动的毫秒数，`reusedChapterFiles` 是本轮保留的正文文件数。使用 `-e resplitFileReuse true` 可验证部分章节改写时，内存及流式重分章都能正确取消、迁移批注和进度并撤销。
+
 ## 1.15.1 中文重点来源
 
 第三批 [real-source-v3](../../tests/fixtures/real-source-v3/README.md) 增加 32 份作品／选集书源、96 例，其中 24 份中文。JVM 使用 `INK_SOURCE_V3_PARTITION=development/holdout/all`；CI 配置 all。运行前校验全部 381 个冻结文件。

@@ -105,6 +105,12 @@ class AuditInstrumentation : Instrumentation() {
                 finish(-1, results)
                 return
             }
+            if (auditArguments?.getString("resplitFileReuse") == "true") {
+                val checks = runBlocking { LargeImportChecks.checkResplitFileReuse(isolated) }
+                results.putString("stream", checks.joinToString("\n"))
+                finish(-1, results)
+                return
+            }
             if (auditArguments?.getString("largeImportUi") == "true") {
                 passed += ImportBackgroundChecks.run(this, isolated)
                 results.putString("stream", "PASS ${passed.size} background import checks\n" + passed.joinToString("\n"))
@@ -116,7 +122,10 @@ class AuditInstrumentation : Instrumentation() {
                     "am start --user 0 -f 0x10008000 -n ${targetContext.packageName}/.MainActivity"
                 )).use { it.readBytes() }
                 Thread.sleep(800)
-                val report = runBlocking { LargeImportChecks.run(this@AuditInstrumentation, isolated) }
+                val report = runBlocking {
+                    LargeImportChecks.run(this@AuditInstrumentation, isolated, auditArguments?.getString("largeImportStyle"),
+                        auditArguments?.getString("resplitRepeats")?.toInt() ?: 1)
+                }
                 results.putString("stream", report.toString(2))
                 finish(-1, results)
                 return

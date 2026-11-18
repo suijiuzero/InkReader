@@ -20,15 +20,23 @@ object HeadingNumbers {
 
     fun digits(raw: String): String {
         val normalized = Normalizer.normalize(raw, Normalizer.Form.NFKC)
-        return buildString(normalized.length) {
-            var i = 0
-            while (i < normalized.length) {
-                val cp = normalized.codePointAt(i)
-                val digit = Character.digit(cp, 10)
-                if (digit >= 0) append(('0'.code + digit).toChar()) else appendCodePoint(cp)
-                i += Character.charCount(cp)
+        var result: StringBuilder? = null
+        var copiedUntil = 0
+        var i = 0
+        while (i < normalized.length) {
+            val cp = normalized.codePointAt(i)
+            val next = i + Character.charCount(cp)
+            // ASCII digits already have their final representation after NFKC.
+            val digit = if (cp > 127) Character.digit(cp, 10) else -1
+            if (digit >= 0) {
+                val buffer = result ?: StringBuilder(normalized.length).also { result = it }
+                buffer.append(normalized, copiedUntil, i)
+                buffer.append(('0'.code + digit).toChar())
+                copiedUntil = next
             }
+            i = next
         }
+        return result?.append(normalized, copiedUntil, normalized.length)?.toString() ?: normalized
     }
 
     private fun labels(raw: String): String {
