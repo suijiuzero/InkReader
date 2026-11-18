@@ -51,4 +51,16 @@ class DataSafetyTest {
             fail("unmappable text must be rejected")
         } catch (_: IllegalStateException) { }
     }
+
+    @Test fun positionOnlyAlignmentMatchesFullMappingAndStillValidatesLaterText() {
+        val source = "\uFEFF 标题\r\n第一段\n水印\n第二\u200B段\n第二章\n重复对白\n第三章\n重复对白"
+        val outputs = listOf(" 第一段\n第二段", "", "重复对白", "重复对白", "  ")
+        val maps = TextRemap.align(source, outputs)
+        for (offset in 0..source.length) {
+            assertEquals(TextRemap.locate(maps, offset), TextRemap.locateAligned(source, outputs, offset))
+        }
+        assertThrows(IllegalStateException::class.java) {
+            TextRemap.locateAligned(source, outputs + "无法找到的文本", 0)
+        }
+    }
 }

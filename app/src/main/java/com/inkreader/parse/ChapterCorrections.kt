@@ -25,6 +25,7 @@ object ChapterCorrections {
         }
     }
     fun resolve(lines: List<String>, anchors: List<Anchor>): Resolution {
+        if (anchors.isEmpty()) return Resolution(emptySet(), emptySet(), 0)
         val titles = anchors.map { it.title }.toSet()
         val matches = HashMap<String, MutableList<Int>>()
         for (i in lines.indices) {

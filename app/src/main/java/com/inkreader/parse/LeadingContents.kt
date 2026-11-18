@@ -20,7 +20,11 @@ internal object LeadingContents {
 
     private val tocPageTail = Regex("(?:[.·…．⋯]{2,}\\s*|\\t+|\\s{2,})[0-9０-９]{1,6}\\s*$")
 
-    fun withoutPageNumber(raw: String): String = tocPageTail.replace(raw, "").trim()
+    fun withoutPageNumber(raw: String): String {
+        // A page-number suffix cannot end in a letter.
+        if (raw.lastOrNull()?.isLetter() == true) return raw.trim()
+        return tocPageTail.replace(raw, "").trim()
+    }
 
     fun entryTitle(raw: String): String = headingText(withoutPageNumber(raw))
 

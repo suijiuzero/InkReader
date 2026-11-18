@@ -12,6 +12,8 @@ adb -s emulator-5554 shell am instrument -w -r -e largeImport true com.inkreader
 
 使用 `-e largeImportStyle short -e resplitRepeats 2` 可单独复测短行样本。输出的 `progressElapsedMs` 是各处理阶段完成时距启动的毫秒数，`reusedChapterFiles` 是本轮保留的正文文件数。使用 `-e resplitFileReuse true` 可验证部分章节改写时，内存及流式重分章都能正确取消、迁移批注和进度并撤销。
 
+加上 `-e resplitChangeBoundaries true` 会忽略每个偶数章的边界，把 1320 章两两合并，逐章核对合并正文、批注和阅读位置，并计时撤销恢复。对比 `planned` 和 `split` 的时间差可单独查看正文组装和清洗，`planned` 与 `normalized` 的差是分章规划时间。
+
 ## 1.15.1 中文重点来源
 
 第三批 [real-source-v3](../../tests/fixtures/real-source-v3/README.md) 增加 32 份作品／选集书源、96 例，其中 24 份中文。JVM 使用 `INK_SOURCE_V3_PARTITION=development/holdout/all`；CI 配置 all。运行前校验全部 381 个冻结文件。

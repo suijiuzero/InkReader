@@ -193,13 +193,17 @@ object ChapterSplitter {
         if (trimmed.length > 200) return trimmed
         var text = HeadingNumbers.canonical(trimmed)
         repeat(2) {
+            val before = text
             headingWrappers.firstOrNull { (open, close) -> text.startsWith(open) && text.endsWith(close) }?.let { (open, close) ->
                 val inner = HeadingNumbers.canonical(text.substring(open.length, text.length - close.length).trim())
                 if (strong.any { it.matches(inner) }) text = inner
             }
-            headingDecor.matchEntire(text)?.groupValues?.get(1)?.trim()?.let { inner ->
-                if (strong.any { it.matches(inner) }) text = inner
+            if (text.isNotEmpty() && text.first() in "★☆◆◇※") {
+                headingDecor.matchEntire(text)?.groupValues?.get(1)?.trim()?.let { inner ->
+                    if (strong.any { it.matches(inner) }) text = inner
+                }
             }
+            if (text == before) return text
         }
         return text
     }
@@ -297,7 +301,10 @@ object ChapterSplitter {
         val required = if (wrapped) 1 else 2
         var matches = 0
         for (keyword in watermarkKeywords) {
-            if (trimmed.contains(keyword, ignoreCase = keyword == "txt下载")) {
+            val found = if (keyword == "txt下载") {
+                "下载" in trimmed && trimmed.contains(keyword, ignoreCase = true)
+            } else keyword in trimmed
+            if (found) {
                 matches++
                 if (matches == required) return isRemovableWatermark(trimmed)
             }
@@ -331,6 +338,7 @@ object ChapterSplitter {
     /** 归一化：统一换行符、去掉行尾空白、压缩连续空行、剔除零宽字符 */
     fun normalize(raw: String): String {
         ParseCancellation.checkpoint()
+        if (raw.isEmpty() || isNormalizedText(raw)) return raw
         val s = raw.replace("\r\n", "\n")
             .replace("\r", "\n")
             .replace("\uFEFF", "")
@@ -353,6 +361,23 @@ object ChapterSplitter {
         return sb.toString().trim()
     }
 
+    private fun isNormalizedText(text: String): Boolean {
+        if (text.first().isWhitespace() || text.last().isWhitespace()) return false
+        var consecutiveBreaks = 0
+        for (i in text.indices) {
+            if (i and 16383 == 0) ParseCancellation.checkpoint()
+            when (text[i]) {
+                '\r', '\uFEFF', '\u200B', '\u00A0' -> return false
+                '\n' -> {
+                    if (consecutiveBreaks == 0 && text[i - 1].isWhitespace()) return false
+                    if (++consecutiveBreaks > 2) return false
+                }
+                else -> consecutiveBreaks = 0
+            }
+        }
+        return true
+    }
+
     /** 段落化：以空行分段；无空行时以句末标点 + 缩进启发式分段 */
     fun toParagraphs(text: String): List<String> {
         // 分章不修改段落内部的换行、缩进或英文单词。
@@ -371,6 +396,10 @@ object ChapterSplitter {
         fallbackTitle: String = "正文",
         options: SplitOptions = SplitOptions(mode = SplitMode.SMART, cleanWatermark = false)
     ): List<Part> = splitInternal(text, fallbackTitle, options, null)
+
+    internal fun splitForResplit(
+        text: String, fallbackTitle: String, options: SplitOptions, onPlanned: () -> Unit
+    ): List<Part> = splitInternal(text, fallbackTitle, options, null, onPlanned)
 
     fun analyze(
         text: String,
@@ -391,16 +420,21 @@ object ChapterSplitter {
         var truncated = false
     }
 
-    private fun splitInternal(text: String, fallbackTitle: String, options: SplitOptions, trace: AnalysisTrace?): List<Part> {
+    private fun splitInternal(
+        text: String, fallbackTitle: String, options: SplitOptions, trace: AnalysisTrace?,
+        onPlanned: (() -> Unit)? = null
+    ): List<Part> {
         if (text.isBlank()) return listOf(Part(fallbackTitle, ""))
 
         // 1. 特殊切分档位：整篇作为一章 / 固定字数切分
         if (options.mode == SplitMode.PER_FILE) {
+            onPlanned?.invoke()
             val body = if (options.cleanWatermark) cleanBodyWatermarks(text) else text
             val title = if (options.cleanWatermark) cleanChapterTitle(fallbackTitle) else fallbackTitle
             return listOf(Part(title, body))
         }
         if (options.mode == SplitMode.FIXED_SIZE) {
+            onPlanned?.invoke()
             trace?.fallback = true
             val cleaned = if (options.cleanWatermark) cleanBodyWatermarks(text) else text
             return splitBySize(cleaned, fallbackTitle, options.fixedChunkChars.coerceIn(2000, 50000))
@@ -409,6 +443,7 @@ object ChapterSplitter {
         val lines = text.split("\n")
 
         val plan = plan(lines, text.length, options)
+        onPlanned?.invoke()
         if (trace != null) {
             trace.decisions += plan.decisions
             trace.gaps += plan.gaps
@@ -465,15 +500,19 @@ object ChapterSplitter {
         // Keep a bounded per-plan cache, including negative candidates. Its budget
         // accounts for String objects too; it never materializes the whole book.
         val cached = arrayOfNulls<String>(lines.size)
+        val ownsStrings = lines is ArrayList<*>
         var cacheBytes = 0
         val canonical = object : AbstractList<String>() {
             override val size get() = lines.size
             override fun get(index: Int): String {
                 if (index and 511 == 0) ParseCancellation.checkpoint()
                 cached[index]?.let { return it }
-                val trimmed = lines[index].trim()
+                val original = lines[index]
+                val trimmed = original.trim()
                 val value = if (!mayBeHeading(trimmed)) trimmed else headingText(trimmed)
-                val cost = if (value.isEmpty()) 0 else 48 + value.length * 2
+                // In-memory source lines already own these strings. Only charge newly
+                // retained text, including representatives read from a disk-backed view.
+                val cost = if (value.isEmpty() || ownsStrings && value === original) 0 else 48 + value.length * 2
                 if (cacheBytes + cost <= 12 * 1024 * 1024) {
                     cached[index] = value
                     cacheBytes += cost

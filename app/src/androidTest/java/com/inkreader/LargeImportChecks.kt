@@ -48,7 +48,10 @@ object LargeImportChecks {
         }
     }
 
-    suspend fun run(runner: Instrumentation, context: Context, style: String? = null, repeats: Int = 1): JSONObject {
+    suspend fun run(
+        runner: Instrumentation, context: Context, style: String? = null,
+        repeats: Int = 1, changeBoundaries: Boolean = false
+    ): JSONObject {
         require(style == null || style == "long" || style == "short")
         require(repeats in 1..5)
         val repo = BookRepository(context)
@@ -95,16 +98,31 @@ object LargeImportChecks {
                     }
                 }
                 checkBook()
+                val anchorChapter = 661
+                val anchorOffset = 5
+                val markedText = expected.substring(anchorOffset, anchorOffset + 12)
+                val originalMark = if (changeBoundaries) {
+                    repo.addMark(Mark(bookId = bookId, chapterIndex = anchorChapter, startOffset = anchorOffset,
+                        endOffset = anchorOffset + markedText.length))
+                    repo.updateProgress(bookId, anchorChapter, anchorOffset, .5f)
+                    repo.marks(bookId).single()
+                } else null
+                val resplitOptions = if (changeBoundaries) {
+                    // Reconstructed source is title, blank line, exact body and a blank separator.
+                    val stride = expected.count { it == '\n' } + 4
+                    options.copy(ignoredHeadingLines = (1 until 1320 step 2).mapTo(HashSet()) { 1 + it * stride })
+                } else options
                 repeat(repeats) { attempt ->
                     val name = "resplit" + if (attempt == 0) "" else "-${attempt + 1}"
                     val progressTimes = JSONObject()
                     val oldFiles = repo.chapters(bookId).map { it.fileName }
                     val started = SystemClock.elapsedRealtime()
                     check(measure(stages, name) {
-                        repo.resplitBook(bookId, options) { progress ->
+                        repo.resplitBook(bookId, resplitOptions) { progress ->
                             val point = when (progress) {
                                 .06f -> "sourceRebuilt"
                                 .12f -> "normalized"
+                                .16f -> "planned"
                                 .20f -> "split"
                                 .24f -> "aligned"
                                 .3f -> "undoReady"
@@ -115,18 +133,37 @@ object LargeImportChecks {
                                 progressTimes.put(point, SystemClock.elapsedRealtime() - started)
                             }
                         }
-                    } == 1320)
-                    val newFiles = repo.chapters(bookId).map { it.fileName }
-                    val reused = oldFiles.zip(newFiles).count { (old, current) -> old == current }
-                    check(reused == 1320) { "Unchanged chapters should retain their files" }
+                    } == if (changeBoundaries) 660 else 1320)
+                    val chapters = repo.chapters(bookId)
+                    val oldFileSet = oldFiles.toHashSet()
+                    val reused = chapters.count { it.fileName in oldFileSet }
+                    check(reused == if (changeBoundaries) 0 else 1320)
                     stages.getJSONObject(name).put("progressElapsedMs", progressTimes).put("reusedChapterFiles", reused)
+                    if (originalMark != null) {
+                        for ((i, chapter) in chapters.withIndex()) {
+                            check(chapter.indexInBook == i && chapter.title == "第${i * 2 + 1}章 测速章节")
+                            check(repo.chapterText(chapter) == "$expected\n\n第${i * 2 + 2}章 测速章节\n\n$expected") {
+                                "Merged body mismatch at chapter $i"
+                            }
+                        }
+                        val target = anchorChapter / 2
+                        val offset = expected.length + "\n\n第${anchorChapter + 1}章 测速章节\n\n".length + anchorOffset
+                        val mark = repo.marks(bookId).single()
+                        check(mark.id == originalMark.id && mark.chapterIndex == target && mark.startOffset == offset)
+                        check(repo.chapterText(chapters[target]).substring(mark.startOffset, mark.endOffset) == markedText)
+                        check(repo.book(bookId)!!.let { it.lastChapterIndex == target && it.lastCharOffset == offset })
+                        val undoName = "undo" + if (attempt == 0) "" else "-${attempt + 1}"
+                        check(measure(stages, undoName) { repo.undoBookChange(bookId) } == 1)
+                        check(repo.marks(bookId).single() == originalMark)
+                        check(repo.book(bookId)!!.let { it.lastChapterIndex == anchorChapter && it.lastCharOffset == anchorOffset })
+                    }
                     checkBook()
                 }
                 rows.put(JSONObject().put("style", if (short) "short" else "long").put("bytes", file.length())
                     .put("stages", stages).put("chaptersVerified", 1320).put("progressUpdates", progress.size))
                 repo.deleteBook(bookId)
                 // A cancellation raised during saving must roll back files and DB, and remain resumable.
-                if (short) {
+                if (short && !changeBoundaries) {
                     var stopped = false
                     try {
                         repo.importResumable(listOf(uri), ImportMode.SEPARATE, null, options, ImportOrder.SELECTION) { stage, _ ->
@@ -144,7 +181,8 @@ object LargeImportChecks {
                 }
                 runner.sendStatus(0, android.os.Bundle().apply { putString("stream", "Verified generated 1320-chapter ${if (short) "short" else "long"} import\n") })
             }
-            return JSONObject().put("passed", true).put("runs", rows).put("cancellationAndResume", true)
+            return JSONObject().put("passed", true).put("runs", rows)
+                .put("changedBoundaries", changeBoundaries).put("cancellationAndResume", !changeBoundaries && style != "long")
                 .put("sampleIntervalMs", SAMPLE_INTERVAL_MS).put("maxHeapKiB", Runtime.getRuntime().maxMemory() / 1024)
         } finally { repo.db.close() }
     }

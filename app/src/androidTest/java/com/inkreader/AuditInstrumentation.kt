@@ -124,7 +124,8 @@ class AuditInstrumentation : Instrumentation() {
                 Thread.sleep(800)
                 val report = runBlocking {
                     LargeImportChecks.run(this@AuditInstrumentation, isolated, auditArguments?.getString("largeImportStyle"),
-                        auditArguments?.getString("resplitRepeats")?.toInt() ?: 1)
+                        auditArguments?.getString("resplitRepeats")?.toInt() ?: 1,
+                        changeBoundaries = auditArguments?.getString("resplitChangeBoundaries") == "true")
                 }
                 results.putString("stream", report.toString(2))
                 finish(-1, results)

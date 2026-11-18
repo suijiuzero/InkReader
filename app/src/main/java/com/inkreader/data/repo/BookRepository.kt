@@ -1355,16 +1355,22 @@ class BookRepository(context: Context) {
         onProgress(.06f)
         // 2. 用新策略重新切分
         val normalized = ChapterSplitter.normalize(fullText)
-        val memory = if (options.useSavedCorrections) ChapterCorrections.resolve(normalized.split('\n'), corrections.load(bookId)) else null
+        val saved = if (options.useSavedCorrections) corrections.load(bookId) else emptyList()
+        val memory = if (saved.isEmpty()) null else ChapterCorrections.resolve(normalized.split('\n'), saved)
         val effectiveOptions = options.copy(
             reconstructedFirstTitle = oldChapters.first().title,
             ignoredHeadingLines = (memory?.ignored.orEmpty() - options.forcedHeadingLines) + options.ignoredHeadingLines,
             forcedHeadingLines = (memory?.confirmed.orEmpty() - options.ignoredHeadingLines) + options.forcedHeadingLines)
         onProgress(.12f)
-        val newParts = ChapterSplitter.split(normalized, book.title, effectiveOptions)
+        val newParts = ChapterSplitter.splitForResplit(normalized, book.title, effectiveOptions) { onProgress(.16f) }
         if (newParts.isEmpty()) return oldChapters.size
         onProgress(.20f)
-        val mappings = TextRemap.align(fullText, newParts.map { it.content })
+        val outputBodies = newParts.map { it.content }
+        val oldPosition = oldChapterGlobalStarts.getOrElse(book.lastChapterIndex) { 0 } + book.lastCharOffset
+        val mappings = if (oldMarks.isNotEmpty() || oldRich.isNotEmpty()) TextRemap.align(fullText, outputBodies) else null
+        val (safeLastChap, safeOffset) = if (mappings == null) {
+            TextRemap.locateAligned(fullText, outputBodies, oldPosition)
+        } else TextRemap.locate(mappings, oldPosition)
         onProgress(.24f)
 
         fun mappedRich(text: String, map: IntArray): RichChapter? {
@@ -1401,9 +1407,8 @@ class BookRepository(context: Context) {
         data class NewChapData(
             val title: String,
             val fileName: String,
-            val text: String,
-            val volume: String,
-            val mapping: IntArray
+            val charCount: Int,
+            val volume: String
         )
 
         val newChapList = ArrayList<NewChapData>(newParts.size)
@@ -1414,7 +1419,7 @@ class BookRepository(context: Context) {
             com.inkreader.parse.ParseCancellation.checkpoint()
             onProgress(.3f + .55f * i / newParts.size)
             // 已落盘的是显示正文，绝不能再次解释为 Markdown。
-            val body = ChapterBody(p.content, mappedRich(p.content, mappings[i]))
+            val body = ChapterBody(p.content, mappings?.let { mappedRich(p.content, it[i]) })
             // Keep the existing file only when the complete plain body is identical.
             // Retained files never enter the rollback list for newly staged writes.
             val sameFile = oldChapters.getOrNull(i)?.fileName?.takeIf {
@@ -1428,7 +1433,7 @@ class BookRepository(context: Context) {
             }
             val chTitle = p.title.ifBlank { appContext.getString(R.string.label_chapter_n, i + 1) }
             val vol = ChapterSplitter.detectVolumeFromChapter(chTitle, body.text, p.volume)
-            newChapList += NewChapData(chTitle, fn, body.text, vol, mappings[i])
+            newChapList += NewChapData(chTitle, fn, body.text.length, vol)
         }
         onProgress(.85f)
 
@@ -1446,23 +1451,24 @@ class BookRepository(context: Context) {
                         indexInBook = i,
                         title = nc.title,
                         fileName = nc.fileName,
-                        charCount = nc.text.length,
+                        charCount = nc.charCount,
                         sourceName = book.title,
                         volume = nc.volume
                     )
                 )
                 check(newId > 0) { "insertChapter failed" }
-                totalChars += nc.text.length
+                totalChars += nc.charCount
             }
             db.updateBookStats(bookId, newChapList.size, totalChars)
 
             // 跨新章的选区按实际来源拆成多个片段，首段保留原批注ID。
             for (m in oldMarks) {
                 com.inkreader.parse.ParseCancellation.checkpoint()
+                val markMappings = checkNotNull(mappings)
                 val base = oldChapterGlobalStarts.getOrElse(m.chapterIndex) { 0 }
-                val ranges = TextRemap.ranges(mappings, base + m.startOffset, base + m.endOffset)
+                val ranges = TextRemap.ranges(markMappings, base + m.startOffset, base + m.endOffset)
                 if (ranges.isEmpty()) {
-                    val (chapter, offset) = TextRemap.locate(mappings, base + m.startOffset)
+                    val (chapter, offset) = TextRemap.locate(markMappings, base + m.startOffset)
                     db.updateMark(m.copy(chapterIndex = chapter, startOffset = offset, endOffset = offset))
                 } else ranges.forEachIndexed { i, range ->
                     val moved = m.copy(chapterIndex = range.chapter, startOffset = range.start, endOffset = range.end)
@@ -1470,8 +1476,6 @@ class BookRepository(context: Context) {
                 }
             }
 
-            val oldPosition = oldChapterGlobalStarts.getOrElse(book.lastChapterIndex) { 0 } + book.lastCharOffset
-            val (safeLastChap, safeOffset) = TextRemap.locate(mappings, oldPosition)
             db.updateProgress(bookId, safeLastChap, safeOffset, book.progress, recordRead = false)
             com.inkreader.parse.ParseCancellation.checkpoint()
         }
